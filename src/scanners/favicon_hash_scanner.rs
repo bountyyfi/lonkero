@@ -57,12 +57,44 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Try common favicon locations.
+        //
+        // The check_favicon path requires `200 OK` AND an image-like content
+        // type / extension AND a non-empty body before computing a hash, so
+        // every additional path here only widens coverage without enabling
+        // false positives.
         let favicon_paths = vec![
             "/favicon.ico",
             "/favicon.png",
+            "/favicon.svg",
+            "/favicon-16x16.png",
+            "/favicon-32x32.png",
+            "/favicon-96x96.png",
+            "/favicon-192x192.png",
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            "/apple-touch-icon-152x152.png",
+            "/apple-touch-icon-180x180.png",
+            "/static/favicon.ico",
+            "/static/img/favicon.ico",
+            "/static/images/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/img/favicon.ico",
+            "/assets/images/favicon.ico",
+            "/images/favicon.ico",
+            "/img/favicon.ico",
+            "/public/favicon.ico",
+            "/dist/favicon.ico",
+            "/build/favicon.ico",
+            // Common admin-panel sub-paths — admin UIs often live behind a
+            // reverse proxy and only serve their favicon under a context root.
+            "/admin/favicon.ico",
+            "/console/favicon.ico",
+            "/manager/favicon.ico",
+            "/manage/favicon.ico",
+            "/portal/favicon.ico",
+            "/ui/favicon.ico",
+            "/web/favicon.ico",
         ];
 
         // Also check for link tags in HTML
@@ -460,6 +492,217 @@ impl FaviconHashScanner {
                 hash: -1355043104,
                 technology: "Nagios",
                 description: "Nagios monitoring system",
+                severity: Severity::Low,
+            },
+            // Secret stores & service mesh — exposed UI is high impact
+            FaviconSignature {
+                hash: 1320591785,
+                technology: "HashiCorp Vault",
+                description: "HashiCorp Vault UI exposed - secrets manager. \
+                    Even unauthenticated access reveals seal status, mount \
+                    paths, and namespace structure useful for targeting.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1090125572,
+                technology: "HashiCorp Consul",
+                description: "HashiCorp Consul UI exposed - service mesh & KV store. \
+                    Open ACLs allow reading registered services, KV secrets, \
+                    and intentions.",
+                severity: Severity::High,
+            },
+            // GitOps / deployment — full prod deploy capability if unauthenticated
+            FaviconSignature {
+                hash: 1085994401,
+                technology: "Argo CD",
+                description: "Argo CD UI exposed - GitOps continuous delivery. \
+                    Default 'admin' account or anonymous access exposes cluster \
+                    deployment state and can allow arbitrary deploys.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -2030023044,
+                technology: "Spinnaker",
+                description: "Spinnaker deck UI exposed - multi-cloud deployment platform.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1953637002,
+                technology: "Octopus Deploy",
+                description: "Octopus Deploy server - release/deployment automation.",
+                severity: Severity::Medium,
+            },
+            // Container & infrastructure management
+            FaviconSignature {
+                hash: 1284619434,
+                technology: "Portainer",
+                description: "Portainer UI exposed - Docker / Kubernetes management. \
+                    Anonymous access yields full container control.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1521240761,
+                technology: "Rancher",
+                description: "Rancher UI exposed - Kubernetes multi-cluster management.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 990899434,
+                technology: "Kubernetes Dashboard",
+                description: "Kubernetes Dashboard exposed - default install commonly \
+                    runs without auth and grants cluster-admin via the dashboard SA.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1334792660,
+                technology: "Harbor Registry",
+                description: "Harbor container registry UI - check for default \
+                    admin/Harbor12345 credentials and public projects.",
+                severity: Severity::Medium,
+            },
+            // Database admin tools
+            FaviconSignature {
+                hash: -1011502187,
+                technology: "Adminer",
+                description: "Adminer database admin tool exposed - direct DB access \
+                    if credentials are known/weak.",
+                severity: Severity::High,
+            },
+            // Atlassian product family (sensitive internal data)
+            FaviconSignature {
+                hash: 1648184960,
+                technology: "Atlassian Confluence",
+                description: "Confluence wiki - frequently exposes internal docs, \
+                    runbooks and credentials. Check for CVE-2023-22515/22518 etc.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1499827259,
+                technology: "Atlassian Jira",
+                description: "Jira Server/Data Center - issue tracker. \
+                    Check anonymous access to Issue Navigator and User Picker leaks.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1849288917,
+                technology: "Atlassian Bamboo",
+                description: "Bamboo CI server - build pipelines often log secrets.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1727792137,
+                technology: "Atlassian Bitbucket Server",
+                description: "Bitbucket Server / Data Center self-hosted Git.",
+                severity: Severity::Medium,
+            },
+            // Big-data / analytics admin UIs
+            FaviconSignature {
+                hash: -1453829313,
+                technology: "Apache Solr Admin",
+                description: "Solr admin UI - exposes cores, schema and config. \
+                    Many CVEs (RCE via Velocity / Config API) historically.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1965651772,
+                technology: "Apache Airflow",
+                description: "Airflow UI - DAGs frequently embed credentials/secrets \
+                    in connections; default 'airflow/airflow' creds are common.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1601751821,
+                technology: "Apache Druid",
+                description: "Druid console - real-time analytics; CVE-2021-25646 \
+                    allowed RCE via JavaScript-enabled queries.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1348455398,
+                technology: "Hadoop YARN ResourceManager",
+                description: "Hadoop YARN UI - REST API with no auth allows job \
+                    submission (cluster-wide RCE).",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1672072603,
+                technology: "RabbitMQ Management",
+                description: "RabbitMQ Management UI - default guest/guest only \
+                    blocks remote login on recent versions; check anyway.",
+                severity: Severity::Medium,
+            },
+            // CI/CD platforms
+            FaviconSignature {
+                hash: 2030226565,
+                technology: "JetBrains TeamCity",
+                description: "TeamCity CI server - build logs and parameters often \
+                    contain secrets; check CVE-2023-42793 if pre-2023.11.4.",
+                severity: Severity::High,
+            },
+            // Network appliances / VPN gateways (high CVE exposure)
+            FaviconSignature {
+                hash: -1875651725,
+                technology: "Citrix ADC / NetScaler Gateway",
+                description: "Citrix ADC/NetScaler login - heavily targeted; check \
+                    CVE-2023-3519, CVE-2023-4966 (SessionID disclosure) etc.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 853648882,
+                technology: "Citrix StoreFront",
+                description: "Citrix StoreFront - app/desktop portal.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1024458571,
+                technology: "F5 BIG-IP",
+                description: "F5 BIG-IP TMUI/Configuration Utility - check \
+                    CVE-2020-5902, CVE-2022-1388, CVE-2023-46747.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -291036880,
+                technology: "Pulse Secure / Ivanti Connect Secure",
+                description: "Pulse/Ivanti Connect Secure VPN - actively exploited \
+                    (CVE-2024-21887 etc.); confirm version urgently.",
+                severity: Severity::High,
+            },
+            // Splunk / observability
+            FaviconSignature {
+                hash: -1232604306,
+                technology: "Splunk Enterprise",
+                description: "Splunk login page - log/SIEM data; check for default \
+                    admin/changeme and CVE-2023-46214 (RCE via XSLT).",
+                severity: Severity::Medium,
+            },
+            // ITSM
+            FaviconSignature {
+                hash: 1255309810,
+                technology: "ManageEngine ServiceDesk Plus",
+                description: "ManageEngine ServiceDesk Plus - many auth-bypass / \
+                    RCE CVEs (CVE-2022-47966, CVE-2021-44077).",
+                severity: Severity::High,
+            },
+            // NAS / SMB-side appliances
+            FaviconSignature {
+                hash: -2102135857,
+                technology: "Synology DSM",
+                description: "Synology DiskStation Manager login.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 727778029,
+                technology: "QNAP QTS",
+                description: "QNAP NAS QTS login - frequent ransomware target \
+                    (Deadbolt etc.); confirm patch level.",
+                severity: Severity::Medium,
+            },
+            // DNS / network ops
+            FaviconSignature {
+                hash: -1057476559,
+                technology: "Pi-hole",
+                description: "Pi-hole admin page - exposes network query logs \
+                    (sensitive PII).",
                 severity: Severity::Low,
             },
         ]

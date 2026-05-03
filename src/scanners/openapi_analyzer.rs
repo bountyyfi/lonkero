@@ -49,41 +49,175 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Findings are gated on actually parsing as an OpenAPI/Swagger document
+/// (`parse_openapi_spec` returns `None` otherwise), so additional paths cannot
+/// cause false positives — they only widen discovery coverage.
 const OPENAPI_PATHS: &[&str] = &[
+    // Vendor-neutral defaults
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
-    "/swagger/v1/swagger.json",
-    "/swagger/v2/swagger.json",
-    "/swagger/v3/swagger.json",
+    "/api-docs.yaml",
+    "/api.json",
+    "/api.yaml",
+    "/spec.json",
+    "/spec.yaml",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    // Versioned vendor-neutral
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/swagger/v1/swagger.json",
+    "/swagger/v2/swagger.json",
+    "/swagger/v3/swagger.json",
+    // Springfox / springdoc-openapi (Spring Boot).
+    // springdoc default lives under /v3/api-docs (already listed above);
+    // springfox default under /v2/api-docs (already listed above).
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // ASP.NET Core (Swashbuckle/NSwag)
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/1.0/swagger.json",
+    "/swagger/2.0/swagger.json",
+    // FastAPI / Starlette — /openapi.json already covered above.
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    // Hapi / hapi-swagger
+    "/documentation/json",
+    "/documentation/swagger.json",
+    // Gin (swaggo/swag)
+    "/swagger/doc.json",
+    "/swagger/doc.yaml",
+    // NestJS default + common API prefixes (/api/openapi.json above).
     "/api/swagger.json",
-    "/api/openapi.json",
+    "/api/api-docs",
+    "/api/api-docs.json",
+    "/api-json",
+    "/api-yaml",
+    // Express / loopback / generic Node
+    "/explorer/swagger.json",
+    "/api-explorer/swagger.json",
+    "/api-explorer.json",
+    // Docs-located specs
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/api-docs",
+    "/docs/v1/swagger.json",
+    "/docs/v2/swagger.json",
+    "/docs/v3/swagger.json",
+    // OpenAPI Generator / Stoplight / public conventions
     "/openapi/v3/api-docs",
+    "/openapi/json",
+    "/openapi/yaml",
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    // Internal / admin variants seen in the wild
+    "/internal/swagger.json",
+    "/internal/openapi.json",
+    "/admin/swagger.json",
+    "/admin/openapi.json",
+    "/management/swagger.json",
+    "/management/openapi.json",
+    "/private/openapi.json",
+    "/private/swagger.json",
+    // GraphQL is handled elsewhere, but APIs frequently expose a sidecar OpenAPI
+    "/rest/openapi.json",
+    "/rest/swagger.json",
+    "/rest/api-docs",
 ];
 
-/// Common Swagger UI paths
+/// Common interactive API documentation UI paths.
+///
+/// Findings are gated on the response body containing a UI marker
+/// (`swagger-ui`, `redoc`, `rapidoc`, `scalar`, `api documentation`),
+/// so additional paths only broaden coverage — a generic 200 OK does not
+/// produce a finding.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI
     "/swagger-ui.html",
-    "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui/index.html",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui",
+    "/swagger/ui/",
+    "/swagger/ui/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger/",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    // Versioned Swagger UI (ASP.NET Core, springdoc)
+    "/swagger/v1/index.html",
+    "/swagger/v2/index.html",
+    "/swagger/v3/index.html",
+    "/v3/swagger-ui/index.html",
+    "/v3/swagger-ui.html",
+    "/swagger-ui/v1/",
+    "/swagger-ui/v2/",
+    // Generic docs roots
+    "/docs",
     "/docs/",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/documentation",
+    "/documentation/",
+    "/documentation/swagger",
+    "/documentation/swagger/",
+    // Redoc
     "/redoc",
+    "/redoc/",
+    "/redoc/index.html",
+    "/api/redoc",
+    "/docs/redoc",
+    // RapiDoc
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc/index.html",
+    "/api/rapidoc",
+    // Stoplight Elements
+    "/elements",
+    "/elements/",
+    "/stoplight",
+    "/stoplight/",
+    // Scalar (gaining adoption with NestJS / FastAPI / Hono)
+    "/scalar",
+    "/scalar/",
+    "/api/scalar",
+    "/reference",
+    "/reference/",
+    "/api/reference",
+    // Misc explorers
+    "/explorer",
+    "/explorer/",
+    "/api-explorer/",
+    "/api-explorer/index.html",
+    "/api/explorer",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -1291,6 +1425,8 @@ impl OpenApiAnalyzer {
                             || body_lower.contains("swagger ui")
                             || body_lower.contains("redoc")
                             || body_lower.contains("rapidoc")
+                            || body_lower.contains("stoplight-elements")
+                            || body_lower.contains("@scalar/api-reference")
                             || body_lower.contains("api documentation")
                         {
                             vulnerabilities.push(self.create_vulnerability(
