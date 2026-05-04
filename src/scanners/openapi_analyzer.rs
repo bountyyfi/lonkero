@@ -49,8 +49,13 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Probing these is cheap (a single GET each) and the response is
+/// content-sniffed for `swagger`/`openapi` before parsing, so unrelated JSON at
+/// any of these paths will not produce a finding.
 const OPENAPI_PATHS: &[&str] = &[
+    // OpenAPI / Swagger JSON
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -63,30 +68,129 @@ const OPENAPI_PATHS: &[&str] = &[
     "/v3/swagger.json",
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/docs/openapi.json",
+    "/api/docs/swagger.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/swagger",
+    "/api/openapi",
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/api/openapi.json",
     "/openapi/v3/api-docs",
+    "/openapi/v2/api-docs",
+    "/v3/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs/swagger-config",
     "/.well-known/openapi.json",
+    "/.well-known/openapi",
     "/openapi.yaml",
+    "/openapi.yml",
     "/swagger.yaml",
+    "/swagger.yml",
     "/api-docs.yaml",
+    "/api-docs.yml",
+    "/api/openapi.yaml",
+    "/api/openapi.yml",
+    "/api/swagger.yaml",
+    // FastAPI / Starlette default
+    "/openapi.json?include_in_schema=false",
+    // Django REST Framework / drf-spectacular
+    "/api/schema/",
+    "/api/schema",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    // NestJS Swagger module default
+    "/api-json",
+    "/api-yaml",
+    // ASP.NET / NSwag default
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/v1/swagger/docs",
+    // GraphQL — relevant because exposed schemas are similarly sensitive
+    "/graphql/schema",
+    "/graphql.json",
+    "/.well-known/graphql",
+    // AsyncAPI
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/asyncapi.yml",
+    "/.well-known/asyncapi.json",
+    // RAML / Blueprint
+    "/api.raml",
+    "/apiary.apib",
+    // gRPC-Gateway / Connect
+    "/openapiv2/api.swagger.json",
+    // Azure API Management default
+    "/swagger/Microsoft.Azure.AppService.ApiApps.Service.json",
+    // Spring REST Docs / Springfox legacy
+    "/v2/api-docs?group=public-api",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API documentation viewer paths.
+///
+/// These ship with default credentials or no auth in many frameworks
+/// (Springfox, NestJS, FastAPI) and are routinely left enabled in production.
 const SWAGGER_UI_PATHS: &[&str] = &[
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    "/api/v1/swagger-ui",
+    "/api/v2/swagger-ui",
+    "/api/v3/swagger-ui",
     "/docs/",
+    "/docs",
+    "/docs/index.html",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/api/documentation",
+    "/api/documentation/",
+    // FastAPI defaults
     "/redoc",
+    "/redoc/",
     "/rapidoc",
+    "/rapidoc/",
+    // Stoplight Elements
+    "/elements",
+    "/elements/",
+    // Slate-style API docs
+    "/slate/",
+    // Django REST framework browsable API
+    "/api/",
+    // Postman-hosted
+    "/postman",
+    // Apiary-hosted
+    "/apiary",
+    // Knife4j (Springfox-based, ships in many CN-region apps)
+    "/doc.html",
+    // Swagger Petstore demo (frequently left enabled)
+    "/petstore",
+    "/petstore/",
 ];
 
-/// Sensitive data patterns to check in examples and defaults
+/// Sensitive data patterns to check in examples, defaults, and description fields.
+///
+/// New patterns are deliberately vendor-prefixed or structurally anchored so a
+/// match cannot occur on legitimate spec text. Generic `password=...`-style
+/// patterns are kept above for completeness even though they over-trigger on
+/// example fixtures — they are scored Medium and rate-limited per location.
 const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     (
         r#"(?i)password\s*[:=]\s*["'][^"']+["']"#,
@@ -134,6 +238,100 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     (
         r"(?i)(?:dev|staging|test)[._-]",
         "non-production environment",
+    ),
+    // --- High-confidence vendor-prefixed credentials (no false positives) ---
+    // AWS — AKIA / ASIA prefixes are issued by IAM and never appear in unrelated text.
+    (r"\bAKIA[0-9A-Z]{16}\b", "AWS access key (unprefixed)"),
+    (r"\bASIA[0-9A-Z]{16}\b", "AWS STS temporary key"),
+    // Google Cloud
+    (r"\bAIza[0-9A-Za-z_\-]{35}\b", "Google API key"),
+    (r"\bya29\.[0-9A-Za-z_\-]{20,}", "Google OAuth access token"),
+    (
+        r#""type"\s*:\s*"service_account""#,
+        "GCP service-account JSON",
+    ),
+    // GitHub / GitLab
+    (r"\bghp_[A-Za-z0-9]{36}\b", "GitHub PAT"),
+    (r"\bghs_[A-Za-z0-9]{36}\b", "GitHub App server token"),
+    (r"\bghu_[A-Za-z0-9]{36}\b", "GitHub App user token"),
+    (r"\bgho_[A-Za-z0-9]{36}\b", "GitHub OAuth token"),
+    (r"\bgithub_pat_[A-Za-z0-9_]{80,}", "GitHub fine-grained PAT"),
+    (r"\bglpat-[A-Za-z0-9_\-]{20}\b", "GitLab PAT"),
+    // Stripe — live keys only.
+    (r"\bsk_live_[0-9a-zA-Z]{24,}", "Stripe live secret key"),
+    (r"\brk_live_[0-9a-zA-Z]{24,}", "Stripe live restricted key"),
+    // Slack
+    (
+        r"xox[baprs]-[0-9]+-[0-9]+-[0-9]+-[A-Za-z0-9]{24,}",
+        "Slack token",
+    ),
+    (
+        r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{20,}",
+        "Slack webhook URL",
+    ),
+    // SendGrid / Twilio / Mailgun
+    (
+        r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",
+        "SendGrid API key",
+    ),
+    (r"\bSK[a-f0-9]{32}\b", "Twilio API key SID"),
+    (r"\bkey-[a-f0-9]{32}\b", "Mailgun API key"),
+    // OpenAI / Anthropic / Hugging Face — billing-abuse and IP-leak risk.
+    (r"\bsk-[A-Za-z0-9]{48}\b", "OpenAI API key"),
+    (r"\bsk-ant-[A-Za-z0-9_\-]{40,}", "Anthropic API key"),
+    (r"\bhf_[A-Za-z0-9]{34}\b", "Hugging Face token"),
+    // Package / registry tokens — supply-chain risk.
+    (r"\bnpm_[A-Za-z0-9]{36}\b", "npm token"),
+    (r"\bdckr_pat_[A-Za-z0-9_\-]{56}\b", "Docker Hub PAT"),
+    (r"\bdop_v1_[a-f0-9]{64}\b", "DigitalOcean token"),
+    // Shopify family
+    (r"\bshpat_[a-fA-F0-9]{32}\b", "Shopify access token"),
+    (r"\bshpss_[a-fA-F0-9]{32}\b", "Shopify shared secret"),
+    (r"\bshpca_[a-fA-F0-9]{32}\b", "Shopify custom-app token"),
+    (r"\bshppa_[a-fA-F0-9]{32}\b", "Shopify private-app token"),
+    // Square
+    (r"\bsq0atp-[A-Za-z0-9_\-]{22}\b", "Square access token"),
+    (r"\bsq0csp-[A-Za-z0-9_\-]{43}\b", "Square OAuth secret"),
+    // Discord
+    (
+        r"https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]+",
+        "Discord webhook URL",
+    ),
+    // Azure — full storage compromise.
+    (
+        r"DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{88}",
+        "Azure storage connection string",
+    ),
+    (
+        r"sv=20[0-9]{2}-[0-9]{2}-[0-9]{2}&s[ir]=[A-Za-z0-9%]+&sig=[A-Za-z0-9%+/=]{20,}",
+        "Azure SAS token",
+    ),
+    // PEM-armoured private key — unambiguous.
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+        "PEM private key",
+    ),
+    // Database connection strings with embedded credentials.
+    (
+        r#"(?:mongodb(?:\+srv)?|mysql|postgres(?:ql)?|mariadb|mssql|jdbc:[a-z]+)://[A-Za-z0-9._~%+-]+:[^@\s"'`<>]+@[A-Za-z0-9.\-]+"#,
+        "DB connection string with credentials",
+    ),
+    // JWT — three base64url segments with the standard `eyJ` header prefix.
+    (
+        r"\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-+/=]{10,}",
+        "JWT token",
+    ),
+    // Sentry DSN — exposes project ID and ingest origin.
+    (
+        r"https://[a-fA-F0-9]+@[A-Za-z0-9]+\.ingest\.sentry\.io/[0-9]+",
+        "Sentry DSN",
+    ),
+    // --- Sensitive endpoint references inside descriptions / examples ---
+    // OpenAPI specs that document an `/admin` or `/internal` route without any
+    // security requirement are extremely high-impact findings.
+    (
+        r"(?i)(?:^|/)(?:admin|internal|management|actuator|debug|console)/",
+        "admin/internal endpoint reference",
     ),
 ];
 
@@ -1181,17 +1379,54 @@ impl OpenApiAnalyzer {
                             "OpenAPI specification contains {}: '{}...'",
                             description, evidence
                         ),
-                        if description.contains("password")
-                            || description.contains("secret")
-                            || description.contains("AWS")
                         {
-                            Severity::High
-                        } else if description.contains("internal")
-                            || description.contains("localhost")
-                        {
-                            Severity::Medium
-                        } else {
-                            Severity::Low
+                            // Critical: vendor-prefixed credentials and key material that
+                            // are immediately weaponizable (cloud takeover, billing abuse,
+                            // supply-chain compromise).
+                            let is_critical = description.contains("private key")
+                                || description.contains("connection string with credentials")
+                                || description.contains("Azure storage connection string")
+                                || description.contains("Stripe live")
+                                || description.contains("Slack token")
+                                || description.contains("GitHub PAT")
+                                || description.contains("GitHub fine-grained PAT")
+                                || description.contains("GitLab PAT")
+                                || description.contains("Anthropic API key")
+                                || description.contains("OpenAI API key")
+                                || description.contains("npm token")
+                                || description.contains("Docker Hub PAT")
+                                || description.contains("DigitalOcean token")
+                                || description.contains("Shopify")
+                                || description.contains("Square")
+                                || description.contains("GCP service-account");
+                            let is_high = description.contains("password")
+                                || description.contains("secret")
+                                || description.contains("AWS")
+                                || description.contains("Google API")
+                                || description.contains("Google OAuth")
+                                || description.contains("GitHub OAuth")
+                                || description.contains("GitHub App")
+                                || description.contains("Azure SAS")
+                                || description.contains("Slack webhook")
+                                || description.contains("Discord webhook")
+                                || description.contains("Twilio")
+                                || description.contains("SendGrid")
+                                || description.contains("Mailgun")
+                                || description.contains("Hugging Face")
+                                || description.contains("JWT token")
+                                || description.contains("admin/internal endpoint");
+                            if is_critical {
+                                Severity::Critical
+                            } else if is_high {
+                                Severity::High
+                            } else if description.contains("internal")
+                                || description.contains("localhost")
+                                || description.contains("Sentry DSN")
+                            {
+                                Severity::Medium
+                            } else {
+                                Severity::Low
+                            }
                         },
                         "CWE-200",
                         &spec.spec_url,
