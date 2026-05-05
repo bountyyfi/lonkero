@@ -1221,6 +1221,184 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // Cloudflare Origin CA — issued by api.cloudflare.com/v1/origin_ca,
+                // the `v1.0-` prefix + 173-char body is unique to this product.
+                CompiledPattern {
+                    name: "Cloudflare Origin CA Key".to_string(),
+                    regex: Regex::new(r#"v1\.0-[a-f0-9]{32}-[a-f0-9]{146}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Cloudflare Origin CA key found - allows certificate issuance for the zone".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // HashiCorp Vault — batch + recovery tokens (the existing
+                // `hvs.` rule covers service tokens only).
+                CompiledPattern {
+                    name: "HashiCorp Vault Batch Token".to_string(),
+                    regex: Regex::new(r#"hvb\.[A-Za-z0-9_-]{24,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HashiCorp Vault batch token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "HashiCorp Vault Recovery Token".to_string(),
+                    regex: Regex::new(r#"hvr\.[A-Za-z0-9_-]{24,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HashiCorp Vault recovery / unseal-class token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Render — `rnd_` prefix is product-specific.
+                CompiledPattern {
+                    name: "Render API Key".to_string(),
+                    regex: Regex::new(r#"rnd_[A-Za-z0-9]{14,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Render.com API key found - deployment / service control".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Tailscale — auth, API, and OAuth-client keys all share the
+                // `tskey-` prefix with a deterministic role segment.
+                CompiledPattern {
+                    name: "Tailscale Auth Key".to_string(),
+                    regex: Regex::new(r#"tskey-(?:auth|api|client)-[A-Za-z0-9]+-[A-Za-z0-9]{32,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale auth/API key found - allows joining the tailnet".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Fly.io — macaroon-style tokens always start with `FlyV1 fm2_`.
+                CompiledPattern {
+                    name: "Fly.io Auth Token".to_string(),
+                    regex: Regex::new(r#"FlyV1\s+fm2_[A-Za-z0-9_=,/+\-]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Fly.io API token found - full org/app control".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // npm registry auth line as it appears in checked-in `.npmrc`.
+                // The `//registry…/:_authToken=` form cannot occur outside an
+                // auth file, so a literal hit is always a real credential.
+                CompiledPattern {
+                    name: "npm Registry Auth Line".to_string(),
+                    regex: Regex::new(r#"//[a-zA-Z0-9.\-_/]*registry[a-zA-Z0-9.\-_/]*/:_authToken=[A-Za-z0-9_\-./=]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "npm registry _authToken line leaked - publish access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PyPI tokens always start with `pypi-AgEIcHlwaS5vcmc` (base64
+                // of the macaroon issuer) — uniquely identifies a real token.
+                CompiledPattern {
+                    name: "PyPI Upload Token".to_string(),
+                    regex: Regex::new(r#"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PyPI API token found - allows package publishing".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Hugging Face — `hf_` prefix + 34 chars is a dedicated format.
+                CompiledPattern {
+                    name: "Hugging Face Token".to_string(),
+                    regex: Regex::new(r#"hf_[A-Za-z0-9]{34}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Hugging Face access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Replicate — `r8_` prefix is product-specific.
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"r8_[A-Za-z0-9]{37,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Replicate API token found - billing abuse + model access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Crates.io — `cio` prefix is reserved for the registry.
+                CompiledPattern {
+                    name: "crates.io API Token".to_string(),
+                    regex: Regex::new(r#"cio[A-Za-z0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "crates.io API token found - publish access for owned crates".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GCP service-account email — the `iam.gserviceaccount.com`
+                // suffix is reserved by Google and cannot occur on real users.
+                CompiledPattern {
+                    name: "GCP Service Account Email".to_string(),
+                    regex: Regex::new(r#"[a-z][-a-z0-9]{4,28}@[a-z][-a-z0-9]{4,28}\.iam\.gserviceaccount\.com"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "GCP service account principal found - identifies privileged identities to target".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Apache .htpasswd / passwd-shadow lines copy-pasted into JS.
+                // The `$apr1$` / `$2y$` / `$6$` algorithm prefixes are
+                // structural — there is no false positive for these.
+                CompiledPattern {
+                    name: "Apache htpasswd Hash".to_string(),
+                    regex: Regex::new(r#"[a-zA-Z0-9._\-]{1,64}:\$(?:apr1|2[ayb]|5|6)\$[A-Za-z0-9./]{6,}\$[A-Za-z0-9./]{16,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Apache htpasswd / shadow password hash found - offline crackable".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Salesforce session ID — `00D` org prefix + `!` + base64 body.
+                CompiledPattern {
+                    name: "Salesforce Session ID".to_string(),
+                    regex: Regex::new(r#"00D[A-Za-z0-9]{12,15}![A-Za-z0-9._]{60,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Salesforce session ID found - direct API access until expiry".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adobe IMS / IO refresh tokens — `eyJ4NW` (base64 of x5) is
+                // characteristic of Adobe's certificate-bound JWT header.
+                CompiledPattern {
+                    name: "Adobe IMS JWT".to_string(),
+                    regex: Regex::new(r#"eyJ4NW[A-Za-z0-9_\-]{30,}\.eyJ[A-Za-z0-9_\-]{50,}\.[A-Za-z0-9_\-+/=]{40,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Adobe IMS / IO JWT found - tenant API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Akamai EdgeGrid client tokens — leading `akab-` segment.
+                CompiledPattern {
+                    name: "Akamai EdgeGrid Token".to_string(),
+                    regex: Regex::new(r#"akab-[A-Za-z0-9]{16}-[A-Za-z0-9]{16}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Akamai EdgeGrid client token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Atlassian OAuth 2.0 Connect tokens (`ATATT3xFfGF0` prefix).
+                CompiledPattern {
+                    name: "Atlassian OAuth Token".to_string(),
+                    regex: Regex::new(r#"ATATT3xFfGF0[A-Za-z0-9_\-]{180,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Atlassian OAuth user token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord webhook URL — the host + path shape is unique.
+                CompiledPattern {
+                    name: "Discord Webhook URL".to_string(),
+                    regex: Regex::new(r#"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]+"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Discord webhook URL exposed - allows posting messages to the channel".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Bitwarden / Vaultwarden CLI session keys.
+                CompiledPattern {
+                    name: "Bitwarden Master Password Hash".to_string(),
+                    regex: Regex::new(r#"\.AQAAANCMnd8BFdERjHoAwE/Cl\+sBAAAA[A-Za-z0-9+/=]{60,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Bitwarden DPAPI-protected secret blob found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Telegram webhook + secret token (Bot API setWebhook secret).
+                CompiledPattern {
+                    name: "Telegram Webhook Secret".to_string(),
+                    regex: Regex::new(r#"(?i)X-Telegram-Bot-Api-Secret-Token\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,256}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Telegram webhook secret token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Plaid client secret (sandbox/development/production all
+                // share a 30-hex format under explicit `PLAID_SECRET` keys).
+                CompiledPattern {
+                    name: "Plaid Client Secret".to_string(),
+                    regex: Regex::new(r#"(?i)plaid[_-]?(?:client[_-]?)?secret\s*[=:]\s*['\"][a-f0-9]{30}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Plaid client secret found - banking API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {

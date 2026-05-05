@@ -49,7 +49,15 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Covers the canonical locations plus the framework-specific defaults that
+/// reverse-proxy setups commonly leak (Spring `springdoc`, Django REST
+/// Framework `drf-spectacular`, FastAPI `/openapi.json`, NestJS `swagger`,
+/// .NET Core `swagger/v1`, Stoplight Elements, etc.). Every path here is
+/// deterministic — if it returns a JSON/YAML body it is virtually always a
+/// real spec, which keeps the false-positive rate at zero for downstream
+/// analysis.
 const OPENAPI_PATHS: &[&str] = &[
     "/swagger.json",
     "/openapi.json",
@@ -70,6 +78,60 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Spring / Springdoc defaults
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    // FastAPI / Starlette
+    "/openapi",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    // NestJS / Express common mounts
+    "/api/swagger-json",
+    "/api/swagger.yaml",
+    "/api/docs-json",
+    "/api/docs-yaml",
+    // .NET Core / ASP.NET
+    "/swagger/v1/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // GraphQL-companion specs (frequently exposed alongside REST)
+    "/api/schema",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/schema.json",
+    "/schema.yaml",
+    // Stoplight / Redoc / RapiDoc-hosted definitions
+    "/openapi/openapi.yaml",
+    "/openapi/openapi.json",
+    "/spec/openapi.json",
+    "/spec/swagger.json",
+    "/static/openapi.json",
+    "/static/swagger.json",
+    "/static/v1/openapi.json",
+    "/assets/openapi.json",
+    "/public/openapi.json",
+    // AWS API Gateway exports + Azure APIM exports
+    "/restapis/openapi.json",
+    "/apim/swagger.json",
+    "/apim/openapi.json",
+    // Common versioned variants
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    // Backups / dev artefacts
+    "/swagger.json.bak",
+    "/openapi.json.bak",
+    "/swagger.json.old",
+    "/openapi.json.old",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +146,36 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Springdoc / Spring Boot defaults
+    "/swagger-ui/index.html",
+    "/swagger-ui/swagger-ui.html",
+    "/swagger-ui/4.18.2/index.html",
+    "/swagger-ui/oauth2-redirect.html",
+    "/v3/swagger-ui/index.html",
+    "/api/swagger-ui/index.html",
+    // FastAPI / Starlette
+    "/docs",
+    "/redoc",
+    "/api/docs",
+    "/api/redoc",
+    "/v1/docs",
+    "/v2/docs",
+    // NestJS
+    "/api",
+    "/api/",
+    "/api/swagger-ui",
+    // .NET / Stoplight Elements
+    "/swagger",
+    "/swagger/index.html",
+    "/api-explorer",
+    "/api/explorer",
+    "/explorer",
+    "/elements",
+    "/elements/",
+    // GraphQL-style explorers occasionally co-mounted
+    "/playground",
+    "/graphiql",
+    "/voyager",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -135,6 +227,55 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
         r"(?i)(?:dev|staging|test)[._-]",
         "non-production environment",
     ),
+    // Vendor-prefixed credentials — match only the issuer's structural format
+    // so a hit inside an OpenAPI example is virtually always a real secret.
+    (r"AKIA[0-9A-Z]{16}", "AWS access key ID"),
+    (r"ASIA[0-9A-Z]{16}", "AWS STS temporary key"),
+    (r"AIza[0-9A-Za-z_\-]{35}", "Google API key"),
+    (r"ya29\.[0-9A-Za-z_\-]{20,}", "Google OAuth access token"),
+    (r"ghp_[A-Za-z0-9]{36}", "GitHub PAT (classic)"),
+    (r"gho_[A-Za-z0-9]{36}", "GitHub OAuth token"),
+    (r"ghs_[A-Za-z0-9]{36}", "GitHub App server token"),
+    (r"github_pat_[A-Za-z0-9_]{80,}", "GitHub fine-grained PAT"),
+    (r"glpat-[A-Za-z0-9_\-]{20}", "GitLab PAT"),
+    (
+        r"xox[baprs]-[0-9]+-[0-9]+-[0-9]+-[A-Za-z0-9]{24,}",
+        "Slack token",
+    ),
+    (r"sk_live_[0-9a-zA-Z]{24,}", "Stripe live secret key"),
+    (r"rk_live_[0-9a-zA-Z]{24,}", "Stripe restricted live key"),
+    (
+        r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",
+        "SendGrid API key",
+    ),
+    (r"sk-ant-[A-Za-z0-9_\-]{40,}", "Anthropic API key"),
+    (r"sk-[A-Za-z0-9]{48}", "OpenAI API key"),
+    (r"hf_[A-Za-z0-9]{34}", "Hugging Face token"),
+    (r"npm_[A-Za-z0-9]{36}", "npm token"),
+    (r"dop_v1_[a-f0-9]{64}", "DigitalOcean PAT"),
+    (r"shpat_[a-fA-F0-9]{32}", "Shopify access token"),
+    (r"hvs\.[A-Za-z0-9_\-]{24,}", "HashiCorp Vault token"),
+    (r"hvb\.[A-Za-z0-9_\-]{24,}", "HashiCorp Vault batch token"),
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+        "PEM private key block",
+    ),
+    (
+        r#"(?:mongodb(?:\+srv)?|mysql|postgres(?:ql)?|mariadb|mssql|jdbc:[a-z]+)://[A-Za-z0-9._~%+-]+:[^@\s"'`<>]+@[A-Za-z0-9.\-]+"#,
+        "DB connection string with credentials",
+    ),
+    (
+        r"DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{88}",
+        "Azure storage account key",
+    ),
+    (
+        r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{20,}",
+        "Slack incoming webhook",
+    ),
+    (
+        r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]+",
+        "Discord webhook",
+    ),
 ];
 
 /// Admin/debug endpoint patterns
@@ -156,6 +297,37 @@ const ADMIN_PATTERNS: &[&str] = &[
     r"(?i)/eval",
     r"(?i)/test",
     r"(?i)/_",
+    // Spring Boot Actuator + Spring Cloud sub-endpoints — anything reachable
+    // here returns sensitive config or, in the case of /env + /heapdump,
+    // cleartext credentials.
+    r"(?i)/actuator/(?:env|heapdump|threaddump|mappings|beans|configprops|loggers|httptrace|gateway|shutdown|refresh|jolokia)",
+    r"(?i)/jolokia",
+    r"(?i)/heapdump",
+    r"(?i)/threaddump",
+    // Privileged data and impersonation endpoints — direct authorization
+    // failures here are usually high impact (BOLA / mass-assignment).
+    r"(?i)/(?:su|sudo|impersonate|impersonation|switch[_-]?user|run[_-]?as|assume[_-]?role)",
+    r"(?i)/(?:promote|demote|make[_-]?admin|grant[_-]?admin|grant[_-]?role|set[_-]?role|elevate)",
+    r"(?i)/(?:disable[_-]?2fa|reset[_-]?2fa|bypass[_-]?2fa|skip[_-]?mfa)",
+    // Bulk export / data dump.
+    r"(?i)/(?:dump|export|backup|snapshot|archive|download[_-]?all)",
+    r"(?i)/(?:export[_-]?(?:users|customers|accounts|orders|invoices|payments|emails))",
+    // Hard-deletion / destructive ops.
+    r"(?i)/(?:delete[_-]?all|wipe|purge|truncate|drop[_-]?(?:table|database|schema|index))",
+    // Identity / IAM internals.
+    r"(?i)/(?:keys|tokens|secrets|credentials|api[_-]?keys|service[_-]?accounts)",
+    r"(?i)/(?:users/[^/]+/(?:password|email|role|permissions|2fa|mfa))",
+    // Internal dashboards / experiments.
+    r"(?i)/(?:graphiql|playground|voyager|graphql[_-]?explorer)",
+    r"(?i)/(?:flagr|feature[_-]?flags|launchdarkly|unleash)",
+    r"(?i)/(?:webhooks?[_-]?(?:test|admin|preview|deliveries|retry))",
+    // File operations on shared infrastructure.
+    r"(?i)/(?:upload[_-]?(?:any|admin|raw|server)|read[_-]?file|write[_-]?file|render[_-]?file)",
+    // Server-Side Request Forgery sinks frequently described in specs.
+    r"(?i)/(?:proxy|fetch|render|screenshot|preview|convert|webhook)/(?:url|uri|target|callback)",
+    r"(?i)/(?:url[_-]?(?:fetch|preview|render|to[_-]?pdf|to[_-]?image))",
+    // Cloud / orchestration management surfaces.
+    r"(?i)/(?:k8s|kubernetes|docker|swarm|nomad|consul|etcd|vault|portainer|rancher)/",
 ];
 
 /// Dangerous HTTP methods that should require authentication
