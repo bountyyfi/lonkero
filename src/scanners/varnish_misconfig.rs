@@ -290,14 +290,24 @@ impl VarnishMisconfigScanner {
             has_varnish || (has_cache_headers && has_age)
         }).unwrap_or(false);
 
-        // Only test cache poisoning if we detect caching infrastructure
+        // Only test cache poisoning if we detect caching infrastructure.
+        //
+        // The header set below covers the common unkeyed-input vectors that
+        // James Kettle and others have documented for cache poisoning: rewrite
+        // headers handled before the cache key, host overrides reflected into
+        // links, and protocol-scheme headers used to build absolute URLs.
         if has_caching_proxy {
             let bypass_headers = vec![
                 ("Cache-Control", "no-cache"),
                 ("Pragma", "no-cache"),
                 ("X-Forwarded-Host", "evil.com"),
+                ("X-Forwarded-Server", "evil.com"),
+                ("X-Host", "evil.com"),
+                ("X-HTTP-Host-Override", "evil.com"),
+                ("Forwarded", "host=evil.com"),
                 ("X-Original-URL", "/admin"),
                 ("X-Rewrite-URL", "/admin"),
+                ("X-Override-URL", "/admin"),
             ];
 
             for (header_name, header_value) in &bypass_headers {
@@ -306,8 +316,14 @@ impl VarnishMisconfigScanner {
 
                 match self.http_client.get_with_headers(url, headers).await {
                     Ok(response) => {
-                        // Check if bypass headers are processed
-                        if *header_name == "X-Forwarded-Host" || *header_name == "X-Original-URL" {
+                        // Check if bypass headers are processed. Cache-Control /
+                        // Pragma are sent only to suppress caching for this probe;
+                        // they are not the reflection vector we want to flag.
+                        let is_reflection_vector = !matches!(
+                            *header_name,
+                            "Cache-Control" | "Pragma"
+                        );
+                        if is_reflection_vector {
                             // These could indicate cache poisoning vectors
                             let body_lower = response.body.to_lowercase();
                             if body_lower.contains("evil.com") || body_lower.contains("/admin") {
@@ -391,6 +407,65 @@ impl VarnishMisconfigScanner {
             }
             Err(e) => {
                 debug!("OPTIONS request failed: {}", e);
+            }
+        }
+
+        // Test 6: ESI (Edge Side Includes) processing of user input.
+        //
+        // When Varnish has `set beresp.do_esi = true;` for responses that
+        // reflect user-controlled query strings, an attacker can inject
+        // <esi:include src="..."/> tags to perform SSRF against internal
+        // origins or include other cached objects (session theft, cookie
+        // exfiltration). We probe by reflecting a benign ESI tag and
+        // checking it disappears from the body — meaning Varnish parsed it.
+        if has_caching_proxy {
+            tests_run += 1;
+            let esi_marker = "lonkero-esi-marker-zzz";
+            let esi_payload = format!("<esi:vars>$(QUERY_STRING)</esi:vars>{}", esi_marker);
+            // URL-encode the ESI tag so it survives transport but the marker
+            // stays plain. If the marker comes back without the surrounding
+            // ESI tag, Varnish stripped/processed the tag.
+            let probe_url = format!(
+                "{}{}lonkero_esi_probe={}",
+                url,
+                if url.contains('?') { "&" } else { "?" },
+                urlencoding::encode(&esi_payload)
+            );
+            match self.http_client.get(&probe_url).await {
+                Ok(response) => {
+                    let body = &response.body;
+                    let marker_present = body.contains(esi_marker);
+                    let tag_present = body.contains("<esi:vars>") || body.contains("&lt;esi:vars&gt;");
+                    // ESI processed: marker reflected, but the literal ESI tag is gone.
+                    if marker_present && !tag_present {
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "VARNISH_ESI_INJECTION",
+                            "Edge Side Includes (ESI) Processing of Reflected User Input",
+                            &format!(
+                                "Reflected query parameter is processed as ESI by Varnish.\nProbe URL: {}\nThe `<esi:vars>` tag was stripped while the surrounding marker survived, indicating Varnish parsed and executed the ESI directive.",
+                                probe_url
+                            ),
+                            Severity::High,
+                            Confidence::High,
+                            8.5,
+                            "1. Disable ESI for responses that contain reflected input:\n\
+                                sub vcl_backend_response {\n\
+                                    if (beresp.http.Content-Type ~ \"text/html\") {\n\
+                                        unset beresp.http.Surrogate-Control;\n\
+                                        set beresp.do_esi = false;\n\
+                                    }\n\
+                                }\n\
+                             2. Encode/escape user input before placing it in cacheable HTML\n\
+                             3. Restrict ESI to trusted backends only (not user-facing pages)\n\
+                             4. Review the application for any reflected parameters that flow to the response body\n\
+                             5. Reference: PortSwigger 'Server-Side Includes / ESI' research",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    debug!("ESI probe failed: {}", e);
+                }
             }
         }
 

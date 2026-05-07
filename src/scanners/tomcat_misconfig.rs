@@ -112,13 +112,30 @@ impl TomcatMisconfigScanner {
             }
         }
 
-        // Test 2: Tomcat Manager Interface Exposure
+        // Test 2: Tomcat Manager Interface Exposure.
+        //
+        // Beyond the canonical `/manager/html` path, several Tomcat manager
+        // routes are routinely left exposed even when the HTML UI is locked
+        // down — most notably the text/JMX endpoints, which can leak full
+        // server config or be abused for WAR deployment if creds are weak.
         tests_run += 1;
         let manager_paths = vec![
             "/manager/html",
             "/manager/status",
+            "/manager/status?XML=true",
             "/manager/text",
+            "/manager/text/list",
+            "/manager/text/serverinfo",
+            "/manager/text/threaddump",
+            "/manager/jmxproxy",
+            // JMX query that returns Tomcat version + OS info as plain text.
+            "/manager/jmxproxy/?qry=Catalina:type=Server",
             "/host-manager/html",
+            "/host-manager/text",
+            "/host-manager/text/list",
+            // Reverse-proxy variants that strip the leading /manager prefix.
+            "/tomcat/manager/html",
+            "/tomcat/manager/status",
             "/admin/",
             "/tomcat-admin/",
         ];
@@ -131,11 +148,25 @@ impl TomcatMisconfigScanner {
                 Ok(response) => {
                     let body_lower = response.body.to_lowercase();
 
-                    // Check for manager login page or accessible manager
-                    // Require Tomcat-specific content, not generic "401 unauthorized" text
+                    // Check for manager login page or accessible manager.
+                    // Require Tomcat-specific content, not generic "401 unauthorized"
+                    // text. The text/JMX manager responses always begin with the
+                    // literal "OK - " banner followed by an action-specific line,
+                    // which is unique enough to never collide with generic 200 OK
+                    // bodies on unrelated apps.
+                    let text_manager_banner = body_lower.starts_with("ok - listed applications")
+                        || body_lower.starts_with("ok - number of results")
+                        || body_lower.starts_with("ok - server info")
+                        || body_lower.starts_with("ok - jvm thread dump")
+                        || body_lower.starts_with("ok - serverinfo");
+                    let xml_status_page = body_lower.contains("<status>")
+                        && body_lower.contains("<jvm>")
+                        && body_lower.contains("<memory");
                     let is_manager = body_lower.contains("tomcat web application manager")
                         || body_lower.contains("tomcat virtual host manager")
                         || body_lower.contains("manager-gui")
+                        || text_manager_banner
+                        || xml_status_page
                         || (response.status_code == 401 && body_lower.contains("tomcat"));
 
                     if is_manager {
@@ -283,7 +314,63 @@ impl TomcatMisconfigScanner {
             }
         }
 
-        // Test 5: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
+        // Test 5: PSI Probe / Lambda Probe — Tomcat monitoring app frequently
+        // installed alongside Tomcat for ops convenience. When exposed it gives
+        // a full management UI: deployed apps, datasources (with cleartext
+        // creds in the connection pool view), JVM threads, system properties.
+        // We only flag on PSI Probe-specific banner strings to avoid FPs.
+        tests_run += 1;
+        let probe_paths = vec!["/probe/", "/probe/index.htm", "/lambdaprobe/", "/psi-probe/"];
+        for path in &probe_paths {
+            tests_run += 1;
+            let probe_url = format!("{}{}", url.trim_end_matches('/'), path);
+            match self.http_client.get(&probe_url).await {
+                Ok(response) => {
+                    let body_lower = response.body.to_lowercase();
+                    let is_probe = body_lower.contains("psi probe")
+                        || body_lower.contains("lambda probe")
+                        || body_lower.contains("psi-probe")
+                        || (body_lower.contains("probe")
+                            && body_lower.contains("tomcat")
+                            && (body_lower.contains("data sources")
+                                || body_lower.contains("datasources")
+                                || body_lower.contains("system information")));
+
+                    if is_probe {
+                        let severity = if response.status_code == 200 {
+                            Severity::High
+                        } else {
+                            Severity::Medium
+                        };
+                        let cvss = if response.status_code == 200 { 8.5 } else { 5.3 };
+                        info!("PSI/Lambda Probe interface found at {}", probe_url);
+                        vulnerabilities.push(self.create_vulnerability(
+                            &probe_url,
+                            "TOMCAT_PSI_PROBE_EXPOSED",
+                            "PSI Probe / Lambda Probe Tomcat Management UI Exposed",
+                            &format!(
+                                "PSI Probe management interface accessible. Status: {}\nPath: {}\nThis UI exposes deployed apps, datasource connection strings, JVM threads, and system properties.",
+                                response.status_code, path
+                            ),
+                            severity,
+                            Confidence::High,
+                            cvss,
+                            "1. Remove PSI/Lambda Probe in production: rm -rf $CATALINA_HOME/webapps/probe\n\
+                             2. If required, restrict by IP via RemoteAddrValve and require strong auth\n\
+                             3. Bind to localhost only and tunnel via SSH for ops use\n\
+                             4. Audit the datasource view — connection strings often expose DB credentials\n\
+                             5. Place behind a VPN; never expose to the public internet",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!("PSI Probe check failed for {}: {}", probe_url, e);
+                }
+            }
+        }
+
+        // Test 6: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
         tests_run += 1;
         // This is a network-level check, we can only detect via headers or info disclosure
         match self.http_client.get(url).await {
