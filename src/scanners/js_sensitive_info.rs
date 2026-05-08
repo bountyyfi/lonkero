@@ -1221,6 +1221,205 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // ──────────────────────────────────────────────────────────
+                // High-confidence prefix-based tokens — all vendor-issued
+                // formats with non-coincidental prefixes, so a hit means a
+                // real key. No context anchoring needed.
+                // ──────────────────────────────────────────────────────────
+                // Hugging Face — `hf_` is reserved for issued user tokens.
+                CompiledPattern {
+                    name: "Hugging Face Token".to_string(),
+                    regex: Regex::new(r#"\bhf_[A-Za-z0-9]{34}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Hugging Face API token found - allows model access and uploads".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Replicate — `r8_` is the issued token prefix.
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"\br8_[A-Za-z0-9]{40}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Replicate API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Groq — `gsk_` prefix.
+                CompiledPattern {
+                    name: "Groq API Key".to_string(),
+                    regex: Regex::new(r#"\bgsk_[A-Za-z0-9]{52}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Groq API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe restricted keys — separate from sk_live_; live-only to
+                // avoid matching sandbox documentation tokens.
+                CompiledPattern {
+                    name: "Stripe Restricted Live Key".to_string(),
+                    regex: Regex::new(r#"\brk_live_[0-9a-zA-Z]{24,}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Stripe live restricted API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe webhook signing secret — allows forged webhook events.
+                CompiledPattern {
+                    name: "Stripe Webhook Secret".to_string(),
+                    regex: Regex::new(r#"\bwhsec_[A-Za-z0-9]{32,}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Stripe webhook signing secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub fine-grained PAT — separate format from classic ghp_.
+                CompiledPattern {
+                    name: "GitHub Fine-grained PAT".to_string(),
+                    regex: Regex::new(r#"\bgithub_pat_[A-Za-z0-9_]{80,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub fine-grained personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub App tokens — `ghs_` (server) and `ghu_` (user) and
+                // `gho_` (oauth). Distinct from `ghp_` (already covered).
+                CompiledPattern {
+                    name: "GitHub App Server Token".to_string(),
+                    regex: Regex::new(r#"\bghs_[A-Za-z0-9]{36}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub App server-to-server token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "GitHub App User Token".to_string(),
+                    regex: Regex::new(r#"\bghu_[A-Za-z0-9]{36}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub App user-to-server token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "GitHub OAuth Token".to_string(),
+                    regex: Regex::new(r#"\bgho_[A-Za-z0-9]{36}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub OAuth access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub refresh token (also OAuth-issued).
+                CompiledPattern {
+                    name: "GitHub Refresh Token".to_string(),
+                    regex: Regex::new(r#"\bghr_[A-Za-z0-9]{76}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub refresh token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // AWS Session / STS tokens — `ASIA` prefix.
+                CompiledPattern {
+                    name: "AWS STS Session Key".to_string(),
+                    regex: Regex::new(r#"\bASIA[0-9A-Z]{16}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "AWS STS temporary access key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // AWS AppSync API Key — `da2-` prefix is reserved for AppSync.
+                CompiledPattern {
+                    name: "AWS AppSync API Key".to_string(),
+                    regex: Regex::new(r#"\bda2-[a-z0-9]{26}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "AWS AppSync API key found - direct GraphQL backend access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks — `dapi` prefix on personal access tokens.
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"\bdapi[a-f0-9]{32}(?:-[0-9]+)?\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token found - workspace and data access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Tailscale — auth/api keys with reserved prefixes.
+                CompiledPattern {
+                    name: "Tailscale Auth Key".to_string(),
+                    regex: Regex::new(r#"\btskey-auth-[A-Za-z0-9]{12,}-[A-Za-z0-9]{20,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale auth key found - lateral access into the tailnet".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Tailscale API Key".to_string(),
+                    regex: Regex::new(r#"\btskey-api-[A-Za-z0-9]{12,}-[A-Za-z0-9]{20,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // 1Password CLI service account token.
+                CompiledPattern {
+                    name: "1Password Service Account Token".to_string(),
+                    regex: Regex::new(r#"\bops_eyJ[A-Za-z0-9+/=_\-]{100,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "1Password service account token found - vault contents at risk".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Square access tokens (production EAAA prefix is already
+                // covered separately above; this catches the sandbox-style
+                // long token used in newer SDKs).
+                CompiledPattern {
+                    name: "Square Production Token".to_string(),
+                    regex: Regex::new(r#"\bEAAA[A-Za-z0-9_\-]{60,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Square production access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord bot token — distinct from webhook URL. The exact
+                // three-segment, base64url shape is rare enough to be safe.
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    regex: Regex::new(r#"\b[MN][A-Za-z0-9_\-]{23,28}\.[A-Za-z0-9_\-]{6,7}\.[A-Za-z0-9_\-]{27,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PyPI API token — fixed prefix issued by warehouse.
+                CompiledPattern {
+                    name: "PyPI API Token".to_string(),
+                    regex: Regex::new(r#"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PyPI upload token found - package supply-chain risk".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Docker Hub PAT — `dckr_pat_` prefix.
+                CompiledPattern {
+                    name: "Docker Hub PAT".to_string(),
+                    regex: Regex::new(r#"\bdckr_pat_[A-Za-z0-9_\-]{27,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Docker Hub personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GCP service account JSON marker — exact reserved string.
+                CompiledPattern {
+                    name: "GCP Service Account JSON Marker".to_string(),
+                    regex: Regex::new(r#""type"\s*:\s*"service_account""#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Inline GCP service account JSON detected".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Laravel APP_KEY — base64-prefixed 32-byte key.
+                CompiledPattern {
+                    name: "Laravel APP_KEY".to_string(),
+                    regex: Regex::new(r#"base64:[A-Za-z0-9+/]{43}="#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Laravel APP_KEY found - decrypts all session and cookie state".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Azure Storage account key (full connection string form).
+                CompiledPattern {
+                    name: "Azure Storage Connection String".to_string(),
+                    regex: Regex::new(r#"DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{88}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Azure Storage account connection string found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Azure SAS token (URL form).
+                CompiledPattern {
+                    name: "Azure SAS Token URL".to_string(),
+                    regex: Regex::new(r#"sv=20[0-9]{2}-[0-9]{2}-[0-9]{2}&s[ir]=[A-Za-z0-9%]+&sig=[A-Za-z0-9%+/=]{20,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Azure SAS token URL fragment found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {
