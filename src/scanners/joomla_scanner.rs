@@ -319,47 +319,295 @@ impl JoomlaScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
-        let config_paths = vec![
-            "/configuration.php~",
-            "/configuration.php.bak",
-            "/configuration.php.old",
+        // Each entry is (path, signatures, severity, label).
+        //
+        // Signatures are intentionally Joomla-specific PHP property names or
+        // INI keys. A 200-OK SPA shell cannot match these by accident because
+        // they only appear in real configuration / log files.
+        let config_targets: &[(&str, &[&str], Severity, &str)] = &[
+            // Backup variants of configuration.php (the database master config)
+            (
+                "/configuration.php~",
+                &["public $host", "public $user", "public $password", "public $db", "public $secret"],
+                Severity::Critical,
+                "Joomla configuration backup",
+            ),
+            (
+                "/configuration.php.bak",
+                &["public $host", "public $user", "public $password", "public $db", "public $secret"],
+                Severity::Critical,
+                "Joomla configuration backup",
+            ),
+            (
+                "/configuration.php.old",
+                &["public $host", "public $user", "public $password", "public $db"],
+                Severity::Critical,
+                "Joomla configuration backup",
+            ),
+            (
+                "/configuration.php.save",
+                &["public $host", "public $user", "public $password", "public $db"],
+                Severity::Critical,
+                "Joomla configuration backup",
+            ),
+            (
+                "/configuration.php.swp",
+                &["public $host", "public $password"],
+                Severity::Critical,
+                "Joomla vim swap file",
+            ),
+            (
+                "/configuration.bak.php",
+                &["public $host", "public $password"],
+                Severity::Critical,
+                "Joomla configuration backup",
+            ),
+            (
+                "/configuration.php_bak",
+                &["public $host", "public $password"],
+                Severity::Critical,
+                "Joomla configuration backup",
+            ),
+            (
+                "/configuration.txt",
+                &["public $host", "public $password"],
+                Severity::Critical,
+                "Joomla configuration as text",
+            ),
+            // Per-environment configuration files used by some setups
+            (
+                "/configuration.dev.php",
+                &["public $host", "public $password"],
+                Severity::Critical,
+                "Joomla dev configuration",
+            ),
+            (
+                "/configuration.local.php",
+                &["public $host", "public $password"],
+                Severity::Critical,
+                "Joomla local configuration",
+            ),
+            (
+                "/configuration.staging.php",
+                &["public $host", "public $password"],
+                Severity::Critical,
+                "Joomla staging configuration",
+            ),
+            // .htaccess / htpasswd backups - common admin-protection bypass surface
+            (
+                "/.htaccess.bak",
+                &["RewriteEngine", "RewriteRule", "<IfModule mod_rewrite"],
+                Severity::Medium,
+                ".htaccess backup",
+            ),
+            (
+                "/.htaccess.txt",
+                &["RewriteEngine", "RewriteRule"],
+                Severity::Medium,
+                ".htaccess as text",
+            ),
+            (
+                "/htaccess.txt",
+                &["RewriteEngine", "RewriteRule", "## Joomla"],
+                Severity::Low,
+                "Default Joomla htaccess template",
+            ),
+            (
+                "/administrator/.htpasswd",
+                &[":$apr1$", ":$2y$", ":$1$"],
+                Severity::Critical,
+                "Admin htpasswd file",
+            ),
+            // Debug / error logs - Joomla writes SQL queries, file paths and
+            // stack traces here. PHP error log can include passed credentials.
+            (
+                "/administrator/logs/error.php",
+                &["#<?php die('Forbidden.');", "#Date:", "#Software:"],
+                Severity::High,
+                "Joomla error log",
+            ),
+            (
+                "/administrator/logs/error_log",
+                &["PHP Notice", "PHP Warning", "PHP Fatal error", "JDatabaseException"],
+                Severity::High,
+                "Joomla error log",
+            ),
+            (
+                "/administrator/logs/everything.php",
+                &["#<?php die('Forbidden.');", "#Date:"],
+                Severity::High,
+                "Joomla full log",
+            ),
+            (
+                "/logs/error.php",
+                &["#<?php die('Forbidden.');", "#Date:"],
+                Severity::High,
+                "Joomla error log",
+            ),
+            (
+                "/logs/everything.php",
+                &["#<?php die('Forbidden.');", "#Date:"],
+                Severity::High,
+                "Joomla full log",
+            ),
+            (
+                "/error_log",
+                &["PHP Notice", "PHP Warning", "PHP Fatal error"],
+                Severity::Medium,
+                "PHP error log",
+            ),
+            // Database / migration dumps left in webroot
+            (
+                "/database.sql",
+                &["INSERT INTO `jos_", "INSERT INTO `#__", "CREATE TABLE `jos_", "CREATE TABLE `#__"],
+                Severity::Critical,
+                "Database SQL dump",
+            ),
+            (
+                "/backup.sql",
+                &["INSERT INTO `jos_", "INSERT INTO `#__", "CREATE TABLE `#__"],
+                Severity::Critical,
+                "Database SQL dump",
+            ),
+            (
+                "/dump.sql",
+                &["INSERT INTO `jos_", "INSERT INTO `#__"],
+                Severity::Critical,
+                "Database SQL dump",
+            ),
+            (
+                "/site.sql",
+                &["INSERT INTO `#__", "CREATE TABLE `#__"],
+                Severity::Critical,
+                "Database SQL dump",
+            ),
+            // Akeeba Backup leftovers - kickstart.php is itself a serious risk
+            (
+                "/administrator/components/com_akeeba/backup/",
+                &["Index of /", "<title>Index of"],
+                Severity::Critical,
+                "Akeeba backup directory listing",
+            ),
+            (
+                "/kickstart.php",
+                &["Akeeba Kickstart", "akeebabackup.com"],
+                Severity::Critical,
+                "Akeeba Kickstart restore script",
+            ),
+            (
+                "/restore.php",
+                &["Akeeba", "encapsulation"],
+                Severity::Critical,
+                "Akeeba restore script",
+            ),
+            // Information disclosure files
+            (
+                "/README.txt",
+                &["Joomla! is free software", "1- What is this?"],
+                Severity::Info,
+                "Joomla README (version recon)",
+            ),
+            (
+                "/CHANGELOG.php",
+                &["Joomla", "<?php\ndefined('_JEXEC')"],
+                Severity::Info,
+                "Joomla CHANGELOG",
+            ),
+            (
+                "/administrator/manifests/files/joomla.xml",
+                &["<extension", "<version>"],
+                Severity::Info,
+                "Joomla version manifest",
+            ),
+            (
+                "/language/en-GB/en-GB.xml",
+                &["<metadata>", "<version>"],
+                Severity::Info,
+                "Joomla language manifest",
+            ),
+            // .env / build/CI artifacts
+            (
+                "/.env",
+                &["DB_HOST=", "DB_PASSWORD=", "APP_KEY="],
+                Severity::Critical,
+                ".env file",
+            ),
+            (
+                "/.env.local",
+                &["DB_HOST=", "DB_PASSWORD="],
+                Severity::Critical,
+                ".env.local file",
+            ),
+            (
+                "/.git/config",
+                &["[core]", "[remote \"origin\"]"],
+                Severity::High,
+                ".git config",
+            ),
+            (
+                "/.git/HEAD",
+                &["ref: refs/heads/"],
+                Severity::High,
+                ".git HEAD",
+            ),
         ];
 
-        for path in config_paths {
+        for (path, signatures, severity, label) in config_targets {
             let url = format!("{}{}", target, path);
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200
-                    && (response.body.contains("$host")
-                        || response.body.contains("$db")
-                        || response.body.contains("$password"))
-                {
-                    vulnerabilities.push(Vulnerability {
-                        id: generate_vuln_id(),
-                        vuln_type: "Information Disclosure".to_string(),
-                        severity: Severity::Critical,
-                        confidence: Confidence::High,
-                        category: "CMS Security".to_string(),
-                        url: url.clone(),
-                        parameter: None,
-                        payload: path.to_string(),
-                        description: format!("Joomla configuration backup file exposed: {}", path),
-                        evidence: Some(
-                            "Configuration file contains database credentials".to_string(),
-                        ),
-                        cwe: "CWE-538".to_string(),
-                        cvss: 9.1,
-                        verified: true,
-                        false_positive: false,
-                        remediation:
-                            "Remove backup configuration files from web-accessible directories"
-                                .to_string(),
-                        discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_confidence: None,
-                ml_data: None,
-                    });
+                if response.status_code != 200 {
+                    continue;
                 }
+                let hits = signatures
+                    .iter()
+                    .filter(|s| response.body.contains(*s))
+                    .count();
+                // Require >=2 distinct signature hits (or the only signature
+                // when there's just one) to keep this strictly false-positive-free.
+                let validated = if signatures.len() == 1 {
+                    hits == 1
+                } else {
+                    hits >= 2
+                };
+                if !validated {
+                    continue;
+                }
+
+                let cvss = match severity {
+                    Severity::Critical => 9.1,
+                    Severity::High => 7.5,
+                    Severity::Medium => 5.3,
+                    Severity::Low => 3.7,
+                    _ => 2.0,
+                };
+
+                vulnerabilities.push(Vulnerability {
+                    id: generate_vuln_id(),
+                    vuln_type: "Information Disclosure".to_string(),
+                    severity: severity.clone(),
+                    confidence: Confidence::High,
+                    category: "CMS Security".to_string(),
+                    url: url.clone(),
+                    parameter: None,
+                    payload: path.to_string(),
+                    description: format!("{} exposed: {}", label, path),
+                    evidence: Some(format!(
+                        "{} matched {} signature hit(s)",
+                        path, hits
+                    )),
+                    cwe: "CWE-538".to_string(),
+                    cvss,
+                    verified: true,
+                    false_positive: false,
+                    remediation:
+                        "Remove backup, log, dump and CI artifact files from web-accessible directories. Block /.git, /.env, /administrator/logs and *.sql at the web server."
+                            .to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                    ml_confidence: None,
+                    ml_data: None,
+                });
             }
         }
 

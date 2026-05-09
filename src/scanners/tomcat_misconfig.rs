@@ -116,11 +116,31 @@ impl TomcatMisconfigScanner {
         tests_run += 1;
         let manager_paths = vec![
             "/manager/html",
+            "/manager/html/",
             "/manager/status",
+            "/manager/status/all",
             "/manager/text",
+            "/manager/text/list",
+            "/manager/text/serverinfo",
+            "/manager/text/sessions",
+            "/manager/text/threaddump",
+            "/manager/jmxproxy",
+            "/manager/jmxproxy/?qry=Catalina:type=Manager,context=/manager,host=localhost",
             "/host-manager/html",
+            "/host-manager/html/",
+            "/host-manager/text",
+            "/host-manager/text/list",
             "/admin/",
+            "/admin/html",
+            "/admin/html/",
             "/tomcat-admin/",
+            "/tomcat/manager/html",
+            "/tomcat/manager/status",
+            // Common reverse-proxy mount points
+            "/tomcat-manager/",
+            "/manager/",
+            "/web-console/",
+            "/jmx-console/",
         ];
 
         for path in &manager_paths {
@@ -132,11 +152,26 @@ impl TomcatMisconfigScanner {
                     let body_lower = response.body.to_lowercase();
 
                     // Check for manager login page or accessible manager
-                    // Require Tomcat-specific content, not generic "401 unauthorized" text
+                    // Require Tomcat-specific content, not generic "401 unauthorized" text.
+                    // /manager/jmxproxy and /manager/text/* return plain-text 200 with
+                    // very specific MBean / "OK -" prefixes that uniquely identify them.
                     let is_manager = body_lower.contains("tomcat web application manager")
                         || body_lower.contains("tomcat virtual host manager")
                         || body_lower.contains("manager-gui")
-                        || (response.status_code == 401 && body_lower.contains("tomcat"));
+                        || body_lower.starts_with("ok - listed applications")
+                        || body_lower.starts_with("ok - server info")
+                        || body_lower.starts_with("ok - listed sessions")
+                        || body_lower.starts_with("ok - listed virtual hosts")
+                        || (path.contains("/jmxproxy") && body_lower.contains("name=catalina:"))
+                        || (path.contains("/threaddump") && body_lower.contains("at org.apache.catalina"))
+                        || (response.status_code == 401 && body_lower.contains("tomcat"))
+                        || (response.status_code == 401
+                            && response
+                                .headers
+                                .get("www-authenticate")
+                                .or_else(|| response.headers.get("WWW-Authenticate"))
+                                .map(|v| v.to_lowercase().contains("tomcat manager"))
+                                .unwrap_or(false));
 
                     if is_manager {
                         let severity = if response.status_code == 200 {
@@ -279,6 +314,200 @@ impl TomcatMisconfigScanner {
                 }
                 Err(e) => {
                     debug!("Version check failed for {}: {}", version_url, e);
+                }
+            }
+        }
+
+        // Test 4b: Psi-Probe (Lambda Probe) - third-party Tomcat admin tool
+        // that exposes datasource passwords, app deployment, and JVM controls
+        // *without* the Tomcat-manager role check. High-impact when found.
+        tests_run += 1;
+        let probe_paths = vec![
+            "/probe/",
+            "/probe/index.htm",
+            "/probe/sessions.htm",
+            "/probe/datasources.htm",
+            "/probe/system.htm",
+            "/probe/connectors.htm",
+            "/probe/threads.htm",
+            "/probe/deploy.htm",
+            "/lambdaprobe/",
+            "/lambdaprobe/index.htm",
+        ];
+        for path in &probe_paths {
+            tests_run += 1;
+            let probe_url = format!("{}{}", url.trim_end_matches('/'), path);
+            if let Ok(response) = self.http_client.get(&probe_url).await {
+                if response.status_code == 200 {
+                    let body_lower = response.body.to_lowercase();
+                    // Probe-specific markers: page title and copyright string.
+                    // These are unique enough that a generic SPA shell cannot
+                    // match them by accident.
+                    let is_probe = body_lower.contains("psi-probe")
+                        || body_lower.contains("psi probe")
+                        || body_lower.contains("lambda probe")
+                        || body_lower.contains("href=\"sessions.htm\"")
+                            && body_lower.contains("href=\"datasources.htm\"");
+                    if is_probe {
+                        info!("Psi-Probe / Lambda Probe interface accessible at {}", probe_url);
+                        vulnerabilities.push(self.create_vulnerability(
+                            &probe_url,
+                            "TOMCAT_PSI_PROBE_EXPOSED",
+                            "Psi-Probe / Lambda Probe Tomcat Admin Interface Exposed",
+                            &format!(
+                                "Psi-Probe accessible. Path: {}\nThis tool exposes datasource passwords, JVM internals, app deploy/redeploy, and request tracing.",
+                                path
+                            ),
+                            Severity::Critical,
+                            Confidence::High,
+                            9.1,
+                            "1. Restrict /probe to internal networks via reverse proxy or firewall\n\
+                             2. Configure Psi-Probe security in WEB-INF/web.xml with strong credentials\n\
+                             3. Remove Psi-Probe entirely from production deployments\n\
+                             4. Place behind VPN or zero-trust gateway",
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Test 4c: Apache server-status / server-info (mod_status front-fronting Tomcat)
+        // Often forgotten on Apache reverse proxies that sit in front of Tomcat.
+        tests_run += 1;
+        let status_paths = vec![
+            "/server-status",
+            "/server-info",
+            "/status",
+            "/balancer-manager",
+        ];
+        for path in &status_paths {
+            tests_run += 1;
+            let status_url = format!("{}{}", url.trim_end_matches('/'), path);
+            if let Ok(response) = self.http_client.get(&status_url).await {
+                if response.status_code == 200 {
+                    let body = &response.body;
+                    let body_lower = body.to_lowercase();
+                    let is_server_status = match *path {
+                        "/server-status" => body_lower.contains("apache server status")
+                            || (body_lower.contains("server uptime")
+                                && body_lower.contains("requests currently")),
+                        "/server-info" => body_lower.contains("apache server information")
+                            || body_lower.contains("server settings"),
+                        "/status" => body_lower.contains("worker proxy:balancer")
+                            || body_lower.contains("apache server status"),
+                        "/balancer-manager" => body_lower.contains("load balancer manager")
+                            || body_lower.contains("balancer://"),
+                        _ => false,
+                    };
+                    if is_server_status {
+                        info!("Apache mod_status endpoint accessible at {}", status_url);
+                        vulnerabilities.push(self.create_vulnerability(
+                            &status_url,
+                            "APACHE_SERVER_STATUS_EXPOSED",
+                            &format!("Apache {} Endpoint Publicly Accessible", path),
+                            &format!(
+                                "{} discloses server internals (active workers, request URIs, vhosts).\nPath: {}",
+                                path, path
+                            ),
+                            Severity::Medium,
+                            Confidence::High,
+                            5.3,
+                            "1. Restrict access in httpd.conf:\n\
+                                <Location /server-status>\n\
+                                    SetHandler server-status\n\
+                                    Require ip 127.0.0.1\n\
+                                </Location>\n\
+                             2. Disable mod_status on the public vhost\n\
+                             3. Block at reverse proxy / WAF",
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Test 4d: WEB-INF / META-INF file disclosure
+        // Tomcat normally blocks /WEB-INF/* with 404, but reverse-proxy
+        // misconfigurations frequently expose these files. web.xml and
+        // context.xml routinely contain datasource passwords and admin creds.
+        tests_run += 1;
+        let webinf_paths: &[(&str, &[&str])] = &[
+            ("/WEB-INF/web.xml", &["<web-app", "<servlet-class>", "<filter-class>"]),
+            ("/WEB-INF/web.xml.bak", &["<web-app", "<servlet-class>"]),
+            ("/WEB-INF/web.xml.old", &["<web-app", "<servlet-class>"]),
+            ("/WEB-INF/web.xml~", &["<web-app", "<servlet-class>"]),
+            ("/WEB-INF/classes/application.properties", &["spring.datasource.", "server.port="]),
+            ("/WEB-INF/classes/application.yml", &["spring:", "datasource:"]),
+            ("/WEB-INF/classes/log4j.properties", &["log4j.rootLogger", "log4j.appender."]),
+            ("/WEB-INF/classes/log4j2.xml", &["<Configuration", "<Appenders>"]),
+            ("/WEB-INF/classes/logback.xml", &["<configuration", "<appender"]),
+            ("/WEB-INF/classes/hibernate.cfg.xml", &["<hibernate-configuration>", "<session-factory>"]),
+            ("/WEB-INF/classes/struts.xml", &["<struts>", "<package "]),
+            ("/WEB-INF/spring-config.xml", &["<beans", "http://www.springframework.org/schema/beans"]),
+            ("/WEB-INF/applicationContext.xml", &["<beans", "http://www.springframework.org/schema/beans"]),
+            ("/META-INF/context.xml", &["<Context", "<Resource ", "auth=\"Container\""]),
+            ("/META-INF/MANIFEST.MF", &["Manifest-Version:", "Implementation-"]),
+            ("/META-INF/persistence.xml", &["<persistence-unit", "javax.persistence"]),
+            ("/META-INF/tomcat-users.xml", &["<tomcat-users>", "<user "]),
+            ("/conf/tomcat-users.xml", &["<tomcat-users>", "<user "]),
+            ("/conf/server.xml", &["<Server ", "<Service ", "<Connector "]),
+            ("/conf/web.xml", &["<web-app", "<servlet-class>"]),
+            ("/conf/catalina.properties", &["common.loader=", "shared.loader="]),
+            // Catalina log files that often live in /logs/ when staticly served
+            ("/logs/catalina.out", &["org.apache.catalina", "INFO ["]),
+            ("/logs/localhost.log", &["org.apache.catalina"]),
+            ("/logs/manager.log", &["org.apache.catalina.core"]),
+            // Source disclosure via JSP suffix tricks
+            ("/index.jsp.bak", &["<%@", "<jsp:"]),
+            ("/index.jsp~", &["<%@", "<jsp:"]),
+        ];
+        for (path, signatures) in webinf_paths {
+            tests_run += 1;
+            let webinf_url = format!("{}{}", url.trim_end_matches('/'), path);
+            if let Ok(response) = self.http_client.get(&webinf_url).await {
+                if response.status_code == 200 {
+                    // Require at least two of the path-specific signatures so
+                    // a 200 SPA shell cannot match.
+                    let hits = signatures
+                        .iter()
+                        .filter(|sig| response.body.contains(*sig))
+                        .count();
+                    if hits >= 2 || (signatures.len() == 1 && hits == 1) {
+                        // Severity escalates if the file is known to carry
+                        // credentials.
+                        let has_creds = response.body.contains("password")
+                            || response.body.contains("Password")
+                            || response.body.contains("PASSWORD")
+                            || response.body.contains("auth=\"Container\"")
+                            || response.body.contains("connectionURL")
+                            || response.body.contains("jdbc:");
+                        let severity = if has_creds {
+                            Severity::Critical
+                        } else {
+                            Severity::High
+                        };
+                        let cvss = if has_creds { 9.1 } else { 7.5 };
+                        info!("Tomcat sensitive file exposed: {}", webinf_url);
+                        vulnerabilities.push(self.create_vulnerability(
+                            &webinf_url,
+                            "TOMCAT_SENSITIVE_FILE_EXPOSED",
+                            &format!("Tomcat Sensitive File Exposed: {}", path),
+                            &format!(
+                                "Internal Tomcat configuration file is web-accessible.\nPath: {}\nContains credentials: {}",
+                                path, has_creds
+                            ),
+                            severity,
+                            Confidence::High,
+                            cvss,
+                            "1. Block /WEB-INF/* and /META-INF/* at the reverse proxy:\n\
+                                location ~ ^/(WEB-INF|META-INF)/ { return 404; }\n\
+                             2. Remove .bak/.old/~ backup files from production webapps\n\
+                             3. Verify Tomcat's default deny on these paths is not bypassed by URL normalization\n\
+                             4. Rotate any credentials that may have been exposed",
+                        ));
+                        break;
+                    }
                 }
             }
         }
