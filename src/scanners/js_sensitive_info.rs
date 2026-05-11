@@ -1221,6 +1221,150 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // ---------- Vendor-prefixed tokens added below ----------
+                // Each entry below uses a unique, vendor-issued prefix plus
+                // a strict length anchor matching the live token format. A
+                // false positive would require the bundle to coincidentally
+                // contain exactly that prefix followed by exactly that many
+                // base62/hex characters - essentially impossible outside a
+                // real leak.
+                //
+                // HuggingFace user access token - always "hf_" + 34 chars
+                CompiledPattern {
+                    name: "HuggingFace User Access Token".to_string(),
+                    regex: Regex::new(r#"\bhf_[A-Za-z0-9]{34}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HuggingFace user access token - read/write access to private models, datasets and inference billing"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Replicate API token - "r8_" + 40 alphanumerics
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"\br8_[A-Za-z0-9]{40}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token - bills against the owner's GPU credits"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Tailscale auth/API/OAuth keys - "tskey-" + role + node tag + 32+ chars
+                CompiledPattern {
+                    name: "Tailscale Auth Key".to_string(),
+                    regex: Regex::new(
+                        r#"\btskey-(?:auth|api|client|oauth)-[A-Za-z0-9]{4,}-[A-Za-z0-9]{32,}\b"#,
+                    )
+                    .unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale auth/API key - grants network membership in the owner's tailnet"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe webhook signing secret - "whsec_" + 32+ base62
+                CompiledPattern {
+                    name: "Stripe Webhook Signing Secret".to_string(),
+                    regex: Regex::new(r#"\bwhsec_[A-Za-z0-9]{32,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Stripe webhook signing secret - allows forging Stripe webhook events to the application"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe restricted key - "rk_(live|test)_" + 24+ base62
+                CompiledPattern {
+                    name: "Stripe Restricted Key".to_string(),
+                    regex: Regex::new(r#"\brk_(?:live|test)_[A-Za-z0-9]{24,}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Stripe restricted API key - scoped Stripe API access, scope depends on key configuration"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adafruit IO key - "aio_" + 28 base62
+                CompiledPattern {
+                    name: "Adafruit IO Key".to_string(),
+                    regex: Regex::new(r#"\baio_[A-Za-z0-9]{28}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Adafruit IO API key - full feed read/write on the owner's IoT account"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Slack legacy/OAuth tokens (bot/user/admin/refresh/setup)
+                // xox[baprs]- + three numeric segments + 24+ token chars
+                CompiledPattern {
+                    name: "Slack OAuth Token (xox*)".to_string(),
+                    regex: Regex::new(
+                        r#"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,34}\b"#,
+                    )
+                    .unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack workspace OAuth token (bot/user/admin/setup) - read/write access to Slack workspace"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Slack v2 OAuth refresh / external tokens - "xoxe.xox*-"
+                CompiledPattern {
+                    name: "Slack v2 Refresh Token".to_string(),
+                    regex: Regex::new(r#"\bxoxe(?:\.xox[bpa])?-[A-Za-z0-9-]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack v2 OAuth refresh token - can mint long-lived workspace tokens"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Slack app-level token - "xapp-" + numeric segment + app id + 64 hex
+                CompiledPattern {
+                    name: "Slack App-Level Token".to_string(),
+                    regex: Regex::new(
+                        r#"\bxapp-[0-9]-[A-Z0-9]{8,}-[0-9]{10,}-[a-f0-9]{64}\b"#,
+                    )
+                    .unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack app-level token - controls connection mode and event-API subscriptions"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord bot token - three base64url segments, anchored to a
+                // string-literal context to suppress minified-JS false hits
+                // where unrelated dotted identifiers happen to fit the shape.
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    regex: Regex::new(
+                        r#"["'`]([MN][A-Za-z0-9_-]{23,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,38})["'`]"#,
+                    )
+                    .unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token - full bot impersonation in the owner's server set"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // HashiCorp Vault batch token - "hvb." + 60+ base64url
+                // (service tokens use the existing "hvs." pattern above)
+                CompiledPattern {
+                    name: "HashiCorp Vault Batch Token".to_string(),
+                    regex: Regex::new(r#"\bhvb\.[A-Za-z0-9_-]{60,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HashiCorp Vault batch token - direct secret-engine access for as long as the lease lives"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub server-to-server / refresh token - "ghr_" + 36+ base62
+                CompiledPattern {
+                    name: "GitHub Refresh Token".to_string(),
+                    regex: Regex::new(r#"\bghr_[A-Za-z0-9]{36,}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub server-to-server refresh token - can be exchanged for live access tokens"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub fine-grained PAT - "github_pat_" + 22 + "_" + 59
+                CompiledPattern {
+                    name: "GitHub Fine-Grained PAT".to_string(),
+                    regex: Regex::new(
+                        r#"\bgithub_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}\b"#,
+                    )
+                    .unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub fine-grained personal access token - scoped repo access"
+                        .to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {

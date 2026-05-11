@@ -113,14 +113,44 @@ impl TomcatMisconfigScanner {
         }
 
         // Test 2: Tomcat Manager Interface Exposure
+        //
+        // Defenders frequently restrict /manager/* via a reverse-proxy ACL on
+        // the literal prefix. The variants below abuse common proxy parsing
+        // quirks (path parameters, double-slashes, mixed case, URL-encoded
+        // separators) that bypass the ACL but still reach Tomcat's mapper.
+        // Each remains harmless when no manager app is deployed - we only flag
+        // when the response body contains a Tomcat-specific manager string.
         tests_run += 1;
         let manager_paths = vec![
             "/manager/html",
             "/manager/status",
+            "/manager/status/all",
             "/manager/text",
+            "/manager/text/list",
+            "/manager/jmxproxy",
+            "/manager/jmxproxy/?get=Catalina:type=Server&att=serverInfo",
             "/host-manager/html",
+            "/host-manager/text",
             "/admin/",
             "/tomcat-admin/",
+            // Path-parameter (RFC 3986 ;) proxy-bypass variants
+            "/manager;name=foo/html",
+            "/manager/;name=foo/html",
+            "/host-manager;name=foo/html",
+            "/manager/html;jsessionid=x",
+            // Double-slash and trailing-dot proxy-normalisation bypasses
+            "//manager/html",
+            "/./manager/html",
+            "/manager//html",
+            "/manager/html/",
+            "/manager/html.",
+            // Case variants - Tomcat's mapper is case-sensitive on Linux but
+            // some reverse-proxy ACLs lowercase the path before matching.
+            "/Manager/Html",
+            "/MANAGER/HTML",
+            // URL-encoded separators - some WAFs only match the decoded path
+            "/manager%2fhtml",
+            "/manager/%2e%2e/manager/html",
         ];
 
         for path in &manager_paths {
@@ -283,7 +313,118 @@ impl TomcatMisconfigScanner {
             }
         }
 
-        // Test 5: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
+        // Test 5: Tomcat-specific sensitive file exposure
+        //
+        // These are static files that should never be reachable over HTTP.
+        // We require a unique-to-Tomcat content anchor before reporting, so a
+        // generic 200 OK landing page on a non-Tomcat host cannot trigger.
+        let sensitive_files: &[(&str, &[&str], &str)] = &[
+            (
+                "/WEB-INF/web.xml",
+                &["<web-app", "javax.servlet", "jakarta.servlet", "<servlet-name>"],
+                "Servlet deployment descriptor with route map and security constraints",
+            ),
+            (
+                "/WEB-INF/classes/application.properties",
+                &["spring.datasource", "jdbc:", "spring.profiles"],
+                "Embedded Spring application properties inside WEB-INF",
+            ),
+            (
+                "/WEB-INF/classes/application.yml",
+                &["spring:", "datasource:", "jdbc:"],
+                "Embedded Spring application YAML inside WEB-INF",
+            ),
+            (
+                "/WEB-INF/classes/log4j.properties",
+                &["log4j.rootLogger", "log4j.appender"],
+                "Log4j configuration with potential credentials",
+            ),
+            (
+                "/WEB-INF/classes/log4j2.xml",
+                &["<Configuration", "<Loggers", "<Appenders"],
+                "Log4j2 configuration",
+            ),
+            (
+                "/META-INF/context.xml",
+                &["<Context", "<Resource", "<Realm"],
+                "Tomcat per-application Context descriptor (often contains JDBC Resource with password)",
+            ),
+            (
+                "/META-INF/MANIFEST.MF",
+                &["Manifest-Version:", "Implementation-Title:", "Bundle-SymbolicName:"],
+                "JAR manifest exposing artifact/version metadata",
+            ),
+            (
+                "/conf/server.xml",
+                &["<Server", "<Service", "<Connector"],
+                "Tomcat server.xml with connector and AJP configuration",
+            ),
+            (
+                "/conf/tomcat-users.xml",
+                &["<tomcat-users", "<user username=", "manager-gui", "manager-script"],
+                "Tomcat user database with manager credentials (immediate manager access)",
+            ),
+            (
+                "/conf/web.xml",
+                &["<web-app", "<welcome-file-list", "<mime-mapping"],
+                "Tomcat global web.xml",
+            ),
+            (
+                "/conf/catalina.policy",
+                &["grant codeBase", "java.security.AllPermission"],
+                "Tomcat catalina.policy security policy",
+            ),
+            (
+                "/logs/catalina.out",
+                &["org.apache.catalina", "INFO [main]", "Server startup in"],
+                "Tomcat catalina.out log - frequently contains stack traces and tokens",
+            ),
+        ];
+
+        for (path, anchors, label) in sensitive_files {
+            tests_run += 1;
+            let file_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            if let Ok(response) = self.http_client.get(&file_url).await {
+                if response.status_code == 200
+                    && anchors.iter().any(|a| response.body.contains(a))
+                {
+                    let severity = if path.contains("tomcat-users") || path.contains("context.xml")
+                    {
+                        Severity::Critical
+                    } else if path.contains("server.xml")
+                        || path.contains("application.properties")
+                        || path.contains("application.yml")
+                        || path.contains("catalina.out")
+                    {
+                        Severity::High
+                    } else {
+                        Severity::Medium
+                    };
+                    let cvss = match severity {
+                        Severity::Critical => 9.1,
+                        Severity::High => 7.5,
+                        _ => 5.3,
+                    };
+
+                    vulnerabilities.push(self.create_vulnerability(
+                        &file_url,
+                        "TOMCAT_SENSITIVE_FILE_EXPOSED",
+                        &format!("Sensitive Tomcat file exposed: {}", path),
+                        &format!("{}. Path: {}", label, path),
+                        severity,
+                        Confidence::High,
+                        cvss,
+                        "1. Block /WEB-INF, /META-INF, /conf and /logs in the reverse proxy\n\
+                         2. Ensure DefaultServlet has readonly=\"true\" and that static-file\n   serving is rooted at the webapp ROOT, not at $CATALINA_HOME\n\
+                         3. Rotate any credentials disclosed in the exposed file\n\
+                         4. Audit nginx/Apache `alias`/`root` directives for /-prefix mistakes",
+                    ));
+                }
+            }
+        }
+
+        // Test 6: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
         tests_run += 1;
         // This is a network-level check, we can only detect via headers or info disclosure
         match self.http_client.get(url).await {
