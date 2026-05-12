@@ -49,41 +49,158 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI / Swagger / GraphQL specs are served.
+///
+/// Discovering a spec is high-impact recon: it enumerates every documented
+/// endpoint, frequently leaks staging/internal servers in the `servers:` list,
+/// and exposes parameter names that drive downstream fuzzing. All paths below
+/// are deterministic defaults of mainstream frameworks/SDKs, so probing them
+/// does not blow up the request budget and cannot false-positive on its own —
+/// the response is parsed as JSON/YAML and the OpenAPI shape is validated
+/// before any finding is created.
 const OPENAPI_PATHS: &[&str] = &[
+    // Generic root locations
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
     "/api-docs.json",
-    "/swagger/v1/swagger.json",
-    "/swagger/v2/swagger.json",
-    "/swagger/v3/swagger.json",
-    "/v1/swagger.json",
-    "/v2/swagger.json",
-    "/v3/swagger.json",
+    "/api/docs.json",
     "/api/swagger.json",
     "/api/openapi.json",
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
     "/openapi.yaml",
+    "/openapi.yml",
     "/swagger.yaml",
+    "/swagger.yml",
     "/api-docs.yaml",
+    "/api-docs.yml",
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    // Version-pinned variants
+    "/swagger/v1/swagger.json",
+    "/swagger/v2/swagger.json",
+    "/swagger/v3/swagger.json",
+    "/swagger/v4/swagger.json",
+    "/v1/swagger.json",
+    "/v2/swagger.json",
+    "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/openapi/v3/api-docs",
+    // Springfox / springdoc-openapi (Spring Boot)
+    "/v2/api-docs?group=full",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v3/api-docs",
+    "/api/v3/api-docs.yaml",
+    // ASP.NET Core (Swashbuckle / NSwag default)
+    "/swagger/v1/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // FastAPI / Starlette
+    "/openapi.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/openapi.json",
+    // NestJS (Swagger module) defaults
+    "/api-json",
+    "/api/api-json",
+    "/api-yaml",
+    "/api/api-yaml",
+    // tsoa / express-openapi defaults
+    "/swagger.json",
+    "/api-docs/swagger.json",
+    // GraphQL schema / SDL endpoints (also part of OpenAPI surface in many APIs)
+    "/graphql/schema.json",
+    "/graphql/schema.graphql",
+    "/api/graphql/schema",
+    "/_graphql/schema",
+    // Strapi, Directus, Hasura, Supabase admin specs
+    "/documentation/v1.0.0/full_documentation.json",
+    "/admin/swagger.json",
+    "/admin/openapi.json",
+    "/v1/__introspection",
+    "/rest/v1/",
+    // Postman / Stoplight / API blueprint
+    "/postman/collection.json",
+    "/collection.json",
+    "/blueprint.apib",
+    "/apidocs.json",
+    "/apidocs/openapi.json",
+    // Common backend admin frameworks
+    "/actuator/openapi",
+    "/management/openapi",
+    "/spec.json",
+    "/spec.yaml",
+    "/_spec/openapi.json",
+    "/internal/openapi.json",
+    "/internal/swagger.json",
+    // Public reverse-proxy / API gateway publishing paths
+    "/gateway/openapi.json",
+    "/edge/openapi.json",
+    "/api/openapi.yaml",
+    "/api/openapi.yml",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API explorer paths. Discovery of an exposed UI usually
+/// means the underlying JSON spec is reachable too (UIs default-load it from
+/// the same origin) — the finding is high signal for further enumeration.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger/",
+    "/api/swagger-ui/",
+    // Generic doc roots
     "/docs/",
+    "/docs",
+    "/documentation/",
     "/api-docs/",
     "/api/docs",
+    "/api/documentation",
+    // ReDoc
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/docs/redoc",
+    // RapiDoc, Stoplight Elements, Scalar
     "/rapidoc",
+    "/rapidoc.html",
+    "/elements",
+    "/elements/",
+    "/scalar",
+    "/scalar/",
+    "/reference",
+    "/reference/",
+    // GraphiQL / GraphQL Playground / Apollo Sandbox
+    "/graphiql",
+    "/graphql/playground",
+    "/graphql-playground",
+    "/playground",
+    "/apollo/sandbox",
+    "/altair",
+    "/voyager",
+    // Hasura / Supabase / pgREST admin consoles
+    "/console",
+    "/console/",
+    "/admin/api/explorer",
+    // ASP.NET / NSwag
+    "/swagger/ui",
+    "/swagger/ui/index",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
