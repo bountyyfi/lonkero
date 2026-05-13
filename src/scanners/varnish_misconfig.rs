@@ -344,7 +344,164 @@ impl VarnishMisconfigScanner {
             debug!("No caching proxy detected, skipping cache poisoning tests");
         }
 
-        // Test 5: OPTIONS method to discover allowed methods
+        // Test 5b: Exposed Varnish status / stats / admin endpoints.
+        //
+        // Some operators front varnishadm/varnishstat with a tiny HTTP shim or
+        // proxy them via a separate path. These pages reveal backend addresses,
+        // cache hit rates, and sometimes the full VCL. We require Varnish-specific
+        // content markers so the check doesn't fire on unrelated 200 pages.
+        tests_run += 1;
+        let varnish_admin_paths: &[(&str, &[&str], &str, Severity, f32)] = &[
+            (
+                "/varnish_status",
+                &["client_req", "cache_hit"],
+                "Varnish stats page (varnishstat output)",
+                Severity::Medium,
+                5.3,
+            ),
+            (
+                "/varnish-status",
+                &["client_req", "cache_hit"],
+                "Varnish stats page (varnishstat output)",
+                Severity::Medium,
+                5.3,
+            ),
+            (
+                "/varnish/stats",
+                &["client_req", "cache_hit"],
+                "Varnish stats page (varnishstat output)",
+                Severity::Medium,
+                5.3,
+            ),
+            (
+                "/_varnish/admin",
+                &["vcl.list", "backend.list"],
+                "Varnish admin interface (varnishadm)",
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/varnish/vcl",
+                &["sub vcl_recv", "sub vcl_deliver"],
+                "Exposed Varnish VCL (configuration source)",
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/varnish.log",
+                &["VCL_call", "ReqURL"],
+                "Exposed varnishncsa/varnishlog output",
+                Severity::Medium,
+                5.3,
+            ),
+        ];
+
+        for (path, markers, label, severity, cvss) in varnish_admin_paths {
+            tests_run += 1;
+            let admin_url = format!("{}{}", url.trim_end_matches('/'), path);
+            if let Ok(response) = self.http_client.get(&admin_url).await {
+                if response.status_code == 200
+                    && markers.iter().all(|m| response.body.contains(m))
+                {
+                    info!("Varnish admin/status surface exposed at {}", admin_url);
+                    vulnerabilities.push(self.create_vulnerability(
+                        &admin_url,
+                        "VARNISH_ADMIN_INTERFACE_EXPOSED",
+                        &format!("Varnish Admin/Status Surface Exposed: {}", label),
+                        &format!(
+                            "Path {} returns Varnish-specific content (markers: {:?}).\n\
+                             This leaks cache stats, backend definitions, or the full VCL — \n\
+                             attackers use this to map internal services and identify cacheable \n\
+                             endpoints to poison.",
+                            path, markers
+                        ),
+                        severity.clone(),
+                        Confidence::High,
+                        *cvss,
+                        "1. Restrict /varnish* status/admin paths to internal IPs in your fronting\n\
+                            reverse proxy. Varnish itself does not normally serve these — they're\n\
+                            shimmed by a sidecar that should require auth.\n\
+                         2. Do not expose the VCL source over HTTP; treat it as configuration\n\
+                            with the same sensitivity as nginx.conf.\n\
+                         3. Audit access logs for prior reads of these paths.",
+                    ));
+                }
+            }
+        }
+
+        // Test 5c: Backend server header leak — Varnish in pass-through mode often
+        // reveals the origin's Server header in a Backend-Server / X-Backend-Server
+        // header, exposing internal hostnames/IPs.
+        tests_run += 1;
+        if let Ok(response) = self.http_client.get(url).await {
+            let backend_header = response
+                .headers
+                .get("x-backend-server")
+                .or_else(|| response.headers.get("X-Backend-Server"))
+                .or_else(|| response.headers.get("x-served-by"))
+                .or_else(|| response.headers.get("X-Served-By"))
+                .or_else(|| response.headers.get("x-varnish-backend"))
+                .or_else(|| response.headers.get("X-Varnish-Backend"));
+
+            // Confirm Varnish is in play before treating this as a Varnish-specific leak
+            let is_varnish_response = response.headers.contains_key("x-varnish")
+                || response.headers.contains_key("X-Varnish")
+                || response
+                    .headers
+                    .get("via")
+                    .map(|v| v.to_lowercase().contains("varnish"))
+                    .unwrap_or(false)
+                || response
+                    .headers
+                    .get("Via")
+                    .map(|v| v.to_lowercase().contains("varnish"))
+                    .unwrap_or(false);
+
+            if is_varnish_response {
+                if let Some(backend) = backend_header {
+                    // Heuristic: only flag when the value clearly identifies an internal
+                    // host (RFC1918 IP / .local / .internal / .lan / hostname-looking token).
+                    let looks_internal = backend.contains(".local")
+                        || backend.contains(".internal")
+                        || backend.contains(".lan")
+                        || backend.contains(".intranet")
+                        || regex::Regex::new(
+                            r"\b(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)\b",
+                        )
+                        .ok()
+                        .map(|re| re.is_match(backend))
+                        .unwrap_or(false);
+
+                    if looks_internal {
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "VARNISH_BACKEND_LEAK",
+                            "Varnish Backend Identity Leaked via Response Header",
+                            &format!(
+                                "Varnish is exposing the internal origin server identity in a response header.\nHeader value: {}\nThis aids attackers in pivoting toward the origin and bypassing CDN-level WAFs.",
+                                backend
+                            ),
+                            Severity::Medium,
+                            Confidence::High,
+                            4.3,
+                            "1. Strip backend-identifying headers in vcl_deliver:\n\
+                                sub vcl_deliver {\n\
+                                    unset resp.http.X-Backend-Server;\n\
+                                    unset resp.http.X-Served-By;\n\
+                                    unset resp.http.X-Varnish-Backend;\n\
+                                    unset resp.http.Server;\n\
+                                }\n\
+                             2. Configure the origin to not emit hostname headers either.\n\
+                             3. Validate over the canonical CDN edge and via raw origin IP — \n\
+                                if the origin is reachable directly, restrict it to the CDN's\n\
+                                source IPs only.",
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Test 6: OPTIONS method to discover allowed methods
         tests_run += 1;
         match self.http_client.request_with_method("OPTIONS", url).await {
             Ok(response) => {

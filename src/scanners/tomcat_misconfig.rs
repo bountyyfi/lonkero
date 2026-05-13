@@ -119,8 +119,22 @@ impl TomcatMisconfigScanner {
             "/manager/status",
             "/manager/text",
             "/host-manager/html",
+            "/host-manager/text",
             "/admin/",
             "/tomcat-admin/",
+            // JMX over HTTP - allows reading/writing JMX MBeans (heap dumps, env vars, threads)
+            "/manager/jmxproxy",
+            "/manager/jmxproxy/?qry=java.lang:type=Memory",
+            // XML status dump — leaks deployed apps, sessions, JVM info, connectors
+            "/manager/status/all?XML=true",
+            "/manager/text/list",
+            "/manager/text/sessions",
+            "/manager/text/threaddump",
+            "/manager/text/vminfo",
+            // Legacy JBoss/EAP JMX console paths sometimes co-deployed with Tomcat
+            "/jmx-console/",
+            "/web-console/",
+            "/invoker/JMXInvokerServlet",
         ];
 
         for path in &manager_paths {
@@ -131,11 +145,33 @@ impl TomcatMisconfigScanner {
                 Ok(response) => {
                     let body_lower = response.body.to_lowercase();
 
-                    // Check for manager login page or accessible manager
-                    // Require Tomcat-specific content, not generic "401 unauthorized" text
+                    // Check for manager login page or accessible manager.
+                    // Require Tomcat-specific content, not generic "401 unauthorized" text.
+                    // Each marker is a string that ONLY the Tomcat Manager / JMX proxy returns,
+                    // so a match is high-confidence and rarely produces false positives.
                     let is_manager = body_lower.contains("tomcat web application manager")
                         || body_lower.contains("tomcat virtual host manager")
                         || body_lower.contains("manager-gui")
+                        // /manager/text/* responds with plaintext starting with "OK - "
+                        || (path.contains("/manager/text/")
+                            && response.status_code == 200
+                            && response.body.starts_with("OK - "))
+                        // /manager/status/all?XML=true responds with XML status root element
+                        || (path.contains("XML=true")
+                            && response.status_code == 200
+                            && (response.body.contains("<status>")
+                                || response.body.contains("<jvm>")
+                                || response.body.contains("<connector ")))
+                        // /manager/jmxproxy responds with "OK - Number of results: N" and MBean ObjectNames
+                        || (path.contains("/manager/jmxproxy")
+                            && response.status_code == 200
+                            && (response.body.contains("OK - Number of results:")
+                                || response.body.contains("Name: java.lang:type=")))
+                        // JBoss JMX console (often co-deployed historically) — explicit marker
+                        || (path.contains("/jmx-console/")
+                            && response.status_code == 200
+                            && body_lower.contains("jboss")
+                            && body_lower.contains("jmx mbeans"))
                         || (response.status_code == 401 && body_lower.contains("tomcat"));
 
                     if is_manager {
@@ -283,7 +319,144 @@ impl TomcatMisconfigScanner {
             }
         }
 
-        // Test 5: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
+        // Test 5: WEB-INF / META-INF leak via path normalization or reverse proxy
+        //
+        // Tomcat protects /WEB-INF and /META-INF, but a fronting reverse proxy or
+        // misconfigured servlet mapping can leak deployment descriptors. We only flag
+        // if the body actually contains the expected file's structural markers, which
+        // are unique enough to eliminate false positives on generic 200 OK responses.
+        tests_run += 1;
+        let webinf_targets: &[(&str, &[&str], &str, Severity, f32)] = &[
+            (
+                "/WEB-INF/web.xml",
+                &["<web-app", "<servlet-mapping", "<servlet-name"],
+                "WEB-INF/web.xml deployment descriptor",
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/WEB-INF/classes/application.properties",
+                &["spring.", "datasource.", "server.port="],
+                "WEB-INF/classes/application.properties (Spring)",
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/WEB-INF/classes/log4j.properties",
+                &["log4j.rootLogger", "log4j.appender."],
+                "WEB-INF/classes/log4j.properties",
+                Severity::Medium,
+                5.3,
+            ),
+            (
+                "/WEB-INF/classes/log4j2.xml",
+                &["<Configuration", "<Appenders"],
+                "WEB-INF/classes/log4j2.xml",
+                Severity::Medium,
+                5.3,
+            ),
+            (
+                "/META-INF/context.xml",
+                &["<Context", "<Resource "],
+                "META-INF/context.xml (may contain DB credentials)",
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/META-INF/MANIFEST.MF",
+                &["Manifest-Version:", "Implementation-Title:"],
+                "META-INF/MANIFEST.MF (reveals build/version metadata)",
+                Severity::Low,
+                3.7,
+            ),
+            (
+                "/WEB-INF/classes/META-INF/persistence.xml",
+                &["<persistence", "<persistence-unit"],
+                "JPA persistence.xml (may contain JDBC URL/credentials)",
+                Severity::High,
+                7.5,
+            ),
+        ];
+
+        for (path, markers, label, severity, cvss) in webinf_targets {
+            tests_run += 1;
+            let leak_url = format!("{}{}", url.trim_end_matches('/'), path);
+            match self.http_client.get(&leak_url).await {
+                Ok(response) => {
+                    if response.status_code == 200
+                        && markers.iter().all(|m| response.body.contains(m))
+                    {
+                        info!("Tomcat {} leak at {}", label, leak_url);
+                        vulnerabilities.push(self.create_vulnerability(
+                            &leak_url,
+                            "TOMCAT_WEBINF_LEAK",
+                            &format!("Tomcat Deployment File Leak: {}", label),
+                            &format!(
+                                "Protected file is fetchable via HTTP, indicating a path-normalization\n\
+                                 or reverse-proxy bypass of Tomcat's WEB-INF/META-INF protection.\n\
+                                 Path: {}\nStatus: {}\nMarkers matched: {:?}",
+                                path, response.status_code, markers
+                            ),
+                            severity.clone(),
+                            Confidence::High,
+                            *cvss,
+                            "1. Verify Tomcat is not directly serving WEB-INF/META-INF (check `<security-constraint>`).\n\
+                             2. Audit any fronting proxy (nginx/Apache/F5) for path-normalization issues\n\
+                                that strip `/WEB-INF` before forwarding. Disable `merge_slashes off` or similar\n\
+                                rewrites that allow `..;/WEB-INF/...`.\n\
+                             3. Rotate any credentials that may have been exposed via the leaked file.\n\
+                             4. Move secrets out of property files into environment variables or a secret manager.",
+                        ));
+                    }
+                }
+                Err(e) => debug!("WEB-INF check failed for {}: {}", leak_url, e),
+            }
+        }
+
+        // Test 6: RELEASE-NOTES.txt / changelog version disclosure (high confidence,
+        // strict regex on the canonical "Apache Tomcat Version X.Y.Z" header)
+        tests_run += 1;
+        let release_notes_paths = vec![
+            "/docs/RELEASE-NOTES.txt",
+            "/docs/changelog.html",
+            "/RELEASE-NOTES.txt",
+        ];
+        for path in &release_notes_paths {
+            tests_run += 1;
+            let rn_url = format!("{}{}", url.trim_end_matches('/'), path);
+            if let Ok(response) = self.http_client.get(&rn_url).await {
+                if response.status_code == 200 {
+                    if let Ok(re) =
+                        regex::Regex::new(r"Apache Tomcat\s+Version\s+(\d+\.\d+\.\d+)")
+                    {
+                        if let Some(caps) = re.captures(&response.body) {
+                            if let Some(version) = caps.get(1) {
+                                vulnerabilities.push(self.create_vulnerability(
+                                    &rn_url,
+                                    "TOMCAT_RELEASE_NOTES_EXPOSED",
+                                    &format!(
+                                        "Tomcat RELEASE-NOTES Exposed (Version {})",
+                                        version.as_str()
+                                    ),
+                                    &format!(
+                                        "Tomcat docs/release-notes accessible at {} (version {}).\nAttackers can cross-reference exact version against public CVEs.",
+                                        path, version.as_str()
+                                    ),
+                                    Severity::Low,
+                                    Confidence::High,
+                                    3.7,
+                                    "1. Remove $CATALINA_HOME/webapps/docs in production.\n\
+                                     2. Configure a Valve/WAF to block /docs/ from external access.",
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Test 7: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
         tests_run += 1;
         // This is a network-level check, we can only detect via headers or info disclosure
         match self.http_client.get(url).await {

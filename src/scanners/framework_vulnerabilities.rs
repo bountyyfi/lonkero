@@ -92,6 +92,13 @@ impl FrameworkVulnerabilitiesScanner {
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
+        // Test Spring Boot (Actuator) — runs regardless of indicators in HTML
+        // because the landing page often hides Spring Boot, but actuator endpoints
+        // are extremely high-value when exposed.
+        let (vulns, tests) = self.scan_spring_boot_actuator(url).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests;
+
         info!(
             "Framework vulnerability scan completed: {} tests run, {} vulnerabilities found",
             total_tests,
@@ -337,6 +344,46 @@ impl FrameworkVulnerabilitiesScanner {
             }
         }
 
+        // Test: django-silk profiler exposure — full request/SQL profiling UI
+        let silk_url = format!("{}/silk/", url.trim_end_matches('/'));
+        if let Ok(response) = self.http_client.get(&silk_url).await {
+            if response.status_code == 200
+                && response.body.contains("silk")
+                && (response.body.contains("Profiling")
+                    || response.body.contains("silk-summary")
+                    || response.body.contains("Silk &middot;"))
+            {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Django Silk Profiler Exposed",
+                    &silk_url,
+                    "django-silk profiler UI is publicly accessible — exposes recent requests, SQL queries with bound parameters, response bodies and timing",
+                    Severity::High,
+                    "CWE-489",
+                ));
+            }
+        }
+
+        // Test: django-debug-toolbar — confirmed via the static asset path it always serves
+        let djdt_url = format!(
+            "{}/__debug__/render_panel/",
+            url.trim_end_matches('/')
+        );
+        if let Ok(response) = self.http_client.get(&djdt_url).await {
+            if response.status_code == 200 || response.status_code == 400 {
+                if response.body.contains("debug_toolbar")
+                    || response.body.contains("djDebug")
+                {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "Django Debug Toolbar Enabled",
+                        &djdt_url,
+                        "django-debug-toolbar is exposed — leaks settings, SQL, templates, and request state",
+                        Severity::High,
+                        "CWE-489",
+                    ));
+                }
+            }
+        }
+
         Ok((vulnerabilities, tests_run))
     }
 
@@ -374,6 +421,87 @@ impl FrameworkVulnerabilitiesScanner {
                     "Laravel Telescope debugging tool is publicly accessible",
                     Severity::High,
                     "CWE-489",
+                ));
+            }
+        }
+
+        // Test: Laravel Horizon (queue/worker dashboard — leaks job payloads, sometimes with PII)
+        let horizon_url = format!("{}/horizon", url.trim_end_matches('/'));
+        if let Ok(response) = self.http_client.get(&horizon_url).await {
+            if response.status_code == 200
+                && (response.body.contains("Laravel Horizon")
+                    || response.body.contains("horizon-app"))
+            {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Laravel Horizon Exposed",
+                    &horizon_url,
+                    "Laravel Horizon queue dashboard publicly accessible — exposes job payloads, failed jobs (often with PII), and worker config",
+                    Severity::High,
+                    "CWE-489",
+                ));
+            }
+        }
+
+        // Test: Laravel Debugbar — confirm via the asset that's always served when enabled
+        let debugbar_url = format!("{}/_debugbar/open", url.trim_end_matches('/'));
+        if let Ok(response) = self.http_client.get(&debugbar_url).await {
+            if response.status_code == 200 && response.body.contains("PHPDEBUGBAR_STACK_DATA") {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Laravel Debugbar Enabled",
+                    &debugbar_url,
+                    "Laravel Debugbar is enabled — exposes SQL queries, route info, request/session data, and environment variables",
+                    Severity::High,
+                    "CWE-215",
+                ));
+            }
+        }
+
+        // Test: Ignition error page exposure (CVE-2021-3129 surface).
+        // We don't exploit; we only flag if the Ignition execute-solution endpoint
+        // responds with its characteristic JSON validation error.
+        let ignition_url = format!("{}/_ignition/execute-solution", url.trim_end_matches('/'));
+        if let Ok(response) = self
+            .http_client
+            .request_with_method("POST", &ignition_url)
+            .await
+        {
+            // Ignition returns 422 with "solution" or "parameters" in the JSON body
+            // when the route exists but the payload is missing.
+            if (response.status_code == 422 || response.status_code == 400)
+                && response.body.contains("solution")
+                && (response.body.contains("parameters")
+                    || response.body.contains("must be present"))
+            {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Laravel Ignition Endpoint Exposed",
+                    &ignition_url,
+                    "Ignition execute-solution endpoint is reachable. On vulnerable versions this leads to CVE-2021-3129 (unauth RCE). At minimum it exposes the debug error page with stack traces and environment.",
+                    Severity::Critical,
+                    "CWE-94",
+                ));
+            }
+        }
+
+        // Test: Laravel storage paths sometimes leaked via web root (storage/logs/laravel.log)
+        let storage_log = format!(
+            "{}/storage/logs/laravel.log",
+            url.trim_end_matches('/')
+        );
+        if let Ok(response) = self.http_client.get(&storage_log).await {
+            if response.status_code == 200
+                // laravel.log lines always start with the bracketed RFC3339 timestamp
+                // followed by env.LEVEL, e.g. "[2024-05-13 10:00:00] production.ERROR:"
+                && regex::Regex::new(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \w+\.(ERROR|WARNING|INFO|DEBUG):")
+                    .ok()
+                    .map(|re| re.is_match(&response.body))
+                    .unwrap_or(false)
+            {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Laravel storage/logs/laravel.log Exposed",
+                    &storage_log,
+                    "Application log file is publicly readable — exposes stack traces, SQL queries, user identifiers, and sometimes secrets logged in error paths",
+                    Severity::High,
+                    "CWE-532",
                 ));
             }
         }
@@ -443,6 +571,270 @@ impl FrameworkVulnerabilitiesScanner {
                     Severity::Low,
                     "CWE-200",
                 ));
+            }
+        }
+
+        // Test: wp-content/debug.log exposure — WP_DEBUG_LOG can leak stack traces, DB queries, user info
+        let debug_log_url = format!(
+            "{}/wp-content/debug.log",
+            url.trim_end_matches('/')
+        );
+        if let Ok(response) = self.http_client.get(&debug_log_url).await {
+            if response.status_code == 200
+                // WP debug.log lines are "[DD-MMM-YYYY HH:MM:SS UTC] PHP <Level>:" — very specific
+                && regex::Regex::new(
+                    r"\[\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [A-Z]{2,4}\] PHP",
+                )
+                .ok()
+                .map(|re| re.is_match(&response.body))
+                .unwrap_or(false)
+            {
+                vulnerabilities.push(self.create_vulnerability(
+                    "WordPress wp-content/debug.log Exposed",
+                    &debug_log_url,
+                    "WordPress debug log is publicly readable — leaks PHP stack traces, plugin paths, SQL errors and sometimes secrets logged on failure",
+                    Severity::High,
+                    "CWE-532",
+                ));
+            }
+        }
+
+        // Test: wp-config backup variants — these expose DB credentials and auth keys
+        let config_backup_paths = vec![
+            "/wp-config.php.bak",
+            "/wp-config.php~",
+            "/wp-config.php.save",
+            "/wp-config.php.swp",
+            "/wp-config.php.old",
+            "/.wp-config.php.swp",
+        ];
+        for path in &config_backup_paths {
+            let backup_url = format!("{}{}", url.trim_end_matches('/'), path);
+            if let Ok(response) = self.http_client.get(&backup_url).await {
+                if response.status_code == 200
+                    && response.body.contains("DB_PASSWORD")
+                    && response.body.contains("DB_NAME")
+                    && response.body.contains("define(")
+                {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "WordPress wp-config Backup Exposed",
+                        &backup_url,
+                        &format!(
+                            "Backup copy of wp-config.php at {} is publicly readable — exposes database credentials and authentication salts/keys",
+                            path
+                        ),
+                        Severity::Critical,
+                        "CWE-538",
+                    ));
+                    break;
+                }
+            }
+        }
+
+        // Test: readme.html version disclosure (precise — only flag if WordPress version regex matches)
+        let readme_url = format!("{}/readme.html", url.trim_end_matches('/'));
+        if let Ok(response) = self.http_client.get(&readme_url).await {
+            if response.status_code == 200 {
+                if let Ok(re) =
+                    regex::Regex::new(r"(?i)Version\s+(\d+\.\d+(?:\.\d+)?)")
+                {
+                    if response.body.contains("WordPress") {
+                        if let Some(caps) = re.captures(&response.body) {
+                            if let Some(version) = caps.get(1) {
+                                vulnerabilities.push(self.create_vulnerability(
+                                    "WordPress readme.html Exposed",
+                                    &readme_url,
+                                    &format!(
+                                        "Default readme.html is accessible and discloses WordPress version {}",
+                                        version.as_str()
+                                    ),
+                                    Severity::Low,
+                                    "CWE-200",
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Scan Spring Boot Actuator endpoints.
+    ///
+    /// Actuator endpoints (especially /actuator/env, /heapdump, /configprops, /beans)
+    /// are one of the most consistently impactful sensitive-data findings on Java apps:
+    /// they leak full environment, datasource URLs, secret keys, and even allow
+    /// memory dump downloads. We only flag if the response body contains the
+    /// structural marker for that specific endpoint, never on status code alone.
+    async fn scan_spring_boot_actuator(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+        let base = url.trim_end_matches('/');
+
+        // First fetch /actuator (or /manage, /admin/actuator) — the discovery endpoint.
+        // We only continue if it returns the Spring HAL _links structure, avoiding
+        // false positives on generic 200 OK pages.
+        let discovery_prefixes = ["/actuator", "/manage", "/admin/actuator", "/management"];
+        let mut active_prefix: Option<&str> = None;
+
+        for prefix in &discovery_prefixes {
+            tests_run += 1;
+            let disco_url = format!("{}{}", base, prefix);
+            if let Ok(response) = self.http_client.get(&disco_url).await {
+                if response.status_code == 200
+                    && response.body.contains("\"_links\"")
+                    && (response.body.contains("\"self\"")
+                        || response.body.contains("\"href\""))
+                    && response.body.contains("\"href\":\"")
+                {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "Spring Boot Actuator Discovery Exposed",
+                        &disco_url,
+                        "Spring Boot Actuator discovery endpoint is publicly accessible. The HAL _links response enumerates all enabled management endpoints, which is the entry point for env/heapdump/configprops disclosure.",
+                        Severity::Medium,
+                        "CWE-200",
+                    ));
+                    active_prefix = Some(prefix);
+                    break;
+                }
+            }
+        }
+
+        let prefix = match active_prefix {
+            Some(p) => p,
+            None => return Ok((vulnerabilities, tests_run)),
+        };
+
+        // Per-endpoint targeted checks. (path, body marker(s) — ALL must match,
+        // human label, severity, cwe).
+        let actuator_endpoints: &[(&str, &[&str], &str, Severity, &str)] = &[
+            // /env leaks the full environment, including JDBC URLs, passwords (often masked
+            // but the keys reveal where secrets live), and active profiles.
+            (
+                "/env",
+                &["\"activeProfiles\"", "\"propertySources\""],
+                "Spring Boot /env Exposed",
+                Severity::Critical,
+                "CWE-200",
+            ),
+            // /heapdump is a downloadable JVM heap (HPROF) — strings/passwords harvestable.
+            // The HTTP response starts with the HPROF magic "JAVA PROFILE".
+            (
+                "/heapdump",
+                &["JAVA PROFILE"],
+                "Spring Boot /heapdump Exposed (JVM Memory Dump)",
+                Severity::Critical,
+                "CWE-200",
+            ),
+            // /configprops gives all @ConfigurationProperties beans with their resolved values.
+            (
+                "/configprops",
+                &["\"contexts\"", "\"beans\""],
+                "Spring Boot /configprops Exposed",
+                Severity::High,
+                "CWE-200",
+            ),
+            // /beans — leaks application architecture, every Spring bean, package paths.
+            (
+                "/beans",
+                &["\"contexts\"", "\"beans\"", "\"scope\""],
+                "Spring Boot /beans Exposed",
+                Severity::Medium,
+                "CWE-200",
+            ),
+            // /mappings — full route table, including hidden admin endpoints.
+            (
+                "/mappings",
+                &["\"contexts\"", "\"dispatcherServlets\""],
+                "Spring Boot /mappings Exposed (Route Enumeration)",
+                Severity::Medium,
+                "CWE-200",
+            ),
+            // /trace and /httptrace — recent HTTP requests including Authorization headers
+            // and session cookies on misconfigured apps.
+            (
+                "/trace",
+                &["\"timestamp\"", "\"method\"", "\"path\""],
+                "Spring Boot /trace Exposed (Request History)",
+                Severity::High,
+                "CWE-532",
+            ),
+            (
+                "/httptrace",
+                &["\"traces\"", "\"timestamp\""],
+                "Spring Boot /httptrace Exposed (Request History)",
+                Severity::High,
+                "CWE-532",
+            ),
+            // /loggers — listing levels is informational, but POST allows enabling
+            // DEBUG/TRACE which leads to sensitive log content downstream.
+            (
+                "/loggers",
+                &["\"loggers\"", "\"configuredLevel\""],
+                "Spring Boot /loggers Exposed",
+                Severity::Medium,
+                "CWE-200",
+            ),
+            // /threaddump — full thread stacks, sometimes containing query params/state.
+            (
+                "/threaddump",
+                &["\"threads\"", "\"threadName\""],
+                "Spring Boot /threaddump Exposed",
+                Severity::Medium,
+                "CWE-200",
+            ),
+            // /metrics — alone is informational but useful in chained exploits.
+            (
+                "/metrics",
+                &["\"names\""],
+                "Spring Boot /metrics Exposed",
+                Severity::Low,
+                "CWE-200",
+            ),
+            // /info — reveals git commit, build version, sometimes maven repo data.
+            (
+                "/info",
+                &["\"build\"", "\"version\""],
+                "Spring Boot /info Exposed",
+                Severity::Low,
+                "CWE-200",
+            ),
+            // /gateway/routes — Spring Cloud Gateway: full upstream service list (SSRF surface).
+            (
+                "/gateway/routes",
+                &["\"route_id\"", "\"predicate\""],
+                "Spring Cloud Gateway /gateway/routes Exposed",
+                Severity::High,
+                "CWE-918",
+            ),
+        ];
+
+        for (endpoint, markers, label, severity, cwe) in actuator_endpoints {
+            tests_run += 1;
+            let test_url = format!("{}{}{}", base, prefix, endpoint);
+            if let Ok(response) = self.http_client.get(&test_url).await {
+                if response.status_code != 200 {
+                    continue;
+                }
+                let all_match = markers.iter().all(|m| response.body.contains(m));
+                if all_match {
+                    info!("Actuator endpoint exposed: {}", test_url);
+                    vulnerabilities.push(self.create_vulnerability(
+                        label,
+                        &test_url,
+                        &format!(
+                            "Spring Boot Actuator endpoint {}{} responds with the expected payload structure, confirming it is publicly accessible without auth.",
+                            prefix, endpoint
+                        ),
+                        severity.clone(),
+                        cwe,
+                    ));
+                }
             }
         }
 
@@ -557,6 +949,33 @@ impl FrameworkVulnerabilitiesScanner {
             }
             "Django Admin Panel Exposed" | "Laravel Telescope Exposed" => {
                 "Restrict admin panel access by IP. Use VPN for admin access. Implement strong authentication. Change default admin URL.".to_string()
+            }
+            "Laravel Horizon Exposed" => {
+                "Add Horizon::auth() in app/Providers/HorizonServiceProvider.php to gate access by user role/IP. Never deploy Horizon to production behind only middleware('web') alone.".to_string()
+            }
+            "Laravel Debugbar Enabled" => {
+                "Set APP_DEBUG=false and DEBUGBAR_ENABLED=false in your .env for production. Add `barryvdh/laravel-debugbar` to `dont-discover` or require-dev only.".to_string()
+            }
+            "Laravel Ignition Endpoint Exposed" => {
+                "Set APP_DEBUG=false in production. Update facade/ignition to the latest patched version (CVE-2021-3129 affects <2.5.2). Restrict /_ignition/* at the reverse proxy.".to_string()
+            }
+            "Laravel storage/logs/laravel.log Exposed" => {
+                "storage/ should never be web-accessible. Verify your web server document root is set to /public, not the project root. Add an explicit deny rule for storage/ in nginx/Apache config.".to_string()
+            }
+            "Django Silk Profiler Exposed" | "Django Debug Toolbar Enabled" => {
+                "These tools must only run when DEBUG=True in development. Verify INSTALLED_APPS in production doesn't include `silk` / `debug_toolbar`, and gate the URL include with `if settings.DEBUG`.".to_string()
+            }
+            t if t.starts_with("Spring Boot ") || t.starts_with("Spring Cloud Gateway ") => {
+                "Set management.endpoints.web.exposure.include=health,info (or just `health`). Place actuator under a separate management.server.port bound to a non-public interface. Add Spring Security to require auth for /actuator/**.".to_string()
+            }
+            "WordPress wp-content/debug.log Exposed" => {
+                "Set WP_DEBUG_LOG to a path outside the web root, or add an Apache/nginx deny rule for *.log under wp-content/. Disable WP_DEBUG in production.".to_string()
+            }
+            "WordPress wp-config Backup Exposed" => {
+                "Immediately rotate DB password and authentication keys/salts. Remove the backup file. Configure the web server to block hidden/backup file extensions (.bak, .swp, ~, .old, .save).".to_string()
+            }
+            "WordPress readme.html Exposed" => {
+                "Delete readme.html from the WordPress install (it is regenerated on update — automate its removal in deployment).".to_string()
             }
             "WordPress xmlrpc.php Enabled" => {
                 "Disable xmlrpc.php if not needed. Use security plugins to block xmlrpc. Implement rate limiting. Monitor xmlrpc access logs.".to_string()
