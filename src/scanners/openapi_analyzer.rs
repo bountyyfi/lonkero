@@ -49,8 +49,13 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI / Swagger / RAML / API-Blueprint specs are served.
+///
+/// Paths are deterministic resource locations — a 200 with a parseable
+/// spec is a true positive; anything else is silently skipped, so adding
+/// more paths cannot introduce false positives.
 const OPENAPI_PATHS: &[&str] = &[
+    // Generic JSON / YAML
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,9 +75,80 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Springfox / springdoc-openapi defaults (Spring Boot)
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    // ASP.NET Core / Swashbuckle defaults
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/v1/swagger.yaml",
+    "/api/swagger/docs/v1",
+    // NestJS / Fastify common locations
+    "/api-json",
+    "/api/v1/api-json",
+    "/api/v2/api-json",
+    "/documentation/json",
+    "/documentation/yaml",
+    // FastAPI default
+    "/openapi.json",
+    "/api/openapi.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    // Versioned + region patterns common at large APIs
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v4/openapi.json",
+    "/public/v1/swagger.json",
+    "/public/v2/swagger.json",
+    "/internal/swagger.json",
+    "/internal/openapi.json",
+    "/admin/swagger.json",
+    "/admin/openapi.json",
+    "/private/openapi.json",
+    "/staging/swagger.json",
+    "/beta/openapi.json",
+    // Microservice mesh — per-service paths
+    "/auth/swagger.json",
+    "/auth/openapi.json",
+    "/users/openapi.json",
+    "/orders/openapi.json",
+    "/payments/openapi.json",
+    "/billing/openapi.json",
+    // OpenAPI 3.1 + JSON Schema variants
+    "/openapi/v3.1.json",
+    "/openapi/v3.json",
+    "/openapi/v1/spec.json",
+    "/openapi/v2/spec.json",
+    // GraphQL-adjacent contract endpoints (sometimes co-hosted)
+    "/api/contract",
+    "/api/contract.json",
+    "/api/contract.yaml",
+    "/api/spec",
+    "/api/spec.json",
+    // RAML
+    "/api.raml",
+    "/raml/api.raml",
+    "/api/api.raml",
+    // API Blueprint
+    "/api.apib",
+    "/apiary.apib",
+    "/api/blueprint.apib",
+    // Postman exports occasionally hosted
+    "/postman_collection.json",
+    "/postman.json",
+    "/api/postman.json",
+    // AsyncAPI specs
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/api/asyncapi.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API explorer paths
 const SWAGGER_UI_PATHS: &[&str] = &[
     "/swagger-ui.html",
     "/swagger-ui/index.html",
@@ -84,6 +160,51 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Spring Boot springdoc default
+    "/swagger-ui/swagger-ui.css",
+    "/swagger-ui/index.html?configUrl=/v3/api-docs/swagger-config",
+    // FastAPI / Starlette default
+    "/docs",
+    "/redoc",
+    "/api/docs",
+    "/api/redoc",
+    // Hapi.js / Fastify swagger
+    "/documentation",
+    "/documentation/static/index.html",
+    // NestJS default
+    "/api",
+    "/api/docs",
+    // Django REST framework
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    "/api/schema/",
+    // ReDoc deployments
+    "/redoc/",
+    "/redoc.html",
+    // Stoplight Elements
+    "/elements/",
+    "/elements.html",
+    // RapiDoc
+    "/rapidoc.html",
+    "/rapi-doc.html",
+    // SwaggerHub portals occasionally proxied
+    "/swaggerhub/",
+    "/api-explorer/",
+    "/explorer/",
+    // Versioned variants
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/api/v1/swagger-ui.html",
+    "/api/v2/swagger-ui.html",
+    // Common admin/internal placements
+    "/admin/docs",
+    "/admin/swagger",
+    "/internal/docs",
+    "/internal/swagger",
+    "/private/docs",
+    "/dev/docs",
+    "/dev/swagger",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
