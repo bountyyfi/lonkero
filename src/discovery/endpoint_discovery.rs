@@ -167,9 +167,83 @@ impl EndpointDiscovery {
         )
     }
 
-    /// Categorize path based on keywords
+    /// Categorize path based on keywords.
+    ///
+    /// High-impact, narrowly-named patterns (VCS leaks, credential files,
+    /// diagnostic endpoints) are checked first so a hit on `/.git/config` is
+    /// labelled `Config` rather than the generic substring match against
+    /// `config` further down — same final variant here, but matching the
+    /// specific pattern first lets future additions split into their own
+    /// category without re-ordering.
     fn categorize_path(path: &str) -> EndpointCategory {
         let path_lower = path.to_lowercase();
+
+        // VCS, dotfile, and credential-file leaks. Each substring is unique
+        // enough that a match is almost always a real sensitive resource.
+        const SENSITIVE_CONFIG_SUBSTRINGS: &[&str] = &[
+            ".git",
+            ".svn",
+            ".hg/",
+            "id_rsa",
+            "id_ed25519",
+            "id_ecdsa",
+            "/.ssh",
+            "/.aws",
+            "/.kube",
+            "/.docker",
+            ".htpasswd",
+            ".htaccess",
+            ".netrc",
+            ".npmrc",
+            ".pypirc",
+            "credentials.json",
+            "service-account",
+            ".tfstate",
+            ".tfvars",
+            "private.key",
+            "private.pem",
+            "master.key",
+            "wp-config",
+            "secrets.yml",
+            "database.yml",
+            "credentials.yml.enc",
+            "parameters.yml",
+        ];
+        if SENSITIVE_CONFIG_SUBSTRINGS
+            .iter()
+            .any(|s| path_lower.contains(s))
+        {
+            return EndpointCategory::Config;
+        }
+
+        // Diagnostic / profiling endpoints that frequently leak env vars,
+        // heap dumps, request bodies, or session data when exposed.
+        const DEBUG_DISCLOSURE_SUBSTRINGS: &[&str] = &[
+            "actuator",
+            "/jolokia",
+            "heapdump",
+            "threaddump",
+            "_profiler",
+            "trace.axd",
+            "elmah.axd",
+            "glimpse.axd",
+            "_ignition",
+            "_debugbar",
+            "/_wdt",
+            "telescope",
+            "/horizon",
+            "phpinfo",
+            "/info.php",
+            "xdebug",
+            "/pprof",
+            "/debug/vars",
+        ];
+        if DEBUG_DISCLOSURE_SUBSTRINGS
+            .iter()
+            .any(|s| path_lower.contains(s))
+        {
+            return EndpointCategory::Debug;
+        }
 
         // Admin paths
         if path_lower.contains("admin")
@@ -210,12 +284,29 @@ impl EndpointDiscovery {
             return EndpointCategory::Api;
         }
 
-        // Backup paths
+        // Backup paths — archive/dump extensions and editor swap files belong
+        // here because a hit on the real path means a packaged copy of the
+        // source tree or database is publicly served.
         if path_lower.contains("backup")
             || path_lower.contains("varmuuskopio")
             || path_lower.contains("bak")
             || path_lower.contains("old")
             || path_lower.contains("copy")
+            || path_lower.contains("archive")
+            || path_lower.ends_with(".tar")
+            || path_lower.ends_with(".tar.gz")
+            || path_lower.ends_with(".tgz")
+            || path_lower.ends_with(".tar.bz2")
+            || path_lower.ends_with(".zip")
+            || path_lower.ends_with(".7z")
+            || path_lower.ends_with(".rar")
+            || path_lower.ends_with(".gz")
+            || path_lower.ends_with(".bz2")
+            || path_lower.ends_with(".dump")
+            || path_lower.ends_with(".swp")
+            || path_lower.ends_with(".save")
+            || path_lower.ends_with(".orig")
+            || path_lower.ends_with("~")
         {
             return EndpointCategory::Backup;
         }
@@ -256,21 +347,43 @@ impl EndpointDiscovery {
             return EndpointCategory::FileUpload;
         }
 
-        // Database
+        // Database admin tools and direct cluster APIs.
         if path_lower.contains("phpmyadmin")
             || path_lower.contains("adminer")
             || path_lower.contains("database")
             || path_lower.contains("db")
             || path_lower.contains("sql")
+            || path_lower.contains("couchdb")
+            || path_lower.contains("_cat/")
+            || path_lower.contains("_cluster")
+            || path_lower.contains("redis-commander")
+            || path_lower.contains("rediscommander")
+            || path_lower.contains("/flower")
+            || path_lower.contains("kafdrop")
+            || path_lower.contains("/cmak")
+            || path_lower.contains("/akhq")
+            || path_lower.contains("rabbitmq")
+            || path_lower.contains("/minio")
+            || path_lower.contains("mongoexpress")
+            || path_lower.contains("/_all_dbs")
         {
             return EndpointCategory::Database;
         }
 
-        // Monitoring
+        // Monitoring / observability dashboards and metric scrapers.
         if path_lower.contains("health")
             || path_lower.contains("status")
             || path_lower.contains("metrics")
             || path_lower.contains("monitor")
+            || path_lower.contains("grafana")
+            || path_lower.contains("kibana")
+            || path_lower.contains("prometheus")
+            || path_lower.contains("alertmanager")
+            || path_lower.contains("/loki")
+            || path_lower.contains("/tempo")
+            || path_lower.contains("/jaeger")
+            || path_lower.contains("/zipkin")
+            || path_lower.contains("/sentry")
         {
             return EndpointCategory::Monitoring;
         }
@@ -1419,6 +1532,578 @@ impl EndpointDiscovery {
             "/rate-limit",
             "/ratelimit",
             "/throttle",
+            // ========================================
+            // SPRING BOOT ACTUATOR (DEEP + LEGACY)
+            // Each path is a confirmed Spring Boot endpoint; a 200/JSON
+            // response is an information disclosure, and `env`/`heapdump`/
+            // `jolokia` reach RCE on common configurations.
+            // ========================================
+            "/actuator/env/PATH",
+            "/actuator/env/SPRING_DATASOURCE_PASSWORD",
+            "/actuator/loggers",
+            "/actuator/loggers/ROOT",
+            "/actuator/auditevents",
+            "/actuator/sessions",
+            "/actuator/caches",
+            "/actuator/scheduledtasks",
+            "/actuator/conditions",
+            "/actuator/refresh",
+            "/actuator/restart",
+            "/actuator/shutdown",
+            "/actuator/jolokia",
+            "/actuator/jolokia/list",
+            "/actuator/prometheus",
+            "/actuator/httptrace",
+            "/actuator/httpexchanges",
+            "/actuator/flyway",
+            "/actuator/liquibase",
+            "/actuator/integrationgraph",
+            "/actuator/quartz",
+            "/actuator/sbom",
+            "/actuator/gateway/routes",
+            "/actuator/gateway/globalfilters",
+            // Spring Boot 1.x legacy (no /actuator prefix)
+            "/env",
+            "/trace",
+            "/heapdump",
+            "/loggers",
+            "/mappings",
+            "/beans",
+            "/autoconfig",
+            "/jolokia",
+            "/jolokia/list",
+            "/manage/env",
+            "/manage/health",
+            "/manage/info",
+            "/manage/heapdump",
+            "/manage/actuator",
+            // ========================================
+            // JAVA APP SERVERS (TOMCAT / JBOSS / WEBLOGIC / SOLR)
+            // ========================================
+            "/manager/html",
+            "/manager/text",
+            "/manager/status",
+            "/manager/jmxproxy",
+            "/host-manager/html",
+            "/host-manager/text",
+            "/jmx-console",
+            "/jmx-console/HtmlAdaptor",
+            "/web-console",
+            "/web-console/Invoker",
+            "/invoker/JMXInvokerServlet",
+            "/invoker/EJBInvokerServlet",
+            "/jbossws",
+            "/jbossws/services",
+            "/console/login/LoginForm.jsp",
+            "/wls-wsat/CoordinatorPortType",
+            "/wls-wsat/ParticipantPortType",
+            "/_async/AsyncResponseService",
+            "/em/",
+            "/em/console",
+            "/solr/admin/cores",
+            "/solr/admin/info/system",
+            "/solr/admin/info/properties",
+            "/solr/admin/info/threads",
+            "/solr/admin/collections",
+            // ========================================
+            // HASHICORP VAULT / CONSUL / NOMAD
+            // ========================================
+            "/v1/sys/health",
+            "/v1/sys/leader",
+            "/v1/sys/init",
+            "/v1/sys/seal-status",
+            "/v1/sys/mounts",
+            "/v1/sys/policies",
+            "/v1/sys/auth",
+            "/v1/sys/config/state",
+            "/v1/auth/token/lookup-self",
+            "/v1/secret/data",
+            "/v1/secret/metadata",
+            "/ui/vault",
+            "/v1/agent/self",
+            "/v1/agent/checks",
+            "/v1/agent/services",
+            "/v1/agent/members",
+            "/v1/catalog/nodes",
+            "/v1/catalog/services",
+            "/v1/catalog/datacenters",
+            "/v1/kv/?recurse",
+            "/v1/agent/health",
+            "/v1/jobs",
+            "/v1/allocations",
+            "/v1/nodes",
+            "/v1/status/leader",
+            // ========================================
+            // KUBERNETES / KUBELET / DOCKER DAEMON
+            // ========================================
+            "/api/v1/namespaces",
+            "/api/v1/namespaces/default/pods",
+            "/api/v1/namespaces/default/secrets",
+            "/api/v1/namespaces/kube-system/secrets",
+            "/apis",
+            "/openapi/v2",
+            "/openapi/v3",
+            "/healthz",
+            "/livez",
+            "/readyz",
+            "/swagger-2.0.0.json",
+            "/_ping",
+            "/containers/json",
+            "/images/json",
+            "/runningpods",
+            "/stats/summary",
+            // ========================================
+            // CI/CD CONTROL PLANES
+            // ========================================
+            "/argo",
+            "/argo/api/v1/workflows",
+            "/argocd",
+            "/argocd/api/v1/applications",
+            "/spinnaker",
+            "/gate/",
+            "/orca/",
+            "/deck/",
+            "/drone",
+            "/drone/api/user",
+            "/concourse",
+            "/api/v1/info",
+            "/teamcity",
+            "/teamcity/login.html",
+            "/bamboo",
+            "/bamboo/admin",
+            "/gocd",
+            "/go/admin",
+            "/tekton",
+            "/jenkins/script",
+            "/jenkins/manage",
+            "/jenkins/asynchPeople/",
+            "/jenkins/configure",
+            "/jenkins/computer",
+            "/jenkins/credentials",
+            "/jenkins/jnlpJars/jenkins-cli.jar",
+            "/securityRealm/user/admin",
+            "/gitea/-/admin",
+            "/gitlab/-/admin",
+            "/gitlab/users/sign_in",
+            "/gitlab/explore",
+            "/bitbucket/admin",
+            // ========================================
+            // ARTIFACT / CONTAINER REGISTRIES
+            // ========================================
+            "/artifactory",
+            "/artifactory/api/system/ping",
+            "/artifactory/api/security/users",
+            "/nexus",
+            "/nexus/service/local/users",
+            "/v2/_catalog",
+            "/v2/",
+            "/harbor",
+            "/harbor/api/v2.0/users",
+            "/portus",
+            // ========================================
+            // OBSERVABILITY STACKS
+            // ========================================
+            "/grafana",
+            "/grafana/api/health",
+            "/grafana/api/datasources",
+            "/grafana/api/admin/users",
+            "/grafana/login",
+            "/kibana",
+            "/kibana/api/status",
+            "/kibana/app/kibana",
+            "/alertmanager",
+            "/alertmanager/api/v2/status",
+            "/alertmanager/api/v2/alerts",
+            "/prometheus/api/v1/status/config",
+            "/prometheus/api/v1/status/flags",
+            "/prometheus/api/v1/targets",
+            "/prometheus/api/v1/rules",
+            "/cortex/",
+            "/loki/ready",
+            "/tempo/",
+            "/jaeger/api/services",
+            "/zipkin/",
+            "/sentry/api/0/",
+            // ========================================
+            // SERVICE MESH / API GATEWAY ADMIN
+            // ========================================
+            "/traefik/",
+            "/traefik/dashboard/",
+            "/api/rawdata",
+            "/api/overview",
+            "/kong/status",
+            "/kong/",
+            "/tyk/apis",
+            "/tyk/",
+            "/apisix/admin/routes",
+            "/apisix/admin/services",
+            "/apisix/admin/consumers",
+            "/apisix/admin/plugins",
+            "/server_info",
+            "/config_dump",
+            "/clusters",
+            "/listeners",
+            "/runtime",
+            // ========================================
+            // STORAGE / DATABASE BROWSERS
+            // ========================================
+            "/couchdb",
+            "/_utils",
+            "/_all_dbs",
+            "/_membership",
+            "/_session",
+            "/influxdb/health",
+            "/influxdb/api/v2",
+            "/_cat",
+            "/_cat/indices",
+            "/_cluster/health",
+            "/_cluster/state",
+            "/_cluster/stats",
+            "/_nodes",
+            "/_search",
+            "/_snapshot",
+            "/minio/health/live",
+            "/minio/health/ready",
+            "/minio/login",
+            "/minio-console",
+            // ========================================
+            // MESSAGING / QUEUES UI
+            // ========================================
+            "/rabbitmq/",
+            "/rabbitmq/api/overview",
+            "/rabbitmq/api/whoami",
+            "/flower/",
+            "/flower/api/workers",
+            "/kafdrop/",
+            "/kafka-manager/",
+            "/cmak/",
+            "/akhq/",
+            "/redis-commander/",
+            "/rediscommander/",
+            // ========================================
+            // DEVOPS UI
+            // ========================================
+            "/portainer/",
+            "/portainer/api/status",
+            "/portainer/api/endpoints",
+            "/rancher/",
+            "/rancher/v3/users",
+            "/v3/users",
+            "/v1-rancher",
+            // ========================================
+            // VCS / SOURCE LEAKS (PINPOINT FILES)
+            // Each is a specific filename inside a versioned repo. A 200 here
+            // is a confirmed source-tree disclosure.
+            // ========================================
+            "/.git/index",
+            "/.git/packed-refs",
+            "/.git/logs/HEAD",
+            "/.git/logs/refs/heads/main",
+            "/.git/logs/refs/heads/master",
+            "/.git/refs/heads/main",
+            "/.git/refs/heads/master",
+            "/.git/info/exclude",
+            "/.git/description",
+            "/.git/COMMIT_EDITMSG",
+            "/.git/ORIG_HEAD",
+            "/.git/FETCH_HEAD",
+            "/.git/hooks/pre-commit.sample",
+            "/.gitlab-ci.yml",
+            "/.gitea/",
+            "/.svn/wc.db",
+            "/.svn/format",
+            "/.svn/pristine",
+            "/.hg/store/00manifest.i",
+            "/.hg/hgrc",
+            "/.bzr/branch/branch.conf",
+            "/CVS/Root",
+            "/CVS/Entries",
+            "/.idea/workspace.xml",
+            "/.idea/dataSources.xml",
+            "/.idea/WebServers.xml",
+            "/.vscode/sftp.json",
+            "/.vscode/settings.json",
+            "/.history/",
+            "/.bash_history",
+            "/.zsh_history",
+            "/.mysql_history",
+            "/.psql_history",
+            "/.python_history",
+            "/.viminfo",
+            // ========================================
+            // CREDENTIAL / KEY FILES (DIRECT DISCLOSURE)
+            // ========================================
+            "/.netrc",
+            "/.npmrc",
+            "/.pypirc",
+            "/.dockercfg",
+            "/.docker/config.json",
+            "/.aws/credentials",
+            "/.aws/config",
+            "/.kube/config",
+            "/.ssh/id_rsa",
+            "/.ssh/id_dsa",
+            "/.ssh/id_ed25519",
+            "/.ssh/id_ecdsa",
+            "/.ssh/authorized_keys",
+            "/.ssh/known_hosts",
+            "/id_rsa",
+            "/id_rsa.pub",
+            "/id_ed25519",
+            "/id_ecdsa",
+            "/authorized_keys",
+            "/.htpasswd",
+            "/.htaccess",
+            "/.boto",
+            "/.pgpass",
+            "/.s3cfg",
+            "/.gitconfig",
+            "/.terraform/terraform.tfstate",
+            "/terraform.tfstate",
+            "/terraform.tfstate.backup",
+            "/terraform.tfvars",
+            "/.terraformrc",
+            "/.netlify/state.json",
+            "/.firebaserc",
+            "/firebase.json",
+            "/credentials.json",
+            "/service-account.json",
+            "/service-account-key.json",
+            "/firebase-adminsdk.json",
+            "/gcp-credentials.json",
+            "/aws-credentials.json",
+            "/azure-credentials.json",
+            "/oauth-private.key",
+            "/private.pem",
+            "/private.key",
+            "/server.key",
+            "/server.pem",
+            "/key.pem",
+            // ========================================
+            // CLOUD / PLATFORM DEPLOY CONFIG
+            // ========================================
+            "/serverless.yml",
+            "/serverless.yaml",
+            "/now.json",
+            "/vercel.json",
+            "/app.yaml",
+            "/Procfile",
+            "/docker-compose.yml",
+            "/docker-compose.yaml",
+            "/docker-compose.override.yml",
+            "/Dockerfile",
+            "/Dockerfile.prod",
+            "/Dockerfile.production",
+            "/Makefile",
+            "/.babelrc",
+            "/.editorconfig",
+            "/.eslintrc",
+            "/.prettierrc",
+            // ========================================
+            // DOTENV / FRAMEWORK CONFIG LEAKS
+            // ========================================
+            "/.env.backup",
+            "/.env.bak",
+            "/.env.old",
+            "/.env.staging",
+            "/.env.test",
+            "/.env.example",
+            "/.env.sample",
+            "/.env.dist",
+            "/.env.dev",
+            "/.env.docker",
+            "/.env.prod",
+            "/env.js",
+            "/env.json",
+            "/config.php",
+            "/config.php.bak",
+            "/configuration.php",
+            "/wp-config.php.bak",
+            "/wp-config.old",
+            "/wp-config.php.swp",
+            "/wp-config.php.save",
+            "/wp-config.php~",
+            "/wp-config.php.orig",
+            "/sites/default/settings.php",
+            "/sites/default/settings.php.bak",
+            "/local.xml",
+            "/app/etc/local.xml",
+            "/app/etc/env.php",
+            "/config/database.yml",
+            "/config/secrets.yml",
+            "/config/master.key",
+            "/config/credentials.yml.enc",
+            "/storage/oauth-private.key",
+            "/storage/oauth-public.key",
+            "/storage/logs/laravel.log",
+            "/bootstrap/cache/config.php",
+            "/instance/config.py",
+            "/instance/application.cfg",
+            "/settings.py",
+            "/local_settings.py",
+            // ========================================
+            // LOG FILES (DIRECT DISCLOSURE)
+            // ========================================
+            "/access.log",
+            "/access_log",
+            "/error.log",
+            "/error_log",
+            "/app.log",
+            "/application.log",
+            "/debug.log",
+            "/server.log",
+            "/system.log",
+            "/laravel.log",
+            "/django.log",
+            "/php_errors.log",
+            "/php-fpm.log",
+            "/nginx.log",
+            "/apache.log",
+            "/audit.log",
+            "/logs/access.log",
+            "/logs/error.log",
+            "/logs/app.log",
+            "/logs/debug.log",
+            "/log/access.log",
+            "/log/error.log",
+            "/log/production.log",
+            "/log/development.log",
+            // ========================================
+            // BACKUP ARCHIVE PATTERNS (COMMON FILENAMES)
+            // ========================================
+            "/backup.tar",
+            "/backup.tar.gz",
+            "/backup.tgz",
+            "/backup.tar.bz2",
+            "/backup.7z",
+            "/backup.rar",
+            "/backup.gz",
+            "/backup.bz2",
+            "/backup.sql.gz",
+            "/backup.sql.bz2",
+            "/db.sql.gz",
+            "/db.tar.gz",
+            "/db.zip",
+            "/dump.tar.gz",
+            "/dump.zip",
+            "/website.zip",
+            "/website.tar.gz",
+            "/site.zip",
+            "/site.tar.gz",
+            "/www.zip",
+            "/www.tar.gz",
+            "/public_html.zip",
+            "/public_html.tar.gz",
+            "/htdocs.zip",
+            "/htdocs.tar.gz",
+            "/release.zip",
+            "/release.tar.gz",
+            "/build.zip",
+            "/build.tar.gz",
+            "/dist.zip",
+            "/dist.tar.gz",
+            // ========================================
+            // CMS / FRAMEWORK SENSITIVE ENDPOINTS
+            // ========================================
+            "/wp-json/wp/v2/users",
+            "/wp-json/wp/v2/users/1",
+            "/wp-json/",
+            "/xmlrpc.php",
+            "/wp-cron.php",
+            "/wp-content/debug.log",
+            "/wp-content/uploads/wp-config.php",
+            "/wp-content/backup-db/",
+            "/wp-content/uploads/backup/",
+            "/wp-admin/install.php",
+            "/wp-admin/setup-config.php",
+            "/wp-admin/admin-ajax.php",
+            "/readme.html",
+            "/license.txt",
+            "/CHANGELOG.txt",
+            "/INSTALL.txt",
+            "/MAINTAINERS.txt",
+            "/UPGRADE.txt",
+            "/administrator/index.php",
+            // ASP.NET
+            "/trace.axd",
+            "/elmah.axd",
+            "/glimpse.axd",
+            "/web.config.bak",
+            "/web.config.old",
+            "/Web.config",
+            // ColdFusion
+            "/CFIDE/administrator/",
+            "/CFIDE/administrator/enter.cfm",
+            "/CFIDE/scripts/",
+            "/CFIDE/componentutils/",
+            // PHP info variations
+            "/i.php",
+            "/phpinfo.php5",
+            "/phpinfo.php7",
+            "/p.php",
+            "/x.php",
+            // Symfony
+            "/_profiler",
+            "/_profiler/empty/search/results",
+            "/_wdt",
+            "/_fragment",
+            "/app_dev.php",
+            "/app/config/parameters.yml",
+            // Laravel
+            "/_ignition/execute-solution",
+            "/telescope/requests",
+            "/horizon/dashboard",
+            "/horizon/api/stats",
+            "/_debugbar",
+            // ========================================
+            // OPENID / OAUTH / IDENTITY DISCOVERY
+            // ========================================
+            "/.well-known/openid-configuration",
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/jwks.json",
+            "/.well-known/webfinger",
+            "/.well-known/host-meta",
+            "/.well-known/host-meta.json",
+            "/.well-known/change-password",
+            "/.well-known/apple-app-site-association",
+            "/apple-app-site-association",
+            "/.well-known/assetlinks.json",
+            "/.well-known/dnt-policy.txt",
+            "/.well-known/matrix/server",
+            "/.well-known/matrix/client",
+            "/jwks",
+            "/jwks.json",
+            "/keys",
+            // ========================================
+            // CLOUD METADATA (REACHABLE VIA SSRF PROXY)
+            // ========================================
+            "/latest/meta-data/",
+            "/latest/meta-data/iam/security-credentials/",
+            "/latest/user-data",
+            "/latest/dynamic/instance-identity/document",
+            "/computeMetadata/v1/",
+            "/metadata/instance",
+            "/metadata/identity/oauth2/token",
+            "/opc/v1/instance/",
+            // ========================================
+            // SSRF / WEBHOOK PROXIES (DEEPER PATTERNS)
+            // ========================================
+            "/api/proxy",
+            "/api/fetch",
+            "/api/url",
+            "/api/render",
+            "/api/screenshot",
+            "/api/pdf",
+            "/api/webhook",
+            "/api/redirect",
+            "/api/forward",
+            "/api/import",
+            "/api/integration",
+            "/api/oembed",
+            "/api/preview",
+            "/proxy.php",
+            "/proxy.aspx",
+            "/proxy.jsp",
         ]
     }
 }
@@ -1481,5 +2166,88 @@ mod tests {
         assert!(wordlist.contains(&"/kirjaudu"));
         assert!(wordlist.contains(&"/hallinta"));
         assert!(wordlist.contains(&"/rekisteroidy"));
+    }
+
+    #[test]
+    fn test_categorize_vcs_and_credential_leaks() {
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/.git/index"),
+            EndpointCategory::Config
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/.ssh/id_rsa"),
+            EndpointCategory::Config
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/.aws/credentials"),
+            EndpointCategory::Config
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/terraform.tfstate"),
+            EndpointCategory::Config
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/wp-config.php.bak"),
+            EndpointCategory::Config
+        );
+    }
+
+    #[test]
+    fn test_categorize_debug_disclosure() {
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/actuator/heapdump"),
+            EndpointCategory::Debug
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/jolokia/list"),
+            EndpointCategory::Debug
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/trace.axd"),
+            EndpointCategory::Debug
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/_ignition/execute-solution"),
+            EndpointCategory::Debug
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/telescope/requests"),
+            EndpointCategory::Debug
+        );
+    }
+
+    #[test]
+    fn test_categorize_backup_archives() {
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/site.tar.gz"),
+            EndpointCategory::Backup
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/dump.zip"),
+            EndpointCategory::Backup
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/index.php~"),
+            EndpointCategory::Backup
+        );
+    }
+
+    #[test]
+    fn test_wordlist_has_sensitive_paths() {
+        let wordlist = EndpointDiscovery::get_wordlist();
+        // Spring Boot
+        assert!(wordlist.contains(&"/actuator/loggers"));
+        assert!(wordlist.contains(&"/actuator/jolokia"));
+        // VCS / credential leaks
+        assert!(wordlist.contains(&"/.git/index"));
+        assert!(wordlist.contains(&"/.ssh/id_rsa"));
+        assert!(wordlist.contains(&"/.aws/credentials"));
+        assert!(wordlist.contains(&"/terraform.tfstate"));
+        // App server admin
+        assert!(wordlist.contains(&"/manager/html"));
+        // Observability
+        assert!(wordlist.contains(&"/grafana/api/admin/users"));
+        // OIDC discovery
+        assert!(wordlist.contains(&"/.well-known/openid-configuration"));
     }
 }
