@@ -112,63 +112,289 @@ impl TomcatMisconfigScanner {
             }
         }
 
-        // Test 2: Tomcat Manager Interface Exposure
+        // Test 2: Tomcat Manager / JMX / Admin Console Exposure
+        //
+        // Each path is paired with the minimum unique substring its real response
+        // contains. A bare 200 or 401 with no Tomcat-specific marker is never enough
+        // — we only report when the body proves it's the real component.
         tests_run += 1;
-        let manager_paths = vec![
-            "/manager/html",
-            "/manager/status",
-            "/manager/text",
-            "/host-manager/html",
-            "/admin/",
-            "/tomcat-admin/",
+        let manager_paths: &[(&str, &[&str])] = &[
+            // Web Application Manager (Catalina manager webapp)
+            (
+                "/manager/html",
+                &[
+                    "Tomcat Web Application Manager",
+                    "<title>/manager</title>",
+                ],
+            ),
+            ("/manager/status", &["Tomcat Web Application Manager", "Server Status"]),
+            // /manager/text is the script API: GET /manager/text/list returns "OK -" prefix
+            ("/manager/text", &["OK - Listed applications", "FAIL - "]),
+            ("/manager/text/list", &["OK - Listed applications", "FAIL - "]),
+            ("/manager/text/serverinfo", &["Tomcat Version:", "OS Name:", "JVM Version:"]),
+            ("/manager/text/threaddump", &["OK - JVM thread dump", "java.lang.Thread.State"]),
+            ("/manager/text/sslConnectorCiphers", &["OK - Connector / SSL", "Ciphers for"]),
+            ("/manager/text/findleaks", &["OK - Found memory leaks", "OK - No memory leaks"]),
+            ("/manager/text/vminfo", &["OK - VM info", "VM Vendor:"]),
+            // Host Manager (vhost management)
+            (
+                "/host-manager/html",
+                &["Tomcat Virtual Host Manager", "<title>/host-manager</title>"],
+            ),
+            ("/host-manager/text", &["FAIL - ", "OK - "]),
+            ("/host-manager/text/list", &["OK - Listed hosts", "FAIL - "]),
+            // JMX proxy servlet inside the manager webapp — direct RCE primitive
+            (
+                "/manager/jmxproxy",
+                &["OK - Number of results", "MBean Names:", "Catalina:type="],
+            ),
+            (
+                "/manager/jmxproxy/?qry=Catalina%3Atype%3DServer",
+                &["Catalina:type=Server", "modelerType"],
+            ),
+            // JBoss / Tomcat-derivative JMX consoles often deployed alongside
+            ("/jmx-console/", &["JMX Console", "HtmlAdaptor"]),
+            ("/jmx-console/HtmlAdaptor", &["HtmlAdaptor", "jboss.system"]),
+            ("/web-console/", &["JBoss Management Console", "Web Console"]),
+            ("/web-console/Invoker", &["MarshalledInvocation", "InvokerServlet"]),
+            // Legacy Tomcat admin webapp (removed in 6+, still seen on appliances)
+            ("/admin/", &["<title>Tomcat", "Tomcat Administration Tool"]),
+            ("/tomcat-admin/", &["<title>Tomcat", "Tomcat Administration Tool"]),
+            // Coyote / catalina status JSP
+            ("/status", &["Tomcat Web Application Manager", "Server Status"]),
+            ("/status/all", &["MaxThreads:", "RequestCount:", "Catalina"]),
         ];
 
-        for path in &manager_paths {
+        for (path, signatures) in manager_paths {
             tests_run += 1;
             let manager_url = format!("{}{}", url.trim_end_matches('/'), path);
 
             match self.http_client.get(&manager_url).await {
                 Ok(response) => {
-                    let body_lower = response.body.to_lowercase();
+                    let body = &response.body;
+                    let body_lower = body.to_lowercase();
 
-                    // Check for manager login page or accessible manager
-                    // Require Tomcat-specific content, not generic "401 unauthorized" text
-                    let is_manager = body_lower.contains("tomcat web application manager")
-                        || body_lower.contains("tomcat virtual host manager")
-                        || body_lower.contains("manager-gui")
-                        || (response.status_code == 401 && body_lower.contains("tomcat"));
+                    // Primary: any of the path-specific markers in the body.
+                    let has_signature = signatures.iter().any(|s| body.contains(s));
 
-                    if is_manager {
-                        let severity = if response.status_code == 200 {
-                            Severity::Critical // Accessible without auth
-                        } else {
-                            Severity::Medium // Protected but exposed
-                        };
+                    // Secondary path-agnostic markers used for legacy /admin variants
+                    // and for protected (401/403) responses that still leak Tomcat identity.
+                    let is_manager_protected = matches!(response.status_code, 401 | 403)
+                        && (body_lower.contains("tomcat")
+                            || body_lower.contains("catalina"))
+                        && (body_lower.contains("manager")
+                            || body_lower.contains("host-manager")
+                            || body_lower.contains("jmx"));
 
-                        info!("Tomcat manager interface found at {}", manager_url);
-                        vulnerabilities.push(self.create_vulnerability(
-                            &manager_url,
-                            "TOMCAT_MANAGER_EXPOSED",
-                            &format!("Tomcat Manager Interface Exposed at {}", path),
-                            &format!(
-                                "Manager interface accessible. Status: {}\nPath: {}",
-                                response.status_code, path
-                            ),
-                            severity,
-                            Confidence::High,
-                            if response.status_code == 200 { 9.8 } else { 5.3 },
-                            "1. Restrict manager access by IP in META-INF/context.xml:\n\
-                                <Valve className=\"org.apache.catalina.valves.RemoteAddrValve\" allow=\"127\\.0\\.0\\.1|192\\.168\\..+\"/>\n\
-                             2. Use strong, unique credentials for manager accounts\n\
-                             3. Consider removing manager applications in production\n\
-                             4. Place behind VPN or internal network only\n\
-                             5. Enable SSL/TLS for manager access",
-                        ));
-                        break;
+                    if !has_signature && !is_manager_protected {
+                        continue;
                     }
+
+                    let (severity, cvss) = match (response.status_code, has_signature) {
+                        // Live, unauthenticated /jmxproxy or /text endpoints are RCE-class
+                        (200, true) if path.contains("jmxproxy") => (Severity::Critical, 9.8),
+                        (200, true) if path.contains("/text") => (Severity::Critical, 9.8),
+                        (200, true) => (Severity::Critical, 9.8),
+                        // Reachable but auth-gated — still high-value recon
+                        (401, _) | (403, _) => (Severity::Medium, 5.3),
+                        _ => (Severity::Low, 3.7),
+                    };
+
+                    info!("Tomcat manager-class interface found at {}", manager_url);
+                    vulnerabilities.push(self.create_vulnerability(
+                        &manager_url,
+                        "TOMCAT_MANAGER_EXPOSED",
+                        &format!("Tomcat Manager Interface Exposed at {}", path),
+                        &format!(
+                            "Manager interface reachable. Status: {}\nPath: {}\nMatched signature: {}",
+                            response.status_code,
+                            path,
+                            has_signature
+                        ),
+                        severity,
+                        Confidence::High,
+                        cvss,
+                        "1. Restrict manager access by IP in META-INF/context.xml:\n\
+                            <Valve className=\"org.apache.catalina.valves.RemoteAddrValve\" allow=\"127\\.0\\.0\\.1|192\\.168\\..+\"/>\n\
+                         2. Use strong, unique credentials for manager accounts\n\
+                         3. Remove the manager/host-manager/admin webapps in production\n\
+                         4. Disable the JMX proxy servlet by removing it from manager web.xml\n\
+                         5. Bind management UIs to localhost or an internal network only\n\
+                         6. Enable SSL/TLS for any management access",
+                    ));
+                    // Continue scanning other manager paths — different paths reveal
+                    // different attack surface (e.g. /text vs /jmxproxy).
                 }
                 Err(e) => {
                     debug!("Manager check failed for {}: {}", manager_url, e);
+                }
+            }
+        }
+
+        // Test 2b: Sensitive Tomcat configuration / deployment artifacts.
+        //
+        // These are file paths that are NEVER intentionally web-exposed on a
+        // properly configured Tomcat. A 200 with the file's distinctive markup
+        // is unambiguous evidence of misconfiguration.
+        let sensitive_files: &[(&str, &str, &[&str], Severity)] = &[
+            // WEB-INF and META-INF should be blocked by the default servlet
+            (
+                "/WEB-INF/web.xml",
+                "WEB-INF/web.xml exposed",
+                &["<web-app", "<servlet-mapping", "<servlet-name>"],
+                Severity::High,
+            ),
+            (
+                "/WEB-INF/classes/application.properties",
+                "Application properties leaked via WEB-INF",
+                &["spring.", "datasource", "password", "jdbc:"],
+                Severity::Critical,
+            ),
+            (
+                "/WEB-INF/classes/application.yml",
+                "Application YAML leaked via WEB-INF",
+                &["datasource:", "password:", "jdbc:"],
+                Severity::Critical,
+            ),
+            (
+                "/WEB-INF/classes/log4j.properties",
+                "log4j config leaked via WEB-INF",
+                &["log4j.rootLogger", "log4j.appender"],
+                Severity::Medium,
+            ),
+            (
+                "/WEB-INF/classes/log4j2.xml",
+                "log4j2 config leaked via WEB-INF",
+                &["<Configuration", "<Appenders", "log4j"],
+                Severity::Medium,
+            ),
+            (
+                "/META-INF/context.xml",
+                "META-INF/context.xml exposed",
+                &["<Context", "<Resource", "<Valve"],
+                Severity::High,
+            ),
+            (
+                "/META-INF/MANIFEST.MF",
+                "META-INF/MANIFEST.MF exposed",
+                &["Manifest-Version:", "Implementation-"],
+                Severity::Low,
+            ),
+            // tomcat-users.xml is the credential file — full takeover if leaked
+            (
+                "/conf/tomcat-users.xml",
+                "tomcat-users.xml exposed",
+                &["<tomcat-users", "<user ", "password="],
+                Severity::Critical,
+            ),
+            (
+                "/conf/server.xml",
+                "server.xml exposed",
+                &["<Server ", "<Service ", "<Connector "],
+                Severity::Critical,
+            ),
+            (
+                "/conf/web.xml",
+                "Tomcat global web.xml exposed",
+                &["<web-app", "default", "DefaultServlet"],
+                Severity::High,
+            ),
+            (
+                "/conf/catalina.policy",
+                "catalina.policy exposed",
+                &["grant codeBase", "permission java."],
+                Severity::Medium,
+            ),
+            (
+                "/conf/context.xml",
+                "Global context.xml exposed",
+                &["<Context", "<WatchedResource"],
+                Severity::Medium,
+            ),
+            // Backup / build artifacts left in webapps
+            (
+                "/WEB-INF/web.xml.bak",
+                "Backup web.xml exposed",
+                &["<web-app", "<servlet"],
+                Severity::High,
+            ),
+            (
+                "/WEB-INF/web.xml.old",
+                "Old web.xml exposed",
+                &["<web-app", "<servlet"],
+                Severity::High,
+            ),
+            (
+                "/WEB-INF/web.xml~",
+                "Editor-backup web.xml exposed",
+                &["<web-app", "<servlet"],
+                Severity::High,
+            ),
+            // CGI / SSI servlets — historical RCE primitives if mapped
+            (
+                "/cgi-bin/",
+                "Tomcat CGI servlet enabled",
+                &["Index of /cgi-bin", "<title>Directory"],
+                Severity::Medium,
+            ),
+            // Apache mod_status reverse-proxied from Tomcat
+            (
+                "/server-status",
+                "mod_status (or Tomcat status) reachable",
+                &["Apache Server Status", "Server Version:", "Tomcat"],
+                Severity::Medium,
+            ),
+            (
+                "/server-info",
+                "mod_info reachable",
+                &["Apache Server Information", "Module Name:"],
+                Severity::Medium,
+            ),
+        ];
+
+        for (path, label, signatures, severity) in sensitive_files {
+            tests_run += 1;
+            let probe_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&probe_url).await {
+                Ok(response) => {
+                    if response.status_code != 200 || response.body.len() < 12 {
+                        continue;
+                    }
+                    let body = &response.body;
+                    let has_signature = signatures.iter().any(|s| body.contains(s));
+                    if !has_signature {
+                        continue;
+                    }
+
+                    let cvss = match severity {
+                        Severity::Critical => 9.1,
+                        Severity::High => 7.5,
+                        Severity::Medium => 5.3,
+                        _ => 3.7,
+                    };
+
+                    info!("Sensitive Tomcat artifact exposed at {}", probe_url);
+                    vulnerabilities.push(self.create_vulnerability(
+                        &probe_url,
+                        "TOMCAT_SENSITIVE_FILE_EXPOSED",
+                        label,
+                        &format!(
+                            "Path: {}\nStatus: 200\nMatched signature inside response body confirms the real file contents are being served.",
+                            path
+                        ),
+                        severity.clone(),
+                        Confidence::High,
+                        cvss,
+                        "1. Block WEB-INF and META-INF in the default servlet (Tomcat does this by default — re-check any custom valve/filter ordering or front-proxy rewrites)\n\
+                         2. Move backup files (*.bak, *.old, *~) out of the deployed webapp\n\
+                         3. Remove /conf from any reverse-proxy alias that maps Catalina's filesystem\n\
+                         4. Rotate any credentials that appear in tomcat-users.xml, server.xml, or application.properties\n\
+                         5. Disable the CGI/SSI servlets in conf/web.xml unless explicitly required",
+                    ));
+                }
+                Err(e) => {
+                    debug!("Sensitive-file probe failed for {}: {}", probe_url, e);
                 }
             }
         }
