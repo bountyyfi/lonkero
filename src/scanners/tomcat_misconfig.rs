@@ -318,6 +318,90 @@ impl TomcatMisconfigScanner {
             }
         }
 
+        // Test 6: WEB-INF / META-INF descriptor & config disclosure
+        // Tomcat blocks these paths by default (404). Serving them — usually via a
+        // reverse-proxy mis-route or path-traversal normalization bug — leaks
+        // deployment descriptors and, in context.xml / Spring config, live DB
+        // credentials. Each file is confirmed by a structural marker so a generic
+        // 200 page cannot trigger a finding.
+        let protected_files: Vec<(&str, &str, Severity, f32, &[&str])> = vec![
+            (
+                "/WEB-INF/web.xml",
+                "WEB-INF/web.xml Deployment Descriptor Exposed",
+                Severity::High,
+                7.5,
+                &["<web-app"],
+            ),
+            (
+                "/META-INF/context.xml",
+                "META-INF/context.xml Exposed (may contain DB credentials)",
+                Severity::Critical,
+                9.1,
+                &["<context"],
+            ),
+            (
+                "/WEB-INF/applicationContext.xml",
+                "Spring applicationContext.xml Exposed",
+                Severity::High,
+                7.5,
+                &["<beans"],
+            ),
+            (
+                "/WEB-INF/classes/application.properties",
+                "Spring Boot application.properties Exposed (may contain DB credentials)",
+                Severity::Critical,
+                9.1,
+                &["spring.", "datasource", "jdbc:"],
+            ),
+            (
+                "/WEB-INF/classes/application.yml",
+                "Spring Boot application.yml Exposed (may contain DB credentials)",
+                Severity::Critical,
+                9.1,
+                &["datasource:", "spring:", "jdbc:"],
+            ),
+        ];
+
+        for (path, title, severity, cvss, markers) in protected_files {
+            tests_run += 1;
+            let file_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&file_url).await {
+                Ok(response) => {
+                    if response.status_code == 200 {
+                        let body_lower = response.body.to_lowercase();
+                        let matched_marker = markers
+                            .iter()
+                            .find(|m| body_lower.contains(&m.to_lowercase()));
+
+                        if let Some(marker) = matched_marker {
+                            info!("Tomcat protected file exposed at {}", file_url);
+                            vulnerabilities.push(self.create_vulnerability(
+                                &file_url,
+                                "TOMCAT_PROTECTED_FILE_EXPOSED",
+                                title,
+                                &format!(
+                                    "Protected file served with HTTP 200. Path: {}\nConfirming marker: {}",
+                                    path, marker
+                                ),
+                                severity,
+                                Confidence::High,
+                                cvss,
+                                "1. Ensure WEB-INF and META-INF are never served (Tomcat blocks them by default)\n\
+                                 2. Audit reverse-proxy rules that may route or rewrite these paths\n\
+                                 3. Update Tomcat to patch path-normalization traversal bugs\n\
+                                 4. Move secrets out of context.xml / application.properties into env vars or a secrets manager\n\
+                                 5. Rotate any credentials that were exposed",
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("Protected file check failed for {}: {}", file_url, e);
+                }
+            }
+        }
+
         Ok((vulnerabilities, tests_run))
     }
 

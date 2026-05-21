@@ -179,6 +179,10 @@ impl AspNetScanner {
         vulnerabilities.extend(config_vulns);
         tests_run += config_tests;
 
+        let (diag_vulns, diag_tests) = self.check_diagnostic_endpoints(url, config).await?;
+        vulnerabilities.extend(diag_vulns);
+        tests_run += diag_tests;
+
         let (csrf_vulns, csrf_tests) = self.check_antiforgery_issues(url, config).await?;
         vulnerabilities.extend(csrf_vulns);
         tests_run += csrf_tests;
@@ -939,6 +943,110 @@ impl AspNetScanner {
                 ml_data: None,
                     });
                 }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Probe for classic ASP.NET diagnostic handlers that leak runtime internals.
+    ///
+    /// ELMAH (`elmah.axd`) exposes the full server-side error log (stack traces,
+    /// SQL, sometimes secrets). The WebForms trace viewer (`trace.axd`) dumps
+    /// every recent request including cookies/session/form data. Glimpse
+    /// (`glimpse.axd`) exposes routes, queries and server config.
+    ///
+    /// Each is confirmed by a handler-specific page marker, so an ordinary 404 or
+    /// SPA page cannot trigger a finding.
+    async fn check_diagnostic_endpoints(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let base = url.trim_end_matches('/');
+
+        // (path, name, primary marker, secondary marker, cwe)
+        // Markers are matched case-insensitively. An empty secondary marker is
+        // ignored.
+        let endpoints = [
+            (
+                "/elmah.axd",
+                "ELMAH Error Log",
+                "error log for",
+                "",
+                "CWE-200",
+            ),
+            (
+                "/elmah.axd/rss",
+                "ELMAH Error Log (RSS)",
+                "error log of",
+                "",
+                "CWE-200",
+            ),
+            (
+                "/trace.axd",
+                "ASP.NET Trace Viewer",
+                "application trace",
+                "",
+                "CWE-200",
+            ),
+            (
+                "/glimpse.axd",
+                "Glimpse Diagnostics",
+                "glimpse",
+                "glimpsepolicy",
+                "CWE-200",
+            ),
+        ];
+
+        for (path, name, marker_a, marker_b, cwe) in endpoints {
+            tests_run += 1;
+            let test_url = format!("{}{}", base, path);
+
+            if let Ok(resp) = self.http_client.get(&test_url).await {
+                if resp.status_code != 200 {
+                    continue;
+                }
+                let body_lower = resp.body.to_lowercase();
+                let matched = body_lower.contains(marker_a)
+                    && (marker_b.is_empty() || body_lower.contains(marker_b));
+                if !matched {
+                    continue;
+                }
+
+                vulnerabilities.push(Vulnerability {
+                    id: format!("aspnet_diag_{}", Self::generate_id()),
+                    vuln_type: format!("ASP.NET {} Exposed", name),
+                    severity: Severity::High,
+                    confidence: Confidence::High,
+                    category: "Information Disclosure".to_string(),
+                    url: test_url.clone(),
+                    parameter: Some(path.to_string()),
+                    payload: format!("GET {}", path),
+                    description: format!(
+                        "ASP.NET diagnostic handler {} ({}) is publicly accessible. \
+                         It exposes server-side runtime internals such as error logs, \
+                         stack traces, recent requests and configuration.",
+                        path, name
+                    ),
+                    evidence: Some(format!("Page marker '{}' present at {}", marker_a, path)),
+                    cwe: cwe.to_string(),
+                    cvss: 7.5,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "1. Remove the diagnostic handler in production\n\
+                                  2. Restrict access with <location> + <authorization> in web.config\n\
+                                  3. For ELMAH set <security allowRemoteAccess=\"false\"/>\n\
+                                  4. For trace.axd set <trace enabled=\"false\" localOnly=\"true\"/>\n\
+                                  5. Do not deploy Glimpse to production"
+                        .to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                    ml_confidence: None,
+                    ml_data: None,
+                });
             }
         }
 
