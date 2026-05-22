@@ -49,7 +49,13 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Every candidate is fetched and then run through `parse_openapi_spec`, which only
+/// returns a spec when the body deserializes as JSON/YAML AND advertises a recognized
+/// `openapi`/`swagger` version field. A path that returns anything else (HTML, a 404
+/// page, an unrelated JSON document) is silently discarded, so adding more paths
+/// broadens coverage without introducing false positives.
 const OPENAPI_PATHS: &[&str] = &[
     "/swagger.json",
     "/openapi.json",
@@ -70,9 +76,45 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // springdoc / springfox (Spring Boot) defaults
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v2/api-docs",
+    "/api/v3/api-docs",
+    "/swagger/docs/v1",
+    // NestJS @nestjs/swagger raw document
+    "/api-json",
+    "/api/api-json",
+    // Quarkus SmallRye OpenAPI defaults
+    "/q/openapi",
+    "/q/openapi.json",
+    // Django REST Framework / drf-spectacular schema endpoints
+    "/api/schema/",
+    "/api/schema",
+    "/schema/",
+    // FastAPI / Starlette and other versioned mounts
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    // Generic / reverse-proxy mounted variants
+    "/openapi",
+    "/swagger",
+    "/api/swagger",
+    "/api/api-docs",
+    "/api-docs/v1",
+    "/api-docs/swagger.json",
+    "/static/swagger.json",
+    "/docs/openapi.yaml",
+    "/swagger.yml",
+    "/openapi.yml",
 ];
 
-/// Common Swagger UI paths
+/// Common interactive API documentation UI paths.
+///
+/// A hit is only reported when the response is 200 AND the body contains a marker
+/// unique to a known documentation renderer (see `check_swagger_ui_exposure`), so
+/// unrelated 200 pages served at these paths do not produce findings.
 const SWAGGER_UI_PATHS: &[&str] = &[
     "/swagger-ui.html",
     "/swagger-ui/index.html",
@@ -84,6 +126,24 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Additional renderer / framework defaults
+    "/swagger",
+    "/swagger/index.html",
+    "/docs",
+    "/redoc/",
+    "/api/redoc",
+    "/api/v1/docs",
+    // Quarkus Swagger UI
+    "/q/swagger-ui",
+    // Scalar API reference
+    "/scalar",
+    "/scalar/v1",
+    // Stoplight Elements / hapi-swagger / Laravel l5-swagger / LoopBack
+    "/documentation",
+    "/api/documentation",
+    "/explorer",
+    // Springfox resource listing (enumerates additional spec groups)
+    "/swagger-resources",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -1292,6 +1352,11 @@ impl OpenApiAnalyzer {
                             || body_lower.contains("redoc")
                             || body_lower.contains("rapidoc")
                             || body_lower.contains("api documentation")
+                            // Scalar API reference renderer
+                            || body_lower.contains("@scalar/api-reference")
+                            // Stoplight Elements renderer
+                            || body_lower.contains("stoplight-elements")
+                            || body_lower.contains("elements-api")
                         {
                             vulnerabilities.push(self.create_vulnerability(
                                 "OpenAPI Documentation UI Exposed",

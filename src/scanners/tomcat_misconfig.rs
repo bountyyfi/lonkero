@@ -114,13 +114,22 @@ impl TomcatMisconfigScanner {
 
         // Test 2: Tomcat Manager Interface Exposure
         tests_run += 1;
+        // A finding is only emitted when the body carries Tomcat-specific manager
+        // markers (see the `is_manager` check below), so listing extra context roots
+        // and host-manager variants widens coverage without risking false positives.
         let manager_paths = vec![
             "/manager/html",
             "/manager/status",
             "/manager/text",
+            "/manager/",
             "/host-manager/html",
+            "/host-manager/",
+            "/host-manager/status",
             "/admin/",
             "/tomcat-admin/",
+            // Non-default context roots seen behind reverse proxies
+            "/tomcat/manager/html",
+            "/console/manager/html",
         ];
 
         for path in &manager_paths {
@@ -175,13 +184,19 @@ impl TomcatMisconfigScanner {
 
         // Test 3: Example Applications Accessible
         tests_run += 1;
+        // Reported only when the body matches Tomcat example-app markers
+        // (`is_example` below), keeping these probes false-positive free.
         let example_paths = vec![
             "/examples/",
             "/examples/jsp/",
+            "/examples/jsp/index.html",
             "/examples/servlets/",
+            "/examples/servlets/index.html",
             "/examples/websocket/",
+            "/examples/websocket/index.xhtml",
             "/docs/",
             "/tomcat-docs/",
+            "/sample/",
         ];
 
         for path in &example_paths {
@@ -231,7 +246,16 @@ impl TomcatMisconfigScanner {
 
         // Test 4: Version Detection via Error Pages
         tests_run += 1;
-        let version_paths = vec!["/nonexistent_path_12345", "/WEB-INF/", "/META-INF/"];
+        // Version is only reported when the error page matches the Tomcat version
+        // regex below, so these extra probe paths cannot cause false positives.
+        let version_paths = vec![
+            "/nonexistent_path_12345",
+            "/WEB-INF/",
+            "/WEB-INF/web.xml",
+            "/META-INF/",
+            "/manager/nonexistent_12345",
+            "/.well-known/nonexistent_12345",
+        ];
 
         for path in &version_paths {
             tests_run += 1;

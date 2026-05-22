@@ -489,16 +489,24 @@ impl NextJsSecurityScanner {
             }
         };
 
-        // Test _next/data endpoints for various pages
+        // Test _next/data endpoints for various pages. Each response is scanned for
+        // concrete sensitive-data patterns (emails, tokens, secrets, PII) before a
+        // finding is raised, so extra page names cannot trigger false positives.
         let pages_to_test = [
             "/index",
             "/admin",
             "/dashboard",
             "/user",
+            "/users",
             "/profile",
+            "/account",
+            "/me",
             "/settings",
+            "/billing",
+            "/orders",
             "/api-docs",
             "/internal",
+            "/admin/users",
         ];
 
         for page in &pages_to_test {
@@ -1138,20 +1146,36 @@ impl NextJsSecurityScanner {
 
         let base = url.trim_end_matches('/');
 
-        // Files that shouldn't be accessible
+        // Files that shouldn't be accessible. A finding requires a 200 response whose
+        // body matches the `is_config` content check below (config module markers,
+        // a JSON document, or an embedded credential), so listing more candidates
+        // expands coverage without producing false positives.
         let sensitive_files = [
             ("next.config.js", "Next.js configuration"),
             ("next.config.mjs", "Next.js configuration"),
+            ("next.config.ts", "Next.js configuration"),
             (".env", "Environment variables"),
             (".env.local", "Local environment variables"),
             (".env.production", "Production environment"),
+            (".env.production.local", "Production environment (local override)"),
+            (".env.development", "Development environment variables"),
+            (".env.development.local", "Development environment (local override)"),
+            (".env.test", "Test environment variables"),
             ("tsconfig.json", "TypeScript configuration"),
             ("package.json", "Package dependencies"),
             ("package-lock.json", "Dependency lock file"),
             (".next/BUILD_ID", "Build identifier"),
             (".next/build-manifest.json", "Build manifest"),
+            (".next/app-build-manifest.json", "App router build manifest"),
             (".next/routes-manifest.json", "Routes manifest"),
             (".next/prerender-manifest.json", "Prerender manifest"),
+            // High-value internal manifests: enumerate server-side routes/paths and
+            // can embed runtime configuration including environment values.
+            (".next/required-server-files.json", "Required server files manifest"),
+            (".next/server/pages-manifest.json", "Server pages manifest"),
+            (".next/server/app-paths-manifest.json", "App paths manifest"),
+            (".next/server/middleware-manifest.json", "Middleware manifest"),
+            (".next/react-loadable-manifest.json", "Loadable modules manifest"),
         ];
 
         for (file, desc) in &sensitive_files {
