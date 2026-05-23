@@ -91,18 +91,38 @@ impl RailsScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
+        // (path, friendly name, content markers). A marker must appear in the
+        // body to confirm the genuine Rails debug page, so an SPA / catch-all
+        // route returning 200 for every path cannot produce a false positive.
         let debug_paths = vec![
-            ("/rails/info/properties", "Rails Info"),
-            ("/rails/info/routes", "Rails Routes"),
-            ("/__better_errors", "Better Errors"),
+            (
+                "/rails/info/properties",
+                "Rails Info",
+                vec!["rails version", "ruby version"],
+            ),
+            (
+                "/rails/info/routes",
+                "Rails Routes",
+                vec!["controller#action", "http verb"],
+            ),
+            (
+                "/__better_errors",
+                "Better Errors",
+                vec![
+                    "better errors",
+                    "bettererrors",
+                    "no errors have been recorded",
+                ],
+            ),
         ];
 
-        for (path, name) in debug_paths {
+        for (path, name, markers) in debug_paths {
             let url = format!("{}{}", target, path);
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 {
+                let body_l = response.body.to_lowercase();
+                if response.status_code == 200 && markers.iter().any(|m| body_l.contains(*m)) {
                     vulnerabilities.push(Vulnerability {
                         id: generate_vuln_id(),
                         vuln_type: "Information Disclosure".to_string(),
@@ -141,11 +161,90 @@ impl RailsScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
+        // config/master.key decrypts config/credentials.yml.enc, exposing
+        // secret_key_base, database credentials and every stored third-party
+        // secret. The file is exactly a 32-character hex string, so matching
+        // that exact shape makes a false positive practically impossible.
+        tests += 1;
+        let master_key_url = format!("{}/config/master.key", target);
+        if let Ok(response) = self.http_client.get(&master_key_url).await {
+            if response.status_code == 200 {
+                let trimmed = response.body.trim();
+                if trimmed.len() == 32 && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    vulnerabilities.push(self.disclosure_vuln(
+                        &master_key_url,
+                        "/config/master.key",
+                        Severity::Critical,
+                        9.8,
+                        "Rails master key (config/master.key) exposed - decrypts \
+                         config/credentials.yml.enc, revealing secret_key_base, database \
+                         credentials and all stored third-party secrets"
+                            .to_string(),
+                        "32-character hex master key returned".to_string(),
+                        "CWE-798",
+                    ));
+                }
+            }
+        }
+
+        // config/credentials.yml.enc is the encrypted secret store; its content
+        // is three base64 segments joined by "--" (MessageEncryptor format).
+        // Combined with an exposed master key it yields full compromise.
+        tests += 1;
+        let creds_url = format!("{}/config/credentials.yml.enc", target);
+        if let Ok(response) = self.http_client.get(&creds_url).await {
+            if response.status_code == 200 {
+                let trimmed = response.body.trim();
+                let parts: Vec<&str> = trimmed.split("--").collect();
+                let is_creds = parts.len() == 3
+                    && trimmed.len() > 50
+                    && !trimmed.contains('<')
+                    && parts.iter().all(|p| {
+                        !p.is_empty()
+                            && p.bytes().all(|b| {
+                                b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'='
+                            })
+                    });
+                if is_creds {
+                    vulnerabilities.push(self.disclosure_vuln(
+                        &creds_url,
+                        "/config/credentials.yml.enc",
+                        Severity::High,
+                        7.5,
+                        "Rails encrypted credentials (config/credentials.yml.enc) exposed - \
+                         decryptable to the full secret store if config/master.key or \
+                         RAILS_MASTER_KEY is also obtained"
+                            .to_string(),
+                        "MessageEncryptor base64 ciphertext returned".to_string(),
+                        "CWE-200",
+                    ));
+                }
+            }
+        }
+
+        // Plaintext config / secret files, confirmed by a sensitive pattern and
+        // guarded against SPA catch-all HTML responses.
         let env_paths = vec![
-            "/.env",
             "/config/database.yml",
             "/config/secrets.yml",
-            "/Gemfile",
+            "/config/storage.yml",
+            "/config/initializers/secret_token.rb",
+            "/.env",
+            "/.env.production",
+            "/.env.development",
+        ];
+
+        let sensitive_patterns = vec![
+            "secret_key_base",
+            "secret_token",
+            "secret_key",
+            "database_url",
+            "password:",
+            "adapter:",
+            "access_key_id",
+            "secret_access_key",
+            "aws_secret",
+            "private_key",
         ];
 
         for path in env_paths {
@@ -154,45 +253,65 @@ impl RailsScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
-                    let sensitive_patterns =
-                        vec!["SECRET_KEY", "DATABASE_URL", "password:", "adapter:"];
-                    for pattern in &sensitive_patterns {
-                        if response
-                            .body
-                            .to_lowercase()
-                            .contains(&pattern.to_lowercase())
-                        {
-                            vulnerabilities.push(Vulnerability {
-                                id: generate_vuln_id(),
-                                vuln_type: "Information Disclosure".to_string(),
-                                severity: Severity::Critical,
-                                confidence: Confidence::High,
-                                category: "Framework Security".to_string(),
-                                url: url.clone(),
-                                parameter: None,
-                                payload: path.to_string(),
-                                description: format!(
-                                    "Rails environment/configuration file exposed: {}",
-                                    path
-                                ),
-                                evidence: Some(format!("Sensitive pattern found: {}", pattern)),
-                                cwe: "CWE-538".to_string(),
-                                cvss: 9.1,
-                                verified: true,
-                                false_positive: false,
-                                remediation: "Remove configuration files from web root".to_string(),
-                                discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_confidence: None,
-                ml_data: None,
-                            });
-                            break;
-                        }
+                    let body_l = response.body.to_lowercase();
+                    // Skip SPA / catch-all HTML responses.
+                    if body_l.contains("<html") || body_l.contains("<!doctype") {
+                        continue;
+                    }
+                    if let Some(pattern) =
+                        sensitive_patterns.iter().copied().find(|p| body_l.contains(*p))
+                    {
+                        vulnerabilities.push(self.disclosure_vuln(
+                            &url,
+                            path,
+                            Severity::Critical,
+                            9.1,
+                            format!("Rails environment/configuration file exposed: {}", path),
+                            format!("Sensitive pattern found: {}", pattern),
+                            "CWE-538",
+                        ));
                     }
                 }
             }
         }
 
         Ok((vulnerabilities, tests))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn disclosure_vuln(
+        &self,
+        url: &str,
+        path: &str,
+        severity: Severity,
+        cvss: f32,
+        description: String,
+        evidence: String,
+        cwe: &str,
+    ) -> Vulnerability {
+        Vulnerability {
+            id: generate_vuln_id(),
+            vuln_type: "Information Disclosure".to_string(),
+            severity,
+            confidence: Confidence::High,
+            category: "Framework Security".to_string(),
+            url: url.to_string(),
+            parameter: None,
+            payload: path.to_string(),
+            description,
+            evidence: Some(evidence),
+            cwe: cwe.to_string(),
+            cvss,
+            verified: true,
+            false_positive: false,
+            remediation:
+                "Remove sensitive files from web-accessible paths, block them at the web server, \
+                 and rotate any exposed secrets"
+                    .to_string(),
+            discovered_at: chrono::Utc::now().to_rfc3339(),
+            ml_confidence: None,
+            ml_data: None,
+        }
     }
 
     async fn check_log_exposure(&self, target: &str) -> Result<(Vec<Vulnerability>, usize)> {

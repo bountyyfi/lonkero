@@ -111,114 +111,245 @@ impl SpringScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
+        // (path, friendly name, severity, description, detection marker)
+        //
+        // The marker must appear in the response body to confirm a genuine
+        // actuator endpoint, keeping false positives near zero: markers are the
+        // quoted JSON keys that Spring emits, which a SPA catch-all or generic
+        // page will not contain. Two markers are special-cased:
+        //   "@heapdump" -> binary JVM heap dump (hprof magic / octet-stream)
+        //   "@shutdown" -> POST-only endpoint, detected via 405 (never invoked)
         let actuator_endpoints = vec![
             (
                 "/actuator/env",
                 "Environment Variables",
                 Severity::Critical,
-                "Exposes all environment variables including secrets",
+                "Exposes all environment variables and property sources, frequently including credentials",
+                "\"propertySources\"",
+            ),
+            (
+                "/env",
+                "Environment Variables (legacy)",
+                Severity::Critical,
+                "Spring Boot 1.x environment endpoint exposing property sources including credentials",
+                "\"systemProperties\"",
+            ),
+            (
+                "/actuator/configprops",
+                "Configuration Properties",
+                Severity::Critical,
+                "Exposes resolved @ConfigurationProperties beans, frequently containing datasource passwords and API keys",
+                "\"contexts\"",
             ),
             (
                 "/actuator/heapdump",
                 "Heap Dump",
                 Severity::Critical,
-                "Allows downloading JVM heap dump - contains secrets",
+                "Allows downloading a full JVM heap dump containing in-memory secrets, tokens and credentials",
+                "@heapdump",
             ),
             (
-                "/actuator/mappings",
-                "URL Mappings",
-                Severity::Medium,
-                "Exposes all URL mappings",
+                "/heapdump",
+                "Heap Dump (legacy)",
+                Severity::Critical,
+                "Spring Boot 1.x heap dump endpoint exposing in-memory secrets",
+                "@heapdump",
+            ),
+            (
+                "/actuator/httptrace",
+                "HTTP Request Trace",
+                Severity::High,
+                "Exposes recent HTTP requests/responses including headers and cookies, enabling session-token capture",
+                "\"traces\"",
+            ),
+            (
+                "/actuator/httpexchanges",
+                "HTTP Exchanges",
+                Severity::High,
+                "Spring Boot 3.x request/response history exposing headers and cookies, enabling session-token capture",
+                "\"exchanges\"",
+            ),
+            (
+                "/actuator/sessions",
+                "Active Sessions",
+                Severity::High,
+                "Lists active Spring Session identifiers, enabling session hijacking",
+                "\"sessions\"",
             ),
             (
                 "/actuator/loggers",
                 "Loggers",
                 Severity::High,
-                "Can modify log levels at runtime",
+                "Exposes and allows runtime modification of application log levels",
+                "\"levels\"",
             ),
             (
-                "/actuator/jolokia",
-                "Jolokia JMX",
-                Severity::Critical,
-                "JMX over HTTP - can lead to RCE",
+                "/actuator/threaddump",
+                "Thread Dump",
+                Severity::Medium,
+                "Exposes a full JVM thread dump; stack frames can leak method arguments and internal state",
+                "\"threads\"",
+            ),
+            (
+                "/actuator/auditevents",
+                "Audit Events",
+                Severity::Medium,
+                "Exposes authentication/authorization audit events including usernames",
+                "\"events\"",
+            ),
+            (
+                "/actuator/mappings",
+                "URL Mappings",
+                Severity::Medium,
+                "Exposes all request mappings and internal handler structure",
+                "\"dispatcherServlet",
+            ),
+            (
+                "/actuator/gateway/routes",
+                "Spring Cloud Gateway Routes",
+                Severity::Medium,
+                "Exposes internal gateway route definitions and upstream targets (recon / SSRF surface)",
+                "\"predicate\"",
+            ),
+            (
+                "/actuator/beans",
+                "Spring Beans",
+                Severity::Low,
+                "Exposes the full application bean graph and internal structure",
+                "\"beans\"",
+            ),
+            (
+                "/actuator/conditions",
+                "Autoconfiguration Conditions",
+                Severity::Low,
+                "Exposes the autoconfiguration report, revealing libraries and internal configuration",
+                "\"positiveMatches\"",
+            ),
+            (
+                "/actuator/scheduledtasks",
+                "Scheduled Tasks",
+                Severity::Low,
+                "Exposes scheduled task definitions and cron expressions",
+                "\"fixedDelay\"",
+            ),
+            (
+                "/actuator/caches",
+                "Caches",
+                Severity::Low,
+                "Exposes configured cache managers and cache names",
+                "\"cacheManagers\"",
+            ),
+            (
+                "/actuator/flyway",
+                "Flyway Migrations",
+                Severity::Low,
+                "Exposes database migration history and schema details",
+                "\"migrations\"",
+            ),
+            (
+                "/actuator/liquibase",
+                "Liquibase Changesets",
+                Severity::Low,
+                "Exposes database changeset history and schema details",
+                "\"changeSets\"",
+            ),
+            (
+                "/actuator/quartz",
+                "Quartz Scheduler",
+                Severity::Low,
+                "Exposes Quartz jobs and triggers",
+                "\"triggers\"",
+            ),
+            (
+                "/actuator/metrics",
+                "Metrics",
+                Severity::Low,
+                "Exposes application and JVM metric names",
+                "\"names\"",
+            ),
+            (
+                "/actuator/prometheus",
+                "Prometheus Metrics",
+                Severity::Low,
+                "Exposes detailed Prometheus metrics revealing internal endpoints and behaviour",
+                "# TYPE ",
             ),
             (
                 "/actuator/shutdown",
                 "Application Shutdown",
                 Severity::Critical,
-                "Can shutdown the application",
-            ),
-            (
-                "/actuator/health",
-                "Health",
-                Severity::Low,
-                "Exposes health status",
-            ),
-            (
-                "/env",
-                "Environment (Legacy)",
-                Severity::Critical,
-                "Legacy environment endpoint",
-            ),
-            (
-                "/heapdump",
-                "Heap Dump (Legacy)",
-                Severity::Critical,
-                "Legacy heap dump endpoint",
+                "Shutdown endpoint is enabled; a POST request would terminate the application (DoS)",
+                "@shutdown",
             ),
         ];
 
-        for (path, name, severity, description) in actuator_endpoints {
+        for (path, name, severity, description, marker) in actuator_endpoints {
             let url = format!("{}{}", target, path);
             tests += 1;
 
-            if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 {
-                    // Require actual actuator-specific content, not just any JSON.
-                    // Previously matched `contains("{")` or `len() > 10` which
-                    // matches ANY response and creates massive false positives.
-                    let is_actuator = path.contains("heapdump")
-                        || (response.body.contains("{") && (
-                            response.body.contains("\"status\"")
-                            || response.body.contains("\"_links\"")
-                            || response.body.contains("\"loggers\"")
-                            || response.body.contains("\"levels\"")
-                            || response.body.contains("\"propertySources\"")
-                            || response.body.contains("\"activeProfiles\"")
-                            || response.body.contains("\"dispatcherServlet\"")
-                        ));
+            let response = match self.http_client.get(&url).await {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
 
-                    if is_actuator {
-                        let cvss = match severity {
-                            Severity::Critical => 9.8,
-                            Severity::High => 7.5,
-                            Severity::Medium => 5.3,
-                            _ => 3.7,
-                        };
+            let confirmed = match marker {
+                "@heapdump" => {
+                    let content_type = response
+                        .headers
+                        .get("content-type")
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+                    response.status_code == 200
+                        && (response.body.starts_with("JAVA PROFILE")
+                            || content_type.contains("octet-stream"))
+                }
+                "@shutdown" => {
+                    // Never POST here. An enabled shutdown endpoint rejects GET
+                    // with 405 + a Spring error body; a disabled one returns 404.
+                    response.status_code == 405
+                        && response.body.contains("\"status\":405")
+                        && (response.body.contains("Method Not Allowed")
+                            || response.body.contains("\"error\""))
+                }
+                _ => response.status_code == 200 && response.body.contains(marker),
+            };
 
-                        vulnerabilities.push(Vulnerability {
-                            id: generate_vuln_id(),
-                            vuln_type: "Actuator Exposure".to_string(),
-                            severity,
-                            confidence: Confidence::High,
-                            category: "Framework Security".to_string(),
-                            url: url.clone(),
-                            parameter: None,
-                            payload: path.to_string(),
-                            description: format!("Spring Boot Actuator {} endpoint exposed: {}", name, description),
-                            evidence: Some(format!("Endpoint accessible: {}", path)),
-                            cwe: "CWE-200".to_string(),
-                            cvss,
-                            verified: true,
-                            false_positive: false,
-                            remediation: "Secure actuator endpoints with authentication or disable in production".to_string(),
-                            discovered_at: chrono::Utc::now().to_rfc3339(),
+            if !confirmed {
+                continue;
+            }
+
+            let cvss = match severity {
+                Severity::Critical => 9.8,
+                Severity::High => 7.5,
+                Severity::Medium => 5.3,
+                _ => 3.7,
+            };
+
+            vulnerabilities.push(Vulnerability {
+                id: generate_vuln_id(),
+                vuln_type: "Actuator Exposure".to_string(),
+                severity,
+                confidence: Confidence::High,
+                category: "Framework Security".to_string(),
+                url: url.clone(),
+                parameter: None,
+                payload: path.to_string(),
+                description: format!(
+                    "Spring Boot Actuator {} endpoint exposed: {}",
+                    name, description
+                ),
+                evidence: Some(format!("Endpoint accessible: {}", path)),
+                cwe: "CWE-200".to_string(),
+                cvss,
+                verified: true,
+                false_positive: false,
+                remediation:
+                    "Secure actuator endpoints with authentication or disable in production"
+                        .to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_confidence: None,
                 ml_data: None,
-                        });
-                    }
-                }
-            }
+            });
         }
 
         Ok((vulnerabilities, tests))

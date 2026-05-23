@@ -179,6 +179,10 @@ impl AspNetScanner {
         vulnerabilities.extend(config_vulns);
         tests_run += config_tests;
 
+        let (diag_vulns, diag_tests) = self.check_diagnostic_handlers(url, config).await?;
+        vulnerabilities.extend(diag_vulns);
+        tests_run += diag_tests;
+
         let (csrf_vulns, csrf_tests) = self.check_antiforgery_issues(url, config).await?;
         vulnerabilities.extend(csrf_vulns);
         tests_run += csrf_tests;
@@ -937,6 +941,162 @@ impl AspNetScanner {
                         discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_confidence: None,
                 ml_data: None,
+                    });
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Detect legacy ASP.NET diagnostic HTTP handlers that leak request data,
+    /// exception detail and configuration. Each handler is confirmed by content
+    /// markers unique to its rendered page, so a generic 200 page or SPA
+    /// catch-all cannot trigger a finding.
+    async fn check_diagnostic_handlers(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let base = url.trim_end_matches('/');
+
+        // trace.axd records full request details for recent requests, including
+        // cookies, session state, querystring/form values and server variables
+        // for *other users* — a direct path to session hijacking / ATO.
+        tests_run += 1;
+        if let Ok(resp) = self.http_client.get(&format!("{}/trace.axd", base)).await {
+            if resp.status_code == 200 {
+                let body_l = resp.body.to_lowercase();
+                let is_trace = body_l.contains("application trace")
+                    && (body_l.contains("requests to this application")
+                        || body_l.contains("asp.net version")
+                        || body_l.contains("trace information"));
+                if is_trace {
+                    vulnerabilities.push(Vulnerability {
+                        id: format!("aspnet_traceaxd_{}", Self::generate_id()),
+                        vuln_type: "ASP.NET Trace Viewer Exposed (trace.axd)".to_string(),
+                        severity: Severity::Critical,
+                        confidence: Confidence::High,
+                        category: "Information Disclosure".to_string(),
+                        url: format!("{}/trace.axd", base),
+                        parameter: None,
+                        payload: "GET /trace.axd".to_string(),
+                        description:
+                            "ASP.NET application tracing (trace.axd) is enabled and remotely \
+                             accessible. It exposes recent requests including cookies, session \
+                             identifiers, querystring/form values and server variables for other \
+                             users, enabling session hijacking and account takeover."
+                                .to_string(),
+                        evidence: Some(
+                            "trace.axd returned the Application Trace page".to_string(),
+                        ),
+                        cwe: "CWE-200".to_string(),
+                        cvss: 9.1,
+                        verified: true,
+                        false_positive: false,
+                        remediation:
+                            "Disable tracing in production: <trace enabled=\"false\"/> in \
+                             web.config, or restrict with localOnly=\"true\". Remove the \
+                             trace.axd handler from public deployments."
+                                .to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                        ml_confidence: None,
+                        ml_data: None,
+                    });
+                }
+            }
+        }
+
+        // ELMAH error log viewer exposes unhandled exceptions with full stack
+        // traces, SQL, and frequently secrets; /elmah.axd/download dumps the
+        // entire log. Public access is a serious information leak.
+        tests_run += 1;
+        if let Ok(resp) = self.http_client.get(&format!("{}/elmah.axd", base)).await {
+            if resp.status_code == 200 {
+                let body_l = resp.body.to_lowercase();
+                let is_elmah = body_l.contains("elmah")
+                    && (body_l.contains("error log for")
+                        || body_l.contains("powered by elmah"));
+                if is_elmah {
+                    vulnerabilities.push(Vulnerability {
+                        id: format!("aspnet_elmah_{}", Self::generate_id()),
+                        vuln_type: "ELMAH Error Log Exposed (elmah.axd)".to_string(),
+                        severity: Severity::High,
+                        confidence: Confidence::High,
+                        category: "Information Disclosure".to_string(),
+                        url: format!("{}/elmah.axd", base),
+                        parameter: None,
+                        payload: "GET /elmah.axd".to_string(),
+                        description:
+                            "ELMAH error log handler (elmah.axd) is publicly accessible. It \
+                             exposes unhandled exceptions with full stack traces, SQL statements \
+                             and request context, often leaking credentials and secrets. The \
+                             /elmah.axd/download endpoint can export the entire log."
+                                .to_string(),
+                        evidence: Some("elmah.axd returned the ELMAH error log page".to_string()),
+                        cwe: "CWE-200".to_string(),
+                        cvss: 7.5,
+                        verified: true,
+                        false_positive: false,
+                        remediation:
+                            "Restrict elmah.axd to localhost or authenticated administrators via \
+                             <security> in the ELMAH config, or remove the handler from \
+                             production deployments."
+                                .to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                        ml_confidence: None,
+                        ml_data: None,
+                    });
+                }
+            }
+        }
+
+        // Glimpse diagnostics exposes routes, configuration, environment and
+        // request internals to anyone who can reach glimpse.axd.
+        tests_run += 1;
+        if let Ok(resp) = self
+            .http_client
+            .get(&format!("{}/glimpse.axd", base))
+            .await
+        {
+            if resp.status_code == 200 {
+                let body_l = resp.body.to_lowercase();
+                let is_glimpse = body_l.contains("glimpse")
+                    && (body_l.contains("turn glimpse on")
+                        || body_l.contains("glimpse is currently")
+                        || body_l.contains("glimpsepolicy"));
+                if is_glimpse {
+                    vulnerabilities.push(Vulnerability {
+                        id: format!("aspnet_glimpse_{}", Self::generate_id()),
+                        vuln_type: "Glimpse Diagnostics Exposed (glimpse.axd)".to_string(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::High,
+                        category: "Information Disclosure".to_string(),
+                        url: format!("{}/glimpse.axd", base),
+                        parameter: None,
+                        payload: "GET /glimpse.axd".to_string(),
+                        description:
+                            "Glimpse diagnostics (glimpse.axd) is publicly accessible. It exposes \
+                             routes, configuration, environment details, SQL queries and request \
+                             internals that aid further attacks."
+                                .to_string(),
+                        evidence: Some(
+                            "glimpse.axd returned the Glimpse configuration page".to_string(),
+                        ),
+                        cwe: "CWE-200".to_string(),
+                        cvss: 5.3,
+                        verified: true,
+                        false_positive: false,
+                        remediation:
+                            "Disable Glimpse in production (remove the Glimpse packages or set \
+                             RuntimePolicy to Off) or restrict it to local/administrative access."
+                                .to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                        ml_confidence: None,
+                        ml_data: None,
                     });
                 }
             }
