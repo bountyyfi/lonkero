@@ -43,6 +43,15 @@ impl APISecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Origin-rooted management and specification endpoints (Spring Boot
+        // Actuator, Jolokia, OpenAPI/Swagger specs) leak configuration, heap
+        // contents and the full API surface. They live at the web root and are
+        // valuable precisely on apps that do NOT look like a JSON API, so probe
+        // them before the API-shape gate below.
+        let (vulns, tests) = self.test_exposed_management_endpoints(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
         // First, detect if this is actually an API endpoint
         let is_api = self.detect_api_endpoint(url).await;
         if !is_api {
@@ -430,6 +439,253 @@ impl APISecurityScanner {
         Ok((vulnerabilities, tests_run))
     }
 
+    /// Probe for exposed application-management and API-specification endpoints.
+    ///
+    /// Covers:
+    /// - Spring Boot Actuator (`/actuator/*` and Boot 1.x flat routes). The
+    ///   index is probed first because it advertises the exposed endpoints in
+    ///   its `_links`, letting us flag a leaked `heapdump`/`env` without
+    ///   downloading a multi-hundred-megabyte heap dump.
+    /// - Jolokia (JMX-over-HTTP), which can disclose configuration and often
+    ///   enables remote code execution.
+    /// - OpenAPI / Swagger specifications, which disclose the complete API
+    ///   surface and sometimes embed live credentials.
+    ///
+    /// Every hit is confirmed with an endpoint-specific signature, so a generic
+    /// 200 response never yields a finding.
+    async fn test_exposed_management_endpoints(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+        let origin = self.origin(url);
+
+        // --- Spring Boot Actuator -------------------------------------------
+        let mut actuator_reported = false;
+        for path in ["/actuator", "/actuator/"] {
+            let test_url = format!("{}{}", origin, path);
+            tests_run += 1;
+            if let Ok(resp) = self.http_client.get(&test_url).await {
+                if resp.status_code == 200 && self.is_actuator_index(&resp.body) {
+                    let sensitive = self.actuator_sensitive_links(&resp.body);
+                    let (severity, cvss) = if sensitive
+                        .iter()
+                        .any(|e| matches!(*e, "heapdump" | "env" | "configprops" | "threaddump"))
+                    {
+                        (Severity::Critical, 9.1)
+                    } else {
+                        (Severity::Medium, 5.3)
+                    };
+                    let listed = if sensitive.is_empty() {
+                        "health, info".to_string()
+                    } else {
+                        sensitive.join(", ")
+                    };
+                    info!("Exposed Spring Boot Actuator at {}", path);
+                    vulnerabilities.push(self.create_vulnerability(
+                        url,
+                        "Exposed Spring Boot Actuator",
+                        "",
+                        &format!(
+                            "Spring Boot Actuator is exposed without authentication. \
+                             Sensitive endpoints reachable: {}. Endpoints such as heapdump, \
+                             env and configprops disclose configuration and credentials.",
+                            listed
+                        ),
+                        &format!("Actuator index at {} advertised: {}", path, listed),
+                        severity,
+                        "CWE-200",
+                        cvss,
+                    ));
+                    actuator_reported = true;
+                    break;
+                }
+            }
+        }
+
+        // Direct endpoint probe for deployments where the index is disabled but
+        // the individual endpoints remain open (and for Spring Boot 1.x flat
+        // routes such as `/env`).
+        if !actuator_reported {
+            for path in ["/actuator/env", "/env", "/actuator/configprops"] {
+                let test_url = format!("{}{}", origin, path);
+                tests_run += 1;
+                if let Ok(resp) = self.http_client.get(&test_url).await {
+                    if resp.status_code == 200 && self.is_actuator_env(&resp.body) {
+                        info!("Exposed Spring Boot Actuator endpoint {}", path);
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "Exposed Spring Boot Actuator",
+                            "",
+                            &format!(
+                                "Spring Boot Actuator '{}' is publicly readable and discloses \
+                                 the application's resolved configuration, which frequently \
+                                 includes credentials and secrets.",
+                                path
+                            ),
+                            &format!("{} returned a property-source configuration document", path),
+                            Severity::High,
+                            "CWE-200",
+                            7.5,
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // --- Jolokia (JMX over HTTP) ----------------------------------------
+        for path in ["/jolokia/list", "/actuator/jolokia/list"] {
+            let test_url = format!("{}{}", origin, path);
+            tests_run += 1;
+            if let Ok(resp) = self.http_client.get(&test_url).await {
+                if resp.status_code == 200 && self.is_jolokia(&resp.body) {
+                    info!("Exposed Jolokia endpoint at {}", path);
+                    vulnerabilities.push(self.create_vulnerability(
+                        url,
+                        "Exposed Jolokia Endpoint",
+                        "",
+                        "Jolokia (JMX-over-HTTP) is exposed without authentication, allowing \
+                         enumeration and invocation of MBeans. This discloses configuration and, \
+                         in many deployments, enables remote code execution.",
+                        &format!("{} returned a Jolokia MBean listing", path),
+                        Severity::High,
+                        "CWE-200",
+                        8.1,
+                    ));
+                    break;
+                }
+            }
+        }
+
+        // --- OpenAPI / Swagger specification --------------------------------
+        for path in [
+            "/openapi.json",
+            "/v3/api-docs",
+            "/swagger.json",
+            "/swagger/v1/swagger.json",
+            "/api-docs",
+        ] {
+            let test_url = format!("{}{}", origin, path);
+            tests_run += 1;
+            if let Ok(resp) = self.http_client.get(&test_url).await {
+                if resp.status_code == 200 && self.is_openapi_spec(&resp.body) {
+                    let (severity, cvss, extra) = match self.find_embedded_secret(&resp.body) {
+                        Some(secret) => (
+                            Severity::High,
+                            7.5,
+                            format!(" The specification embeds a live secret ({}).", secret),
+                        ),
+                        None => (Severity::Medium, 5.3, String::new()),
+                    };
+                    info!("Exposed API specification at {}", path);
+                    vulnerabilities.push(self.create_vulnerability(
+                        url,
+                        "Exposed API Specification",
+                        "",
+                        &format!(
+                            "A machine-readable API specification is publicly accessible at {}, \
+                             disclosing the complete endpoint surface, parameters and schemas.{}",
+                            path, extra
+                        ),
+                        &format!("{} returned an OpenAPI/Swagger document", path),
+                        severity,
+                        "CWE-200",
+                        cvss,
+                    ));
+                    break;
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Confirm a Spring Boot Actuator index (HAL JSON listing endpoints).
+    fn is_actuator_index(&self, body: &str) -> bool {
+        body.contains("\"_links\"") && body.contains("\"self\"") && body.contains("\"health\"")
+    }
+
+    /// Which sensitive Actuator endpoints the index advertises.
+    fn actuator_sensitive_links(&self, body: &str) -> Vec<&'static str> {
+        [
+            "heapdump",
+            "env",
+            "configprops",
+            "threaddump",
+            "beans",
+            "mappings",
+            "loggers",
+            "scheduledtasks",
+            "shutdown",
+            "jolokia",
+        ]
+        .iter()
+        .copied()
+        .filter(|name| body.contains(&format!("\"{}\"", name)))
+        .collect()
+    }
+
+    /// Confirm an Actuator `env`/`configprops` document.
+    fn is_actuator_env(&self, body: &str) -> bool {
+        body.contains("\"propertySources\"")
+            || body.contains("\"activeProfiles\"")
+            || (body.contains("\"systemProperties\"") && body.contains("\"systemEnvironment\""))
+    }
+
+    /// Confirm a Jolokia response envelope.
+    fn is_jolokia(&self, body: &str) -> bool {
+        body.contains("\"request\"")
+            && body.contains("\"value\"")
+            && body.contains("\"status\"")
+            && body.contains("\"timestamp\"")
+    }
+
+    /// Confirm an OpenAPI/Swagger specification document.
+    fn is_openapi_spec(&self, body: &str) -> bool {
+        (body.contains("\"openapi\"") || body.contains("\"swagger\""))
+            && (body.contains("\"paths\"") || body.contains("\"info\""))
+    }
+
+    /// Look for a high-confidence, prefix-anchored live secret embedded in a
+    /// specification body. Patterns are vendor-specific so a match is real.
+    fn find_embedded_secret(&self, body: &str) -> Option<String> {
+        let patterns = [
+            (r"AKIA[0-9A-Z]{16}", "AWS access key"),
+            (r"ASIA[0-9A-Z]{16}", "AWS temporary key"),
+            (r"sk_live_[0-9a-zA-Z]{24,}", "Stripe live secret key"),
+            (r"ghp_[A-Za-z0-9]{36}", "GitHub personal access token"),
+            (r"AIza[0-9A-Za-z_\-]{35}", "Google API key"),
+            (r"xox[baprs]-[0-9A-Za-z-]{10,}", "Slack token"),
+            (
+                r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----",
+                "PEM private key",
+            ),
+        ];
+        for (pattern, label) in patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                if re.is_match(body) {
+                    return Some(label.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Reduce a URL to its scheme://host[:port] origin for root-relative probes.
+    fn origin(&self, base: &str) -> String {
+        if let Ok(parsed) = url::Url::parse(base) {
+            if let Some(host) = parsed.host_str() {
+                return match parsed.port() {
+                    Some(p) => format!("{}://{}:{}", parsed.scheme(), host, p),
+                    None => format!("{}://{}", parsed.scheme(), host),
+                };
+            }
+        }
+        base.trim_end_matches('/').to_string()
+    }
+
     /// Build full URL from base and path
     fn build_url(&self, base: &str, path: &str) -> String {
         if base.ends_with('/') && path.starts_with('/') {
@@ -521,6 +777,32 @@ impl APISecurityScanner {
                  5. Implement IP-based and user-based rate limiting\n\
                  6. Monitor for unusual traffic patterns"
                 .to_string(),
+            "Exposed Spring Boot Actuator" => {
+                "1. Restrict Actuator endpoints with management.endpoints.web.exposure.include\n\
+                 2. Require authentication/authorization for all management endpoints\n\
+                 3. Never expose env, configprops, heapdump, threaddump or shutdown publicly\n\
+                 4. Bind the management port to localhost or a private interface\n\
+                 5. Use Spring Security to lock down the management context\n\
+                 6. Disable endpoints not needed in production\n\
+                 7. Rotate any credentials that may have leaked via env/heapdump"
+                    .to_string()
+            }
+            "Exposed Jolokia Endpoint" => {
+                "1. Disable Jolokia in production unless strictly required\n\
+                 2. Require authentication and TLS for the Jolokia agent\n\
+                 3. Apply a strict Jolokia access policy (jolokia-access.xml) to allow-list MBeans\n\
+                 4. Block write/exec operations and dangerous MBeans (e.g. reloadByURL)\n\
+                 5. Bind to a private interface and restrict at the firewall"
+                    .to_string()
+            }
+            "Exposed API Specification" => {
+                "1. Do not serve OpenAPI/Swagger specs from production without authentication\n\
+                 2. Gate spec and UI routes behind login or an internal network\n\
+                 3. Strip example credentials, internal hostnames and debug data from specs\n\
+                 4. Rotate any secrets discovered in the published specification\n\
+                 5. Generate specs at build time for internal use only"
+                    .to_string()
+            }
             _ => "Follow OWASP API Security Top 10 guidelines".to_string(),
         }
     }

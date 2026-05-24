@@ -8,6 +8,26 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
 
+/// Cluster coordination / KV stores whose HTTP APIs, when left
+/// unauthenticated, expose the entire platform's service catalog and secret
+/// material.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DatastoreKind {
+    Etcd,
+    Consul,
+    Nomad,
+}
+
+impl DatastoreKind {
+    fn name(self) -> &'static str {
+        match self {
+            DatastoreKind::Etcd => "etcd",
+            DatastoreKind::Consul => "Consul",
+            DatastoreKind::Nomad => "Nomad",
+        }
+    }
+}
+
 pub struct ContainerScanner {
     http_client: Arc<HttpClient>,
 }
@@ -50,7 +70,210 @@ impl ContainerScanner {
             tests_run += tests;
         }
 
+        if vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_orchestration_datastore_exposure(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for exposed orchestration / coordination data stores.
+    ///
+    /// etcd, Consul and Nomad back most container platforms. When their HTTP
+    /// APIs are reachable without authentication the whole cluster's service
+    /// catalog — and every secret kept in their key/value space — is readable,
+    /// which makes these among the highest-impact container findings.
+    ///
+    /// Each probe targets a dump / whoami endpoint and is confirmed with a
+    /// product-specific response signature (a unique JSON key or response
+    /// header), never a bare 200, so a generic app or SPA shell cannot produce
+    /// a match.
+    async fn test_orchestration_datastore_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        debug!("Testing for exposed orchestration data stores (etcd/Consul/Nomad)");
+
+        // (path, product, what-it-leaks)
+        let probes: &[(&str, DatastoreKind, &str)] = &[
+            ("/version", DatastoreKind::Etcd, "etcd server/cluster version"),
+            (
+                "/v2/keys/?recursive=true",
+                DatastoreKind::Etcd,
+                "the etcd v2 keyspace",
+            ),
+            (
+                "/v1/agent/self",
+                DatastoreKind::Consul,
+                "the Consul agent configuration",
+            ),
+            (
+                "/v1/kv/?recurse=true",
+                DatastoreKind::Consul,
+                "the Consul key/value store",
+            ),
+            (
+                "/v1/catalog/services",
+                DatastoreKind::Consul,
+                "the Consul service catalog",
+            ),
+            (
+                "/v1/agent/self",
+                DatastoreKind::Nomad,
+                "the Nomad agent configuration",
+            ),
+        ];
+
+        for (path, kind, leaks) in probes {
+            let test_url = self.build_url(url, path);
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    tests_run += 1;
+                    if response.status_code == 200
+                        && self.is_datastore_response(*kind, &response)
+                    {
+                        let product = kind.name();
+                        info!("Exposed {} API detected at {}", product, path);
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            &format!("Exposed {} API", product),
+                            "",
+                            &format!(
+                                "{} HTTP API is reachable without authentication, exposing {}. \
+                                 Coordination stores hold service-discovery data and, in their \
+                                 key/value space, cluster-wide application secrets.",
+                                product, leaks
+                            ),
+                            &format!(
+                                "{} returned a product-specific signature at {}",
+                                product, path
+                            ),
+                            Severity::Critical,
+                            "CWE-306",
+                            9.8,
+                        ));
+                        return Ok((vulnerabilities, tests_run));
+                    }
+                }
+                Err(e) => debug!("Request to {} failed: {}", path, e),
+            }
+        }
+
+        // Fall back to the well-known service ports, but only when nothing was
+        // found on the standard origin. Short timeout so closed ports don't
+        // stall the scan (mirrors the Docker/K8s port checks above).
+        let port_probes: &[(&str, &str, DatastoreKind)] = &[
+            ("2379", "/version", DatastoreKind::Etcd),
+            ("8500", "/v1/agent/self", DatastoreKind::Consul),
+            ("4646", "/v1/agent/self", DatastoreKind::Nomad),
+        ];
+
+        for (port, path, kind) in port_probes {
+            if let Some(base_url) = self.extract_base_with_port(url, port) {
+                let test_url = format!("{}{}", base_url, path);
+                tests_run += 1;
+                match tokio::time::timeout(
+                    Duration::from_secs(3),
+                    self.http_client.get(&test_url),
+                )
+                .await
+                {
+                    Ok(Ok(response)) => {
+                        if response.status_code == 200
+                            && self.is_datastore_response(*kind, &response)
+                        {
+                            let product = kind.name();
+                            info!("Exposed {} API detected on port {}", product, port);
+                            vulnerabilities.push(self.create_vulnerability(
+                                url,
+                                &format!("Exposed {} API", product),
+                                "",
+                                &format!(
+                                    "{} HTTP API is reachable without authentication on port \
+                                     {}. Its key/value space commonly holds cluster-wide \
+                                     secrets.",
+                                    product, port
+                                ),
+                                &format!(
+                                    "{} returned a product-specific signature on port {}",
+                                    product, port
+                                ),
+                                Severity::Critical,
+                                "CWE-306",
+                                9.8,
+                            ));
+                            return Ok((vulnerabilities, tests_run));
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        debug!("{} port {} check failed: {}", kind.name(), port, e)
+                    }
+                    Err(_) => {
+                        debug!("{} port {} check timed out (3s)", kind.name(), port)
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Confirm a response actually came from the named data store using a
+    /// product-specific structural signature. Kept deliberately strict so a
+    /// generic JSON endpoint cannot trigger a false positive.
+    fn is_datastore_response(
+        &self,
+        kind: DatastoreKind,
+        response: &crate::http_client::HttpResponse,
+    ) -> bool {
+        let body = &response.body;
+        match kind {
+            DatastoreKind::Etcd => {
+                // /version  -> {"etcdserver":"3.5.0","etcdcluster":"3.5.0"}
+                // /v2/keys  -> {"action":"get","node":{"createdIndex":..}}
+                (body.contains("\"etcdserver\"") && body.contains("\"etcdcluster\""))
+                    || (body.contains("\"action\"")
+                        && body.contains("\"node\"")
+                        && (body.contains("\"createdIndex\"")
+                            || body.contains("\"modifiedIndex\"")))
+            }
+            DatastoreKind::Consul => {
+                // The X-Consul-* response headers are emitted by every Consul
+                // HTTP API call and are the strongest possible signal.
+                let has_header = response.headers.keys().any(|k| {
+                    let k = k.to_lowercase();
+                    k == "x-consul-index"
+                        || k == "x-consul-knownleader"
+                        || k == "x-consul-lastcontact"
+                });
+                // /v1/agent/self -> {"Config":{..},"DebugConfig":{..},"Member":{..}}
+                let agent_self = body.contains("\"Config\"")
+                    && (body.contains("\"DebugConfig\"")
+                        || body.contains("\"Member\"")
+                        || body.contains("\"Stats\""));
+                // KV dump -> [{"Key":..,"Value":..,"CreateIndex":..}]
+                let kv_dump = body.contains("\"CreateIndex\"")
+                    && body.contains("\"Key\"")
+                    && body.contains("\"Value\"");
+                has_header || agent_self || kv_dump
+            }
+            DatastoreKind::Nomad => {
+                // /v1/agent/self -> {"config":{..},"member":{..},"stats":{..}}
+                // (lowercase keys distinguish it from Consul's agent/self)
+                let nomad_shape = body.contains("\"config\"")
+                    && body.contains("\"member\"")
+                    && body.contains("\"stats\"");
+                let nomad_marker = body.contains("\"AdvertiseAddrs\"")
+                    || body.contains("\"NomadTokenID\"")
+                    || body.contains("\"BootstrapExpect\"");
+                nomad_shape && nomad_marker
+            }
+        }
     }
 
     /// Test for exposed Docker API
@@ -653,6 +876,18 @@ impl ContainerScanner {
                  9. Scan for exposed secrets in CI/CD\n\
                  10. Use workload identity instead of static credentials".to_string()
             }
+            "Exposed etcd API" | "Exposed Consul API" | "Exposed Nomad API" => {
+                "1. Never expose etcd/Consul/Nomad HTTP APIs to untrusted networks\n\
+                 2. Require mutual TLS between all cluster components\n\
+                 3. Enable ACLs / RBAC and run with a default-deny policy\n\
+                 4. Bind the client API to localhost or a private interface only\n\
+                 5. Enforce authentication tokens for every API request\n\
+                 6. Enable encryption at rest for the key/value store\n\
+                 7. Restrict ports 2379/2380 (etcd), 8500/8501 (Consul) and 4646 (Nomad) at the firewall\n\
+                 8. Rotate any secrets that were stored while the API was reachable\n\
+                 9. Enable audit logging and alert on anonymous access\n\
+                 10. Segment the control plane from application/internet traffic".to_string()
+            }
             _ => "Follow container security best practices (CIS Docker Benchmark, CIS Kubernetes Benchmark)".to_string(),
         }
     }
@@ -755,6 +990,75 @@ mod tests {
         assert!(!scanner.is_docker_api_response("Normal web page"));
         assert!(!scanner.is_kubernetes_response("Regular JSON"));
         assert!(scanner.detect_container_secret("No secrets here").is_none());
+    }
+
+    fn response_with(body: &str, headers: &[(&str, &str)]) -> crate::http_client::HttpResponse {
+        crate::http_client::HttpResponse {
+            status_code: 200,
+            body: body.to_string(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            duration_ms: 0,
+        }
+    }
+
+    #[test]
+    fn test_is_datastore_response_etcd() {
+        let scanner = create_test_scanner();
+
+        let version = response_with(r#"{"etcdserver":"3.5.0","etcdcluster":"3.5.0"}"#, &[]);
+        assert!(scanner.is_datastore_response(DatastoreKind::Etcd, &version));
+
+        let keys = response_with(
+            r#"{"action":"get","node":{"dir":true,"createdIndex":4,"modifiedIndex":4}}"#,
+            &[],
+        );
+        assert!(scanner.is_datastore_response(DatastoreKind::Etcd, &keys));
+    }
+
+    #[test]
+    fn test_is_datastore_response_consul() {
+        let scanner = create_test_scanner();
+
+        // Detected purely via the X-Consul-* header.
+        let by_header = response_with("[]", &[("x-consul-index", "42")]);
+        assert!(scanner.is_datastore_response(DatastoreKind::Consul, &by_header));
+
+        let agent_self =
+            response_with(r#"{"Config":{"Datacenter":"dc1"},"DebugConfig":{}}"#, &[]);
+        assert!(scanner.is_datastore_response(DatastoreKind::Consul, &agent_self));
+    }
+
+    #[test]
+    fn test_is_datastore_response_nomad() {
+        let scanner = create_test_scanner();
+
+        let agent_self = response_with(
+            r#"{"config":{"AdvertiseAddrs":{}},"member":{},"stats":{}}"#,
+            &[],
+        );
+        assert!(scanner.is_datastore_response(DatastoreKind::Nomad, &agent_self));
+
+        // Consul's capitalised agent/self must not be misread as Nomad.
+        let consul = response_with(r#"{"Config":{},"Member":{},"Stats":{}}"#, &[]);
+        assert!(!scanner.is_datastore_response(DatastoreKind::Nomad, &consul));
+    }
+
+    #[test]
+    fn test_datastore_no_false_positives() {
+        let scanner = create_test_scanner();
+
+        let html = response_with("<html><body>Welcome</body></html>", &[]);
+        assert!(!scanner.is_datastore_response(DatastoreKind::Etcd, &html));
+        assert!(!scanner.is_datastore_response(DatastoreKind::Consul, &html));
+        assert!(!scanner.is_datastore_response(DatastoreKind::Nomad, &html));
+
+        let generic_json = response_with(r#"{"status":"ok","data":[]}"#, &[]);
+        assert!(!scanner.is_datastore_response(DatastoreKind::Etcd, &generic_json));
+        assert!(!scanner.is_datastore_response(DatastoreKind::Consul, &generic_json));
+        assert!(!scanner.is_datastore_response(DatastoreKind::Nomad, &generic_json));
     }
 
     #[test]
