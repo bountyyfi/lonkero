@@ -399,6 +399,213 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Read the Docs
+    ServiceFingerprint {
+        name: "Read the Docs",
+        cname_patterns: &[".readthedocs.io"],
+        http_signatures: &["unknown to Read the Docs"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the project on Read the Docs with this custom domain.",
+    },
+    // Big Cartel
+    ServiceFingerprint {
+        name: "Big Cartel",
+        cname_patterns: &[".bigcartel.com"],
+        http_signatures: &["Oops! We couldn't find that page."],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in a Big Cartel store.",
+    },
+    // Strikingly
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikingly.com", ".strikinglydns.com"],
+        http_signatures: &["But if you're looking to build your own website,"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in a Strikingly site.",
+    },
+    // Intercom
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &[".custom.intercom.help", ".intercom.help"],
+        http_signatures: &[
+            "This page is reserved for artistic dogs.",
+            "Uh oh. That page doesn't exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or add this custom domain to your Intercom Help Center.",
+    },
+    // Canny
+    ServiceFingerprint {
+        name: "Canny",
+        cname_patterns: &[".canny.io"],
+        http_signatures: &[
+            "Company Not Found",
+            "There is no such company. Did you enter the right URL?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in your Canny account.",
+    },
+    // JetBrains YouTrack (InCloud)
+    ServiceFingerprint {
+        name: "JetBrains YouTrack",
+        cname_patterns: &[".myjetbrains.com"],
+        http_signatures: &["is not a registered InCloud YouTrack"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register this InCloud YouTrack instance.",
+    },
+    // ngrok
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io"],
+        http_signatures: &[
+            "Tunnel *.ngrok.io not found",
+            "ngrok.io not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to ngrok, or start a tunnel that claims this hostname.",
+    },
+    // Uberflip
+    ServiceFingerprint {
+        name: "Uberflip",
+        cname_patterns: &[".uberflip.com"],
+        http_signatures: &[
+            "Non-hub domain",
+            "The URL you've accessed does not provide a hub.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or map this domain to an Uberflip hub.",
+    },
+    // AfterShip
+    ServiceFingerprint {
+        name: "AfterShip",
+        cname_patterns: &[".aftership.com"],
+        http_signatures: &["oops.. The page you're looking for doesn't exist."],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in your AfterShip account.",
+    },
+    // Campaign Monitor
+    ServiceFingerprint {
+        name: "Campaign Monitor",
+        cname_patterns: &[".createsend.com"],
+        http_signatures: &[
+            "Trying to access your account?",
+            "Double check the URL",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or add this domain in Campaign Monitor.",
+    },
+    // Helpjuice
+    ServiceFingerprint {
+        name: "Helpjuice",
+        cname_patterns: &[".helpjuice.com"],
+        http_signatures: &["We could not find what you're looking for."],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in Helpjuice.",
+    },
+    // Kinsta
+    ServiceFingerprint {
+        name: "Kinsta",
+        cname_patterns: &[".kinsta.cloud"],
+        http_signatures: &["No Site For Domain"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or add this domain to your Kinsta site.",
+    },
+    // LaunchRock
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &["It looks like you may have taken a wrong turn somewhere."],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in LaunchRock.",
+    },
+    // ReadMe.io
+    ServiceFingerprint {
+        name: "ReadMe.io",
+        cname_patterns: &[".readme.io"],
+        http_signatures: &["Project doesnt exist... yet!"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in ReadMe.",
+    },
+    // Teamwork
+    ServiceFingerprint {
+        name: "Teamwork",
+        cname_patterns: &[".teamwork.com"],
+        http_signatures: &["Oops - We didn't find your site."],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in your Teamwork account.",
+    },
+    // Gemfury
+    ServiceFingerprint {
+        name: "Gemfury",
+        cname_patterns: &[".furyns.com"],
+        http_signatures: &["404: This page could not be found."],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Gemfury (furyns.com).",
+    },
 ];
 
 /// DNS resolution result for a subdomain
@@ -988,6 +1195,11 @@ mod tests {
 
         // Test Heroku
         assert!(SubdomainTakeoverScanner::match_cname_to_service("myapp.herokuapp.com").is_some());
+
+        // Test newly added services
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("docs.readthedocs.io").is_some());
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("feedback.canny.io").is_some());
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("help.intercom.help").is_some());
 
         // Test unknown service
         assert!(SubdomainTakeoverScanner::match_cname_to_service("unknown.example.com").is_none());

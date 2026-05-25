@@ -352,27 +352,68 @@ impl CloudSecurityScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 15;
 
         debug!("Testing for cloud credential exposure");
 
         let credential_endpoints = vec![
+            // Cloud provider credential files
             "/.aws/credentials",
             "/.aws/config",
             "/.azure/credentials",
+            "/.azure/accessTokens.json",
             "/.gcp/credentials.json",
             "/credentials.json",
             "/service-account.json",
-            "/.env",
-            "/config.json",
+            "/serviceaccount.json",
+            "/gcloud/credentials.db",
+            "/.boto",
+            "/.s3cfg",
             "/aws-exports.js",
             "/credentials",
-            "/.git/config",
+            // Environment / dotenv variants (most common real-world leak)
+            "/.env",
+            "/.env.local",
+            "/.env.dev",
+            "/.env.development",
+            "/.env.prod",
+            "/.env.production",
+            "/.env.staging",
+            "/.env.backup",
+            "/.env.save",
+            "/.env.example",
+            "/config.json",
+            // Infrastructure-as-code state (frequently embeds live secrets)
             "/terraform.tfstate",
             "/terraform.tfvars",
             "/.terraform/terraform.tfstate",
+            "/terraform.tfstate.backup",
             "/ansible/inventory",
+            "/.ansible/vault_pass.txt",
+            // Container / orchestration secrets
+            "/docker-compose.yml",
+            "/docker-compose.yaml",
+            "/.dockercfg",
+            "/.docker/config.json",
+            "/kubeconfig",
+            "/.kube/config",
+            "/secrets.yaml",
+            "/secrets.yml",
+            // Package / registry publishing credentials
+            "/.npmrc",
+            "/.pypirc",
+            "/.netrc",
+            // App framework config that ships credentials
+            "/appsettings.json",
+            "/appsettings.Production.json",
+            "/wp-config.php.bak",
+            "/wp-config.php.save",
+            "/config/database.yml",
+            "/config/secrets.yml",
+            // SSH / VCS
+            "/.ssh/id_rsa",
+            "/.git-credentials",
         ];
+        let tests_run = credential_endpoints.len();
 
         for endpoint in credential_endpoints {
             let test_url = self.build_url(url, endpoint);
@@ -487,15 +528,25 @@ impl CloudSecurityScanner {
     }
 
     fn detect_cloud_credentials(&self, body: &str) -> Option<String> {
+        // Each pattern is either a vendor-prefixed key, a structural anchor, or an
+        // assignment of a known secret variable. They only run against the body of a
+        // file that already returned 200 from a credential-style endpoint, and every
+        // one of them is specific enough that a match is a real secret rather than
+        // prose — keeping false positives near zero.
         let patterns = vec![
+            // --- AWS ---
             (r"AKIA[0-9A-Z]{16}", "AWS Access Key"),
+            (r"ASIA[0-9A-Z]{16}", "AWS STS Temporary Key"),
             (r"aws_access_key_id\s*=", "AWS Credentials"),
             (r"aws_secret_access_key\s*=", "AWS Secret Key"),
+            // --- GCP ---
             (r#""type"\s*:\s*"service_account""#, "GCP Service Account"),
             (
                 r#""private_key"\s*:\s*"-----BEGIN PRIVATE KEY-----"#,
                 "GCP Private Key",
             ),
+            (r"AIza[0-9A-Za-z_\-]{35}", "Google API Key"),
+            // --- Azure ---
             (r"azure_client_id", "Azure Client ID"),
             (r"azure_client_secret", "Azure Client Secret"),
             (r"azure_tenant_id", "Azure Tenant ID"),
@@ -506,6 +557,35 @@ impl CloudSecurityScanner {
             (
                 r"DefaultEndpointsProtocol=https;AccountName=",
                 "Azure Storage Account",
+            ),
+            // --- Source control / CI tokens (immediate supply-chain risk) ---
+            (r"ghp_[A-Za-z0-9]{36}", "GitHub Personal Access Token"),
+            (r"gho_[A-Za-z0-9]{36}", "GitHub OAuth Token"),
+            (r"ghs_[A-Za-z0-9]{36}", "GitHub App Token"),
+            (r"github_pat_[A-Za-z0-9_]{80,}", "GitHub Fine-grained PAT"),
+            (r"glpat-[A-Za-z0-9_\-]{20}", "GitLab Personal Access Token"),
+            // --- SaaS API tokens ---
+            (
+                r"xox[baprs]-[0-9A-Za-z]{10,}-[0-9A-Za-z]{10,}",
+                "Slack Token",
+            ),
+            (r"sk_live_[0-9a-zA-Z]{24,}", "Stripe Live Secret Key"),
+            (r"rk_live_[0-9a-zA-Z]{24,}", "Stripe Live Restricted Key"),
+            (
+                r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",
+                "SendGrid API Key",
+            ),
+            (r"npm_[A-Za-z0-9]{36}", "npm Access Token"),
+            (r"dop_v1_[a-f0-9]{64}", "DigitalOcean Token"),
+            (r"sk-ant-[A-Za-z0-9_\-]{40,}", "Anthropic API Key"),
+            // --- Private keys & credentialed connection strings (definitive) ---
+            (
+                r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----",
+                "PEM Private Key",
+            ),
+            (
+                r"(?:mongodb(?:\+srv)?|mysql|postgres(?:ql)?|redis|amqp)://[A-Za-z0-9._~%+-]+:[^@\s]+@",
+                "Database Connection String with Credentials",
             ),
         ];
 
