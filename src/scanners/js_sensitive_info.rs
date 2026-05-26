@@ -1221,6 +1221,286 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // ---------------------------------------------------------------
+                // Modern LLM / AI provider tokens. Every regex below is prefix-
+                // anchored to a vendor-specific issuance prefix so a match cannot
+                // be a coincidental string in a minified bundle.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "Hugging Face Token".to_string(),
+                    regex: Regex::new(r#"hf_[A-Za-z0-9]{34}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Hugging Face access token (hf_ prefix) - grants model / dataset / inference access on the token's account".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Groq API Key".to_string(),
+                    regex: Regex::new(r#"gsk_[A-Za-z0-9]{52}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Groq API key (gsk_ prefix) - billed inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"r8_[A-Za-z0-9]{37,40}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token (r8_ prefix) - billed model inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Perplexity API Key".to_string(),
+                    regex: Regex::new(r#"pplx-[A-Za-z0-9]{48}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Perplexity AI API key (pplx- prefix)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "xAI Grok API Key".to_string(),
+                    regex: Regex::new(r#"xai-[A-Za-z0-9]{64,80}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "xAI (Grok) API key (xai- prefix)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "DeepL API Key".to_string(),
+                    // DeepL Pro keys are UUID with a literal :fx suffix - unique on the public internet.
+                    regex: Regex::new(r#"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:fx"#).unwrap(),
+                    severity: Severity::High,
+                    description: "DeepL Pro API authentication key (UUID:fx format)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "OpenRouter API Key".to_string(),
+                    regex: Regex::new(r#"sk-or-v1-[A-Za-z0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenRouter API key (sk-or-v1- prefix) - billed multi-model proxy access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // ---------------------------------------------------------------
+                // Stripe variants beyond the basic sk_live_ already covered above.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "Stripe Webhook Signing Secret".to_string(),
+                    regex: Regex::new(r#"whsec_[A-Za-z0-9]{32,64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Stripe webhook signing secret - allows forging signed webhook events for the merchant".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Stripe Live Restricted Key".to_string(),
+                    regex: Regex::new(r#"rk_live_[0-9a-zA-Z]{24,99}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Stripe live restricted API key - production access scoped per permission set".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Stripe Live Connect Client Secret".to_string(),
+                    regex: Regex::new(r#"sk_live_ek_[0-9a-zA-Z]{24,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Stripe live ephemeral / Connect client secret".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // ---------------------------------------------------------------
+                // Payment / commerce platforms with stable prefix formats.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "Razorpay Live Key ID".to_string(),
+                    regex: Regex::new(r#"rzp_live_[A-Za-z0-9]{14,20}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Razorpay live key ID - production payment access when paired with the secret".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Adyen API Key".to_string(),
+                    // Adyen API keys are issued with the literal AQE prefix followed by base64.
+                    regex: Regex::new(r#"AQE[A-Za-z0-9+/]{60,200}={0,2}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Adyen API key (AQE prefix) - production payment processing access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Klaviyo Private API Key".to_string(),
+                    regex: Regex::new(r#"\bpk_[a-f0-9]{34}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Klaviyo private API key (pk_ + 34 hex) - customer data + email send access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Resend API Key".to_string(),
+                    regex: Regex::new(r#"re_[A-Za-z0-9]{8}_[A-Za-z0-9]{24}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Resend API key (re_xxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxx) - email-send access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "OneSignal REST API Key".to_string(),
+                    regex: Regex::new(r#"(?i)onesignal[_-]?(?:rest[_-]?)?api[_-]?key\s*[=:]\s*['\"]([A-Za-z0-9]{48,64})['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "OneSignal REST API key - push-notification send + user data access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // ---------------------------------------------------------------
+                // Web3 / blockchain RPC URLs with embedded API keys. These leak
+                // both the provider account AND a free oracle for the attacker;
+                // each pattern includes the hostname so it cannot match generic
+                // URLs.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "Alchemy RPC URL with API Key".to_string(),
+                    regex: Regex::new(r#"https://[a-z0-9\-]+\.g\.alchemy\.com/v2/[A-Za-z0-9_\-]{32}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Alchemy RPC URL with embedded API key - usable for the account's full RPC quota and (depending on plan) enhanced APIs".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Infura RPC URL with Project ID".to_string(),
+                    regex: Regex::new(r#"https://[a-z0-9\-]+\.infura\.io/v3/[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Infura RPC URL with embedded project ID - usable for the account's RPC quota".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "QuickNode RPC URL".to_string(),
+                    regex: Regex::new(r#"https://[a-z0-9\-]+\.(?:quiknode|quicknode)\.pro/[a-f0-9]{40,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "QuickNode RPC URL with embedded endpoint token".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Helius RPC URL".to_string(),
+                    regex: Regex::new(r#"https://[a-z0-9\-\.]*helius[a-z0-9\-\.]*/\?api-key=[a-f0-9\-]{32,36}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Helius (Solana) RPC URL with embedded API key".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Moralis Web3 API Key".to_string(),
+                    regex: Regex::new(r#"(?i)moralis[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"]([A-Za-z0-9]{64,80})['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Moralis Web3 API key".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Etherscan API Key".to_string(),
+                    regex: Regex::new(r#"(?i)etherscan[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"]([A-Z0-9]{34})['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Etherscan-family API key (Etherscan, BscScan, Polygonscan share the same 34-char alnum format)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // ---------------------------------------------------------------
+                // Webhook URLs - posting to these can disclose data into private
+                // channels or trigger downstream actions.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "Microsoft Teams Incoming Webhook".to_string(),
+                    regex: Regex::new(r#"https://[a-zA-Z0-9\-]+\.webhook\.office\.com/webhookb2/[a-f0-9\-]{36}@[a-f0-9\-]{36}/IncomingWebhook/[a-f0-9]+/[a-f0-9\-]+"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Microsoft Teams incoming webhook URL - allows posting messages into the connected channel".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Mattermost Incoming Webhook".to_string(),
+                    regex: Regex::new(r#"https://[a-zA-Z0-9\-\.]+/hooks/[a-z0-9]{26}"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Mattermost incoming webhook URL - allows posting messages into the connected channel".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // ---------------------------------------------------------------
+                // PaaS / infrastructure tokens with stable prefixes.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "Render API Key".to_string(),
+                    regex: Regex::new(r#"rnd_[A-Za-z0-9]{14,32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Render.com API key (rnd_ prefix) - full account / deployment control".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Fly.io Access Token".to_string(),
+                    // FlyV1 macaroons start with literal "FlyV1 fm2_" and are >100 chars.
+                    regex: Regex::new(r#"FlyV1 fm2_[A-Za-z0-9_=,\-/]{60,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Fly.io FlyV1 access token (macaroon) - full account / app control".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Tailscale Auth Key".to_string(),
+                    regex: Regex::new(r#"tskey-auth-[A-Za-z0-9]+-[A-Za-z0-9]{32,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale auth key - lets an attacker join the tailnet as a device".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Tailscale OAuth Client Secret".to_string(),
+                    regex: Regex::new(r#"tskey-client-[A-Za-z0-9]+-[A-Za-z0-9]{32,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale OAuth client secret".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Vercel Blob Read-Write Token".to_string(),
+                    // Vercel-issued tokens use the literal vercel_blob_rw_ prefix.
+                    regex: Regex::new(r#"vercel_blob_rw_[A-Za-z0-9]{20,}_[A-Za-z0-9]{20,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Vercel Blob read-write token - full storage read/write/delete on the project blobstore".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Upstash Redis REST Token".to_string(),
+                    // Upstash REST URL pairs reveal both endpoint + token - the URL alone is enough to identify the account.
+                    regex: Regex::new(r#"https://[a-z0-9\-]+\.upstash\.io"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Upstash Redis REST URL exposed - if accompanied by token in body, grants full Redis access".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // ---------------------------------------------------------------
+                // Observability / monitoring tokens.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "PagerDuty Integration Key".to_string(),
+                    regex: Regex::new(r#"(?i)pagerduty[_-]?(?:integration|routing)[_-]?key\s*[=:]\s*['\"]([a-f0-9]{32})['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "PagerDuty integration / routing key - allows triggering incidents on the configured service".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "PostHog Personal API Key".to_string(),
+                    regex: Regex::new(r#"phx_[A-Za-z0-9_]{43}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "PostHog personal API key (phx_ prefix) - full project read/write".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Grafana Service Account Token".to_string(),
+                    regex: Regex::new(r#"glsa_[A-Za-z0-9]{32}_[a-f0-9]{8}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Grafana service account token (glsa_ prefix) - dashboard/datasource access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Sumologic Access Key".to_string(),
+                    regex: Regex::new(r#"(?i)sumo(?:logic)?[_-]?access[_-]?(?:id|key)\s*[=:]\s*['\"]su[A-Za-z0-9]{12,16}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Sumologic access ID/key - log ingestion and read access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // ---------------------------------------------------------------
+                // Auth-as-a-service - leaking these compromises end-user sessions.
+                // ---------------------------------------------------------------
+                CompiledPattern {
+                    name: "Clerk Backend Secret".to_string(),
+                    regex: Regex::new(r#"sk_(?:test|live)_[A-Za-z0-9]{40,60}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Clerk / Stytch / WorkOS-style backend secret key (sk_test_/sk_live_ + 40-60 alnum) - full backend API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "WorkOS API Key".to_string(),
+                    regex: Regex::new(r#"sk_[a-zA-Z0-9]{8}_[A-Z2-7]{52}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "WorkOS API key (sk_ + project + base32 secret)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {
@@ -2163,5 +2443,89 @@ mod tests {
         assert!(pattern.is_match("isDebug: true"));
         assert!(pattern.is_match("testMode = 1"));
         assert!(pattern.is_match("debugMode: !0"));
+    }
+
+    #[test]
+    fn test_huggingface_token_pattern() {
+        let pattern = Regex::new(r#"hf_[A-Za-z0-9]{34}"#).unwrap();
+        assert!(pattern.is_match("hf_abcdefghijklmnopqrstuvwxyz0123ABCD"));
+        // Too short
+        assert!(!pattern.is_match("hf_abc"));
+        // Not the hf prefix
+        assert!(!pattern.is_match("xf_abcdefghijklmnopqrstuvwxyz0123ABCD"));
+    }
+
+    #[test]
+    fn test_groq_key_pattern() {
+        let pattern = Regex::new(r#"gsk_[A-Za-z0-9]{52}"#).unwrap();
+        let key = format!("gsk_{}", "a".repeat(52));
+        assert!(pattern.is_match(&key));
+        // Just under length should not match
+        let short = format!("gsk_{}", "a".repeat(40));
+        assert!(!pattern.is_match(&short));
+    }
+
+    #[test]
+    fn test_stripe_webhook_secret_pattern() {
+        let pattern = Regex::new(r#"whsec_[A-Za-z0-9]{32,64}"#).unwrap();
+        assert!(pattern.is_match(&format!("whsec_{}", "a".repeat(48))));
+        // Wrong prefix
+        assert!(!pattern.is_match(&format!("wbsec_{}", "a".repeat(48))));
+    }
+
+    #[test]
+    fn test_alchemy_rpc_url_pattern() {
+        let pattern =
+            Regex::new(r#"https://[a-z0-9\-]+\.g\.alchemy\.com/v2/[A-Za-z0-9_\-]{32}"#).unwrap();
+        assert!(pattern.is_match(
+            "https://eth-mainnet.g.alchemy.com/v2/AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+        ));
+        assert!(pattern.is_match(
+            "https://polygon-mainnet.g.alchemy.com/v2/AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+        ));
+        // Wrong host
+        assert!(!pattern.is_match(
+            "https://eth-mainnet.alchemy.com/v2/AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+        ));
+    }
+
+    #[test]
+    fn test_infura_rpc_url_pattern() {
+        let pattern = Regex::new(r#"https://[a-z0-9\-]+\.infura\.io/v3/[a-f0-9]{32}"#).unwrap();
+        assert!(pattern.is_match(
+            "https://mainnet.infura.io/v3/0123456789abcdef0123456789abcdef"
+        ));
+        // Uppercase in path (must be hex)
+        assert!(!pattern.is_match(
+            "https://mainnet.infura.io/v3/0123456789ABCDEF0123456789ABCDEF"
+        ));
+    }
+
+    #[test]
+    fn test_tailscale_auth_key_pattern() {
+        let pattern = Regex::new(r#"tskey-auth-[A-Za-z0-9]+-[A-Za-z0-9]{32,}"#).unwrap();
+        assert!(pattern.is_match(&format!("tskey-auth-kTestId-{}", "a".repeat(40))));
+        // Wrong middle word
+        assert!(!pattern.is_match(&format!("tskey-other-kTestId-{}", "a".repeat(40))));
+    }
+
+    #[test]
+    fn test_adyen_api_key_pattern() {
+        let pattern = Regex::new(r#"AQE[A-Za-z0-9+/]{60,200}={0,2}"#).unwrap();
+        let key = format!("AQE{}=", "abcDEF123/+".repeat(8));
+        assert!(pattern.is_match(&key));
+        // Wrong prefix
+        assert!(!pattern.is_match(&format!("AQX{}=", "abcDEF123/+".repeat(8))));
+    }
+
+    #[test]
+    fn test_deepl_key_pattern() {
+        let pattern = Regex::new(
+            r#"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:fx"#,
+        )
+        .unwrap();
+        assert!(pattern.is_match("01234567-89ab-cdef-0123-456789abcdef:fx"));
+        // Missing :fx suffix
+        assert!(!pattern.is_match("01234567-89ab-cdef-0123-456789abcdef"));
     }
 }

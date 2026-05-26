@@ -754,6 +754,10 @@ impl NextJsSecurityScanner {
         if let Ok(resp) = self.http_client.get(url).await {
             // Look for server-side env variables exposed to client
             // These should only be NEXT_PUBLIC_* but sometimes devs leak others
+            // Each entry pairs a Next.js-shaped env-var name with a value-bearing
+            // assignment so an arbitrary mention of the name (a doc comment, an
+            // error string) does not trigger. All patterns require either `=`
+            // or `:` followed by a quoted non-empty string.
             let server_env_patterns = [
                 (
                     r#"(?i)DATABASE_URL\s*[=:]\s*["'][^"']+["']"#,
@@ -788,6 +792,160 @@ impl NextJsSecurityScanner {
                 (
                     r#"(?i)NEXTAUTH_SECRET\s*[=:]\s*["'][^"']+["']"#,
                     "NEXTAUTH_SECRET",
+                ),
+                // NextAuth v5 / Auth.js, Better-Auth, Lucia variants.
+                (
+                    r#"(?i)\bAUTH_SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "AUTH_SECRET",
+                ),
+                (
+                    r#"(?i)BETTER[_-]?AUTH[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "BETTER_AUTH_SECRET",
+                ),
+                (
+                    r#"(?i)LUCIA[_-]?(?:AUTH[_-]?)?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "LUCIA_AUTH_SECRET",
+                ),
+                // Stripe webhook signing secrets - allows event forgery, not just charges.
+                (
+                    r#"(?i)STRIPE[_-]?WEBHOOK[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "STRIPE_WEBHOOK_SECRET",
+                ),
+                (
+                    r#"(?i)\bWEBHOOK[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "WEBHOOK_SECRET",
+                ),
+                // Per-request encryption / session signing secrets.
+                (
+                    r#"(?i)ENCRYPTION[_-]?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "ENCRYPTION_KEY",
+                ),
+                (
+                    r#"(?i)SESSION[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "SESSION_SECRET",
+                ),
+                (
+                    r#"(?i)COOKIE[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "COOKIE_SECRET",
+                ),
+                (
+                    r#"(?i)IRON[_-]?SESSION[_-]?(?:PASSWORD|SECRET)\s*[=:]\s*["'][^"']+["']"#,
+                    "IRON_SESSION_PASSWORD",
+                ),
+                // OAuth provider client secrets - frequently leaked alongside their public IDs.
+                (
+                    r#"(?i)GOOGLE[_-]?CLIENT[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "GOOGLE_CLIENT_SECRET",
+                ),
+                (
+                    r#"(?i)GITHUB[_-]?CLIENT[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "GITHUB_CLIENT_SECRET",
+                ),
+                (
+                    r#"(?i)AZURE[_-]?(?:AD[_-]?)?CLIENT[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "AZURE_CLIENT_SECRET",
+                ),
+                (
+                    r#"(?i)FACEBOOK[_-]?CLIENT[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "FACEBOOK_CLIENT_SECRET",
+                ),
+                (
+                    r#"(?i)APPLE[_-]?(?:PRIVATE[_-]?KEY|CLIENT[_-]?SECRET)\s*[=:]\s*["'][^"']+["']"#,
+                    "APPLE_CLIENT_SECRET",
+                ),
+                // BaaS / DB-as-a-service tokens — service-role keys bypass RLS.
+                (
+                    r#"(?i)CLERK[_-]?SECRET[_-]?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "CLERK_SECRET_KEY",
+                ),
+                (
+                    r#"(?i)SUPABASE[_-]?(?:SERVICE[_-]?ROLE[_-]?KEY|JWT[_-]?SECRET)\s*[=:]\s*["'][^"']+["']"#,
+                    "SUPABASE_SERVICE_ROLE_KEY",
+                ),
+                (
+                    r#"(?i)FIREBASE[_-]?(?:PRIVATE[_-]?KEY|ADMIN[_-]?SDK)[^=]*[=:]\s*["'][^"']+["']"#,
+                    "FIREBASE_ADMIN_KEY",
+                ),
+                (
+                    r#"(?i)TURSO[_-]?(?:AUTH[_-]?)?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "TURSO_AUTH_TOKEN",
+                ),
+                (
+                    r#"(?i)DATABASE[_-]?AUTH[_-]?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "DATABASE_AUTH_TOKEN",
+                ),
+                (
+                    r#"(?i)NEON[_-]?(?:API[_-]?KEY|DATABASE[_-]?URL)\s*[=:]\s*["'][^"']+["']"#,
+                    "NEON_CREDENTIAL",
+                ),
+                (
+                    r#"(?i)PLANETSCALE[_-]?(?:TOKEN|PASSWORD)\s*[=:]\s*["'][^"']+["']"#,
+                    "PLANETSCALE_TOKEN",
+                ),
+                // Vercel platform tokens - blob storage and KV bypass per-request auth entirely.
+                (
+                    r#"(?i)BLOB[_-]?READ[_-]?WRITE[_-]?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "BLOB_READ_WRITE_TOKEN",
+                ),
+                (
+                    r#"(?i)KV[_-]?REST[_-]?API[_-]?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "KV_REST_API_TOKEN",
+                ),
+                (
+                    r#"(?i)UPSTASH[_-]?REDIS[_-]?REST[_-]?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "UPSTASH_REDIS_REST_TOKEN",
+                ),
+                (
+                    r#"(?i)VERCEL[_-]?(?:TOKEN|OIDC[_-]?TOKEN)\s*[=:]\s*["'][^"']+["']"#,
+                    "VERCEL_TOKEN",
+                ),
+                // AI/LLM provider keys - billed inference + (often) training data access.
+                (
+                    r#"(?i)OPENAI[_-]?API[_-]?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "OPENAI_API_KEY",
+                ),
+                (
+                    r#"(?i)ANTHROPIC[_-]?API[_-]?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "ANTHROPIC_API_KEY",
+                ),
+                (
+                    r#"(?i)(?:HUGGINGFACE|HF)[_-]?(?:API[_-]?)?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "HUGGINGFACE_TOKEN",
+                ),
+                (
+                    r#"(?i)REPLICATE[_-]?API[_-]?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "REPLICATE_API_TOKEN",
+                ),
+                (
+                    r#"(?i)GROQ[_-]?API[_-]?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "GROQ_API_KEY",
+                ),
+                // Email/transactional + push providers.
+                (
+                    r#"(?i)RESEND[_-]?API[_-]?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "RESEND_API_KEY",
+                ),
+                (
+                    r#"(?i)POSTMARK[_-]?(?:SERVER[_-]?)?TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "POSTMARK_TOKEN",
+                ),
+                (
+                    r#"(?i)MAILGUN[_-]?(?:API[_-]?)?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "MAILGUN_API_KEY",
+                ),
+                // Generic catch-alls for variables whose names alone telegraph
+                // sensitivity (master/admin/root credentials).
+                (
+                    r#"(?i)\b(?:MASTER|ADMIN|ROOT)[_-]?(?:PASSWORD|SECRET|KEY|TOKEN)\s*[=:]\s*["'][^"']+["']"#,
+                    "MASTER_CREDENTIAL",
+                ),
+                (
+                    r#"(?i)\bINTERNAL[_-]?(?:API[_-]?KEY|SECRET|TOKEN)\s*[=:]\s*["'][^"']+["']"#,
+                    "INTERNAL_API_KEY",
+                ),
+                (
+                    r#"(?i)\bSERVICE[_-]?ACCOUNT[_-]?(?:KEY|TOKEN|JSON)\s*[=:]\s*["'][^"']+["']"#,
+                    "SERVICE_ACCOUNT_KEY",
                 ),
             ];
 
@@ -1138,72 +1296,238 @@ impl NextJsSecurityScanner {
 
         let base = url.trim_end_matches('/');
 
-        // Files that shouldn't be accessible
-        let sensitive_files = [
-            ("next.config.js", "Next.js configuration"),
-            ("next.config.mjs", "Next.js configuration"),
-            (".env", "Environment variables"),
-            (".env.local", "Local environment variables"),
-            (".env.production", "Production environment"),
-            ("tsconfig.json", "TypeScript configuration"),
-            ("package.json", "Package dependencies"),
-            ("package-lock.json", "Dependency lock file"),
-            (".next/BUILD_ID", "Build identifier"),
-            (".next/build-manifest.json", "Build manifest"),
-            (".next/routes-manifest.json", "Routes manifest"),
-            (".next/prerender-manifest.json", "Prerender manifest"),
+        // Each entry: (path, description, marker substrings).
+        //
+        // `markers` is a tight per-file content allowlist - at least one substring
+        // MUST appear in the response body for the finding to be reported. This
+        // eliminates the SPA-shell false positive class where the framework
+        // returns a 200 + HTML for every unknown route.
+        //
+        // An empty `markers` slice means "no body-content check is reliable for
+        // this file" (e.g. .next/BUILD_ID is an opaque hash); the helper falls
+        // back to a strict short-opaque-token shape check.
+        let sensitive_files: &[(&str, &str, &[&str])] = &[
+            // Source-tree config files.
+            (
+                "next.config.js",
+                "Next.js configuration",
+                &["module.exports", "nextConfig", "withBundleAnalyzer", "withSentryConfig"],
+            ),
+            (
+                "next.config.mjs",
+                "Next.js configuration (ESM)",
+                &["export default", "nextConfig", "/** @type"],
+            ),
+            (
+                "next.config.ts",
+                "Next.js configuration (TypeScript)",
+                &["export default", "NextConfig", "nextConfig"],
+            ),
+            // .env family - any production .env file is critical.
+            (".env", "Environment variables", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.local", "Local environment variables", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.development", "Development environment variables", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.development.local", "Local development environment", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.test", "Test environment variables", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.test.local", "Local test environment", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.staging", "Staging environment variables", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.production", "Production environment variables", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            (".env.production.local", "Production-local environment", &["=", "DATABASE_URL", "API_KEY", "SECRET", "TOKEN"]),
+            // Build/tooling configs.
+            ("tsconfig.json", "TypeScript configuration", &["\"compilerOptions\""]),
+            (
+                "tsconfig.tsbuildinfo",
+                "TypeScript incremental build info",
+                &["\"program\"", "\"fileNames\"", "\"fileInfos\""],
+            ),
+            ("package.json", "Package dependencies", &["\"dependencies\"", "\"scripts\"", "\"name\""]),
+            ("package-lock.json", "Dependency lock file", &["\"lockfileVersion\""]),
+            ("pnpm-lock.yaml", "pnpm lock file", &["lockfileVersion:", "specifier:"]),
+            ("yarn.lock", "yarn lock file", &["# THIS IS AN AUTOGENERATED FILE", "__metadata:"]),
+            (
+                "next-env.d.ts",
+                "Next.js TypeScript declarations",
+                &["next/types/global", "next/image-types", "/// <reference"],
+            ),
+            // Vercel platform metadata - .vercel/project.json links the deploy to a Vercel team/project.
+            (
+                "vercel.json",
+                "Vercel deployment configuration",
+                &["\"version\"", "\"routes\"", "\"buildCommand\"", "\"functions\"", "\"crons\"", "\"headers\""],
+            ),
+            (
+                ".vercel/project.json",
+                "Vercel project linkage",
+                &["\"projectId\"", "\"orgId\""],
+            ),
+            (
+                ".vercel/output/config.json",
+                "Vercel build output config",
+                &["\"version\"", "\"routes\""],
+            ),
+            // Exposed .git/ over HTTP is rare but devastating - reconstructable source.
+            (".git/HEAD", "Git HEAD reference", &["ref: refs/"]),
+            (".git/config", "Git repository configuration", &["[core]", "[remote", "filemode"]),
+            // .next build artifacts. These are normally under .next/ and should
+            // never be reachable from the public web root, but standalone +
+            // misconfigured static hosts often leak them and they enumerate the
+            // entire route surface (including unlinked admin routes).
+            ("_next/static/development/_buildManifest.js", "Dev build manifest", &["self.__BUILD_MANIFEST"]),
+            (".next/BUILD_ID", "Build identifier", &[]),
+            (
+                ".next/build-manifest.json",
+                "Build manifest",
+                &["\"polyfillFiles\"", "\"rootMainFiles\"", "\"pages\""],
+            ),
+            (
+                ".next/app-build-manifest.json",
+                "App router build manifest",
+                &["\"pages\"", "/page", "/layout"],
+            ),
+            (
+                ".next/routes-manifest.json",
+                "Routes manifest (full route surface incl. unlinked routes)",
+                &["\"staticRoutes\"", "\"dynamicRoutes\"", "\"version\""],
+            ),
+            (
+                ".next/prerender-manifest.json",
+                "Prerender manifest (ISR config + revalidation tokens)",
+                &["\"routes\"", "\"dynamicRoutes\"", "\"version\"", "\"preview\""],
+            ),
+            (
+                ".next/pages-manifest.json",
+                "Pages manifest",
+                &["\"/_app\"", "\"/_document\""],
+            ),
+            (
+                ".next/server/pages-manifest.json",
+                "Server pages manifest",
+                &["\"/_app\"", "\"/_document\""],
+            ),
+            (
+                ".next/server/middleware-manifest.json",
+                "Middleware manifest (route matchers + edge function bindings)",
+                &["\"middleware\"", "\"functions\"", "\"sortedMiddleware\"", "\"version\""],
+            ),
+            (
+                ".next/server/middleware-build-manifest.js",
+                "Middleware build manifest",
+                &["self.__BUILD_MANIFEST", "self.__MIDDLEWARE_MANIFEST"],
+            ),
+            (
+                ".next/server/middleware-react-loadable-manifest.json",
+                "Middleware react-loadable manifest",
+                &["\"files\"", "\"id\""],
+            ),
+            (
+                ".next/server/font-manifest.json",
+                "Font manifest",
+                &["\"preloads\"", "\"file\""],
+            ),
+            (
+                ".next/server/functions-config-manifest.json",
+                "Functions config manifest",
+                &["\"functions\"", "\"version\""],
+            ),
+            (
+                ".next/required-server-files.json",
+                "Required server files manifest (often discloses absolute deploy paths)",
+                &["\"version\"", "\"config\"", "\"appDir\"", "\"files\""],
+            ),
+            (
+                ".next/trace",
+                "Build trace events (timing + module paths)",
+                &["\"name\"", "\"duration\"", "\"timestamp\""],
+            ),
         ];
 
-        for (file, desc) in &sensitive_files {
+        for (file, desc, markers) in sensitive_files {
             tests_run += 1;
             let file_url = format!("{}/{}", base, file);
 
             if let Ok(resp) = self.http_client.get(&file_url).await {
-                if resp.status_code == 200 {
-                    let is_config = resp.body.contains("module.exports")
-                        || resp.body.contains("export default")
-                        || resp.body.starts_with("{")
-                        || resp.body.contains("DATABASE_URL")
-                        || resp.body.contains("API_KEY");
+                if resp.status_code == 200 && Self::is_authentic_sensitive_file(&resp.body, markers) {
+                    let is_env = file.contains(".env");
+                    let is_git = file.starts_with(".git/");
+                    let is_high_value = is_env
+                        || file.contains("middleware-manifest")
+                        || file.contains("required-server-files")
+                        || file.contains("prerender-manifest")
+                        || file.ends_with("tsbuildinfo");
+                    let severity = if is_env || is_git {
+                        Severity::Critical
+                    } else if is_high_value {
+                        Severity::High
+                    } else {
+                        Severity::Medium
+                    };
+                    let cvss = if is_env || is_git {
+                        9.1
+                    } else if is_high_value {
+                        7.5
+                    } else {
+                        5.3
+                    };
 
-                    if is_config {
-                        vulnerabilities.push(Vulnerability {
-                            id: format!("nextjs_config_exposure_{}", Self::generate_id()),
-                            vuln_type: format!("Next.js {} Exposed", desc),
-                            severity: if file.contains(".env") { Severity::Critical } else { Severity::Medium },
-                            confidence: Confidence::High,
-                            category: "Information Disclosure".to_string(),
-                            url: file_url.clone(),
-                            parameter: Some(file.to_string()),
-                            payload: format!("GET /{}", file),
-                            description: format!(
-                                "The {} file is publicly accessible. This may expose sensitive configuration, \
-                                API keys, or internal paths.", desc
-                            ),
-                            evidence: Some(format!(
-                                "File: {}\n\
-                                Status: 200 OK\n\
-                                Preview: {}...",
-                                file, &resp.body[..resp.body.len().min(200)]
-                            )),
-                            cwe: "CWE-200".to_string(),
-                            cvss: if file.contains(".env") { 9.1 } else { 5.3 },
-                            verified: true,
-                            false_positive: false,
-                            remediation: "1. Configure web server to block access to config files\n\
-                                          2. Move sensitive files outside web root\n\
-                                          3. Add to .gitignore and deploy excludes\n\
-                                          4. Use next.config.js headers to block access".to_string(),
-                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                    vulnerabilities.push(Vulnerability {
+                        id: format!("nextjs_config_exposure_{}", Self::generate_id()),
+                        vuln_type: format!("Next.js {} Exposed", desc),
+                        severity,
+                        confidence: Confidence::High,
+                        category: "Information Disclosure".to_string(),
+                        url: file_url.clone(),
+                        parameter: Some(file.to_string()),
+                        payload: format!("GET /{}", file),
+                        description: format!(
+                            "The {} file is publicly accessible. This may expose sensitive configuration, \
+                            API keys, internal paths, or the full route surface (including unlinked admin routes).",
+                            desc
+                        ),
+                        evidence: Some(format!(
+                            "File: {}\n\
+                            Status: 200 OK\n\
+                            Preview: {}...",
+                            file,
+                            &resp.body[..resp.body.len().min(200)]
+                        )),
+                        cwe: "CWE-200".to_string(),
+                        cvss,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "1. Configure web server / Vercel routes to deny access to config + .next/server files\n\
+                                      2. Move sensitive files outside web root\n\
+                                      3. Add to .gitignore and deploy excludes\n\
+                                      4. Use next.config.js headers + rewrites to block access\n\
+                                      5. For .env files: rotate every leaked credential immediately"
+                            .to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_confidence: None,
                 ml_data: None,
-                        });
-                    }
+                    });
                 }
             }
         }
 
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Tight per-file body validator used by `check_config_exposure`.
+    ///
+    /// When markers are supplied at least one substring must appear in the body.
+    /// When markers are empty (opaque files like `.next/BUILD_ID`) the body must
+    /// look like a short opaque token: 5-64 bytes of base16/64-url characters
+    /// only. SPA shells and HTML error pages fail both checks.
+    fn is_authentic_sensitive_file(body: &str, markers: &[&str]) -> bool {
+        if !markers.is_empty() {
+            return markers.iter().any(|m| body.contains(m));
+        }
+        let trimmed = body.trim();
+        if trimmed.len() < 5 || trimmed.len() > 64 {
+            return false;
+        }
+        trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     }
 
     /// Check for Server Actions vulnerabilities
