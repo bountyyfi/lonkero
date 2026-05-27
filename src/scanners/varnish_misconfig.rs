@@ -137,40 +137,102 @@ impl VarnishMisconfigScanner {
             }
         }
 
-        // Test 2: BAN Method (bulk cache invalidation)
-        tests_run += 1;
-        match self.http_client.request_with_method("BAN", url).await {
-            Ok(response) => {
-                if response.status_code == 200 {
+        // Test 2: Other cache-management methods (BAN / REFRESH / INVALIDATE /
+        // FORCE-PURGE). These are not standardised HTTP methods so any server
+        // that accepts them with a successful payload is processing them via
+        // VCL — meaning the operator forgot to gate the ACL. We require the
+        // response to contain a method-specific confirmation token so a generic
+        // 200 OK from a reverse proxy that maps all methods to GET cannot match.
+        let mgmt_methods: &[(&str, &str, &[&str], Severity, f32, &str)] = &[
+            (
+                "BAN",
+                "VARNISH_UNAUTH_BAN",
+                &["banned", "ban added", "\"status\": \"ok\"", "200 ban added"],
+                Severity::High,
+                7.5,
+                "BAN — bulk regex-based cache invalidation; a single request can drop the entire cache",
+            ),
+            (
+                "REFRESH",
+                "VARNISH_UNAUTH_REFRESH",
+                &["refreshed", "200 refreshed", "<title>200 refreshed</title>"],
+                Severity::Medium,
+                6.0,
+                "REFRESH — force-revalidates the cached object; abuse causes origin storms",
+            ),
+            (
+                "INVALIDATE",
+                "VARNISH_UNAUTH_INVALIDATE",
+                &["invalidated", "200 invalidated", "<title>200 invalidated"],
+                Severity::Medium,
+                6.0,
+                "INVALIDATE — alternate purge verb used by some VCL templates (e.g. hash_always_miss)",
+            ),
+            (
+                "FORCE-PURGE",
+                "VARNISH_UNAUTH_FORCE_PURGE",
+                &["purged", "force purged", "200 purged"],
+                Severity::Medium,
+                6.0,
+                "FORCE-PURGE — bypasses Surrogate-Control TTL and drops the object outright",
+            ),
+            (
+                "XKEY",
+                "VARNISH_UNAUTH_XKEY",
+                &["purged", "ykey", "xkey"],
+                Severity::Medium,
+                6.0,
+                "XKEY/YKEY — Fastly/Varnish Plus tag-based purge; one request invalidates every object sharing a tag",
+            ),
+        ];
+
+        for (method, vtype, markers, sev, cvss, label) in mgmt_methods {
+            tests_run += 1;
+            match self.http_client.request_with_method(method, url).await {
+                Ok(response) if response.status_code == 200 => {
                     let body_lower = response.body.to_lowercase();
-
-                    let is_ban_successful = body_lower.contains("banned")
-                        || body_lower.contains("ban added")
-                        || body_lower.contains("\"status\": \"ok\"");
-
-                    if is_ban_successful {
-                        info!("Unauthenticated Varnish BAN method accessible at {}", url);
+                    if markers.iter().any(|m| body_lower.contains(m)) {
+                        info!(
+                            "Unauthenticated Varnish {} method accessible at {}",
+                            method, url
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             url,
-                            "VARNISH_UNAUTH_BAN",
-                            "Unauthenticated Varnish BAN Method - Cache Invalidation",
+                            vtype,
                             &format!(
-                                "BAN method accessible without authentication, allowing bulk cache invalidation.\nStatus: {}\nThis can be used for DoS attacks.",
-                                response.status_code
+                                "Unauthenticated Varnish {} Method — Cache Manipulation",
+                                method
                             ),
-                            Severity::High,
+                            &format!(
+                                "{} method succeeds without authentication.\n\
+                                Status: {}\nMethod: {}\nImpact: {}",
+                                method, response.status_code, method, label
+                            ),
+                            sev.clone(),
                             Confidence::High,
-                            7.5,
-                            "1. Restrict BAN method to internal IPs only\n\
-                             2. Implement authentication for BAN operations\n\
-                             3. Rate limit cache management operations\n\
-                             4. Monitor for cache manipulation attacks",
+                            *cvss,
+                            "1. Restrict cache-management methods to internal IPs only via an ACL in VCL:\n\
+                                acl cache_admin {\n\
+                                    \"127.0.0.1\";\n\
+                                    \"10.0.0.0\"/8;\n\
+                                }\n\
+                                sub vcl_recv {\n\
+                                    if (req.method == \"BAN\" || req.method == \"REFRESH\" ||\n\
+                                        req.method == \"INVALIDATE\" || req.method == \"FORCE-PURGE\" ||\n\
+                                        req.method == \"XKEY\") {\n\
+                                        if (!client.ip ~ cache_admin) {\n\
+                                            return (synth(405, \"Not allowed.\"));\n\
+                                        }\n\
+                                    }\n\
+                                }\n\
+                             2. Require an authentication header (e.g. X-Cache-Admin-Token) for any cache management op\n\
+                             3. Rate-limit cache management at the load balancer\n\
+                             4. Audit recent BAN/REFRESH activity in varnishlog; mass invalidation = origin DoS",
                         ));
                     }
                 }
-            }
-            Err(e) => {
-                debug!("BAN request failed: {}", e);
+                Ok(_) => {}
+                Err(e) => debug!("{} request failed: {}", method, e),
             }
         }
 
@@ -344,6 +406,64 @@ impl VarnishMisconfigScanner {
             debug!("No caching proxy detected, skipping cache poisoning tests");
         }
 
+        // Test 4b: Varnish "Guru Meditation" error page disclosure.
+        // When Varnish cannot reach the backend (or VCL synth() fires) it serves
+        // a verbose HTML error page containing the X-Varnish ID, the VCL handler
+        // name, the backend identifier, and sometimes the request hash. We
+        // deliberately force one by sending a request with a Host header that
+        // does not match any defined backend.
+        tests_run += 1;
+        let bogus_host_headers =
+            vec![("Host".to_string(), "varnish-probe.invalid.lonkero".to_string())];
+        match self
+            .http_client
+            .get_with_headers(url, bogus_host_headers)
+            .await
+        {
+            Ok(response) => {
+                let body_lower = response.body.to_lowercase();
+                let is_guru = body_lower.contains("guru meditation")
+                    && (body_lower.contains("xid:") || body_lower.contains("varnish cache server"));
+                if is_guru {
+                    // Pull out the disclosed values we'd otherwise have to guess.
+                    let mut leaked = Vec::new();
+                    for needle in ["xid:", "backend:", "fetcherror:", "vcl_recv", "vcl_synth"] {
+                        if let Some(pos) = body_lower.find(needle) {
+                            let end = (pos + 80).min(response.body.len());
+                            leaked.push(response.body[pos..end].replace('\n', " "));
+                        }
+                    }
+                    vulnerabilities.push(self.create_vulnerability(
+                        url,
+                        "VARNISH_GURU_MEDITATION_LEAK",
+                        "Varnish Guru Meditation Error Page Leaks Internal State",
+                        &format!(
+                            "Triggering a backend miss via an unknown Host header returns a verbose Varnish error page exposing the X-Varnish XID, VCL handler name, and backend identifier.\n\
+                            Leaked tokens:\n{}",
+                            leaked.join("\n")
+                        ),
+                        Severity::Low,
+                        Confidence::High,
+                        3.7,
+                        "1. Override vcl_synth/vcl_backend_error to return a minimal HTML body instead of the default verbose page:\n\
+                                sub vcl_backend_error {\n\
+                                    set beresp.http.Content-Type = \"text/html; charset=utf-8\";\n\
+                                    synthetic({\"<!DOCTYPE html><h1>Service unavailable</h1>\"});\n\
+                                    return (deliver);\n\
+                                }\n\
+                                sub vcl_synth {\n\
+                                    set resp.http.Content-Type = \"text/html; charset=utf-8\";\n\
+                                    synthetic({\"<!DOCTYPE html><h1>\" + resp.status + \"</h1>\"});\n\
+                                    return (deliver);\n\
+                                }\n\
+                         2. Remove the default error template that prints xid / backend / vcl state.\n\
+                         3. Configure your load balancer to return its own error pages rather than passing Varnish's through.",
+                    ));
+                }
+            }
+            Err(e) => debug!("Guru meditation probe failed: {}", e),
+        }
+
         // Test 5: OPTIONS method to discover allowed methods
         tests_run += 1;
         match self.http_client.request_with_method("OPTIONS", url).await {
@@ -356,7 +476,18 @@ impl VarnishMisconfigScanner {
                     let allow_lower = allow.to_lowercase();
 
                     // Check if dangerous methods are allowed
-                    let dangerous_methods = vec!["purge", "ban", "delete", "put", "patch"];
+                    let dangerous_methods = vec![
+                        "purge",
+                        "ban",
+                        "refresh",
+                        "invalidate",
+                        "force-purge",
+                        "xkey",
+                        "ykey",
+                        "delete",
+                        "put",
+                        "patch",
+                    ];
                     let exposed_methods: Vec<&str> = dangerous_methods
                         .iter()
                         .filter(|m| allow_lower.contains(*m))
