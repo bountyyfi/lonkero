@@ -444,16 +444,47 @@ impl OidcScanner {
         // Extract base URL
         let base_url = self.extract_base_url(url);
 
-        // Try common OIDC discovery endpoints
+        // Try common OIDC discovery endpoints. Each one is the
+        // deterministic discovery path for a major IdP / framework:
+        //  - root .well-known: spec-compliant default
+        //  - /oauth2/...: AWS Cognito, Spring Authorization Server
+        //  - /oauth-authorization-server: RFC 8414 OAuth metadata
+        //  - /auth/realms/...: Keycloak (current); /realms/...: Keycloak 17+
+        //  - /tenants/{id}/v2.0/...: Azure AD multi-tenant
+        //  - /adfs/...: Microsoft ADFS
+        //  - /idp/openidconnect/...: ForgeRock
+        //  - /am/oauth2/...: ForgeRock AM
+        //  - /pf/...: PingFederate
+        //  - /idp/...: Okta (legacy)
+        //  - /oxauth/...: Gluu
         let discovery_endpoints = vec![
             format!("{}/.well-known/openid-configuration", base_url),
-            format!("{}/oauth2/.well-known/openid-configuration", base_url),
+            format!("{}/.well-known/openid-configuration/", base_url),
             format!("{}/.well-known/oauth-authorization-server", base_url),
-            format!(
-                "{}/realms/master/.well-known/openid-configuration",
-                base_url
-            ), // Keycloak
-            format!("{}/.well-known/openid-configuration/", base_url), // Trailing slash variant
+            format!("{}/.well-known/oauth-authorization-server/", base_url),
+            format!("{}/.well-known/jwks.json", base_url),
+            format!("{}/oauth2/.well-known/openid-configuration", base_url),
+            format!("{}/oauth/.well-known/openid-configuration", base_url),
+            format!("{}/oauth2/default/.well-known/openid-configuration", base_url), // Okta default
+            format!("{}/auth/realms/master/.well-known/openid-configuration", base_url), // Keycloak legacy
+            format!("{}/realms/master/.well-known/openid-configuration", base_url), // Keycloak 17+
+            format!("{}/auth/realms/admin/.well-known/openid-configuration", base_url),
+            format!("{}/realms/admin/.well-known/openid-configuration", base_url),
+            format!("{}/adfs/.well-known/openid-configuration", base_url), // ADFS
+            format!("{}/common/v2.0/.well-known/openid-configuration", base_url), // Azure AD common
+            format!("{}/organizations/v2.0/.well-known/openid-configuration", base_url),
+            format!("{}/consumers/v2.0/.well-known/openid-configuration", base_url),
+            format!("{}/pf/.well-known/openid-configuration", base_url), // PingFederate
+            format!("{}/idp/.well-known/openid-configuration", base_url),
+            format!("{}/idp/openidconnect/.well-known/openid-configuration", base_url), // ForgeRock
+            format!("{}/am/oauth2/.well-known/openid-configuration", base_url), // ForgeRock AM
+            format!("{}/oxauth/.well-known/openid-configuration", base_url), // Gluu
+            format!("{}/connect/.well-known/openid-configuration", base_url), // IdentityServer4
+            format!("{}/identity/.well-known/openid-configuration", base_url),
+            format!("{}/openid/.well-known/openid-configuration", base_url),
+            format!("{}/sso/.well-known/openid-configuration", base_url),
+            format!("{}/auth/.well-known/openid-configuration", base_url),
+            format!("{}/api/.well-known/openid-configuration", base_url),
         ];
 
         for endpoint in &discovery_endpoints {

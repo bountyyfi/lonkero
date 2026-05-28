@@ -50,6 +50,229 @@ impl ContainerScanner {
             tests_run += tests;
         }
 
+        if vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_orchestration_dashboards_exposure(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for exposed orchestration/registry management dashboards.
+    ///
+    /// Each entry is `(path, product, body_signature, severity, cvss)`. The
+    /// body_signature must appear in the response body for the finding to fire
+    /// — generic 200s never trigger.
+    async fn test_orchestration_dashboards_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+
+        debug!("Testing for orchestration dashboard exposure");
+
+        let probes: Vec<(&str, &str, &[&str], Severity, f64)> = vec![
+            // Portainer — `/api/status` returns JSON with Version. Anonymous
+            // access on /api/endpoints means full container control.
+            (
+                "/api/status",
+                "Portainer",
+                &["\"Version\"", "Portainer"],
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/api/endpoints",
+                "Portainer (unauthenticated endpoints)",
+                &["\"PublicURL\"", "\"EndpointType\""],
+                Severity::Critical,
+                9.8,
+            ),
+            // Rancher — `/v3/clusters` returns JSON with type=collection.
+            (
+                "/v3/clusters",
+                "Rancher",
+                &["\"type\":\"collection\"", "\"resourceType\":\"cluster\""],
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/v3/users",
+                "Rancher (unauthenticated user list)",
+                &["\"type\":\"collection\"", "\"resourceType\":\"user\""],
+                Severity::Critical,
+                9.1,
+            ),
+            // Harbor — `/api/v2.0/systeminfo` is unauthenticated by default and
+            // leaks harbor_version + registry URL.
+            (
+                "/api/v2.0/systeminfo",
+                "Harbor Registry",
+                &["\"harbor_version\""],
+                Severity::Medium,
+                5.3,
+            ),
+            (
+                "/api/v2.0/projects",
+                "Harbor Projects",
+                &["\"project_id\"", "\"repo_count\""],
+                Severity::High,
+                7.5,
+            ),
+            // Quay container registry
+            (
+                "/api/v1/discovery",
+                "Quay Registry",
+                &["\"paths\"", "\"swagger\""],
+                Severity::Medium,
+                5.3,
+            ),
+            // JFrog Artifactory
+            (
+                "/artifactory/api/system/ping",
+                "JFrog Artifactory",
+                &["OK"],
+                Severity::Low,
+                3.7,
+            ),
+            (
+                "/artifactory/api/repositories",
+                "JFrog Artifactory Repositories",
+                &["\"key\"", "\"packageType\""],
+                Severity::High,
+                7.5,
+            ),
+            // Sonatype Nexus
+            (
+                "/service/rest/v1/status",
+                "Sonatype Nexus",
+                &["NexusRM"],
+                Severity::Low,
+                3.7,
+            ),
+            (
+                "/service/rest/v1/repositories",
+                "Sonatype Nexus Repositories",
+                &["\"format\"", "\"type\""],
+                Severity::Medium,
+                5.3,
+            ),
+            // ArgoCD — `/api/version` always anonymous; `/api/v1/applications`
+            // without auth lets attackers read GitOps deploy specs.
+            (
+                "/api/version",
+                "ArgoCD",
+                &["\"BuildDate\"", "\"GitCommit\""],
+                Severity::Low,
+                3.7,
+            ),
+            (
+                "/api/v1/applications",
+                "ArgoCD Applications",
+                &["\"argoproj.io\"", "\"Application\""],
+                Severity::Critical,
+                9.1,
+            ),
+            // Kubernetes Dashboard
+            (
+                "/api/v1/login/status",
+                "Kubernetes Dashboard",
+                &["\"tokenPresent\"", "\"headerPresent\""],
+                Severity::High,
+                7.5,
+            ),
+            // HashiCorp Vault — seal status leak is informational; an unsealed
+            // Vault with no auth required would surface secrets via /v1/sys.
+            (
+                "/v1/sys/seal-status",
+                "HashiCorp Vault",
+                &["\"sealed\"", "\"cluster_name\""],
+                Severity::Medium,
+                5.3,
+            ),
+            // HashiCorp Consul — `/v1/agent/self` exposes cluster config.
+            (
+                "/v1/agent/self",
+                "HashiCorp Consul",
+                &["\"Config\"", "\"NodeName\""],
+                Severity::High,
+                7.5,
+            ),
+            (
+                "/v1/catalog/services",
+                "HashiCorp Consul Services",
+                &["\"consul\""],
+                Severity::Medium,
+                5.3,
+            ),
+            // Traefik dashboard
+            (
+                "/api/overview",
+                "Traefik Dashboard",
+                &["\"http\"", "\"routers\"", "\"middlewares\""],
+                Severity::Medium,
+                5.3,
+            ),
+            // Spinnaker Gate
+            (
+                "/gate/applications",
+                "Spinnaker",
+                &["\"accounts\"", "\"cloudProviders\""],
+                Severity::High,
+                7.5,
+            ),
+            // Drone CI
+            (
+                "/api/info",
+                "Drone CI",
+                &["\"version\"", "\"runner\""],
+                Severity::Medium,
+                5.3,
+            ),
+        ];
+        let tests_run = probes.len();
+
+        for (path, product, signatures, severity, cvss) in probes {
+            let test_url = self.build_url(url, path);
+
+            let response = match self.http_client.get(&test_url).await {
+                Ok(r) => r,
+                Err(e) => {
+                    debug!("Dashboard probe {} failed: {}", path, e);
+                    continue;
+                }
+            };
+
+            if response.status_code != 200 || response.body.is_empty() {
+                continue;
+            }
+
+            // Require ALL configured signatures to appear in the body. Single
+            // generic tokens (e.g. just "Version") are too weak on their own.
+            let body = &response.body;
+            if !signatures.iter().all(|sig| body.contains(sig)) {
+                continue;
+            }
+
+            info!("Exposed {} dashboard at {}", product, path);
+            let vuln_type = "Exposed Orchestration Dashboard";
+            vulnerabilities.push(self.create_vulnerability(
+                url,
+                vuln_type,
+                "",
+                &format!(
+                    "{} management endpoint accessible without authentication at {}",
+                    product, path
+                ),
+                &format!("{} response signature matched at {}", product, path),
+                severity,
+                "CWE-306",
+                cvss,
+            ));
+            break;
+        }
+
         Ok((vulnerabilities, tests_run))
     }
 
@@ -59,20 +282,39 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 8;
 
         debug!("Testing for Docker API exposure");
 
         let docker_endpoints = vec![
             ("/v1.40/containers/json", "Docker API v1.40"),
             ("/v1.41/containers/json", "Docker API v1.41"),
+            ("/v1.42/containers/json", "Docker API v1.42"),
+            ("/v1.43/containers/json", "Docker API v1.43"),
+            ("/v1.44/containers/json", "Docker API v1.44"),
+            ("/v1.45/containers/json", "Docker API v1.45"),
+            ("/v1.46/containers/json", "Docker API v1.46"),
+            ("/v1.47/containers/json", "Docker API v1.47"),
+            ("/v1.48/containers/json", "Docker API v1.48"),
             ("/containers/json", "Docker API"),
+            ("/containers/json?all=1", "Docker API (all containers)"),
             ("/images/json", "Docker Images API"),
             ("/info", "Docker Info"),
             ("/version", "Docker Version"),
             ("/_ping", "Docker Ping"),
             ("/events", "Docker Events"),
+            ("/system/info", "Docker System Info"),
+            ("/system/df", "Docker System DF"),
+            ("/networks", "Docker Networks"),
+            ("/volumes", "Docker Volumes"),
+            ("/services", "Docker Swarm Services"),
+            ("/secrets", "Docker Swarm Secrets"),
+            ("/configs", "Docker Swarm Configs"),
+            ("/nodes", "Docker Swarm Nodes"),
+            ("/swarm", "Docker Swarm"),
+            ("/tasks", "Docker Swarm Tasks"),
+            ("/plugins", "Docker Plugins"),
         ];
+        let tests_run = docker_endpoints.len();
 
         for (endpoint, api_name) in docker_endpoints {
             let test_url = self.build_url(url, endpoint);
@@ -159,7 +401,6 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 15;
 
         debug!("Testing for Kubernetes API exposure");
 
@@ -168,13 +409,46 @@ impl ContainerScanner {
             ("/api/v1/namespaces", "K8s Namespaces"),
             ("/api/v1/pods", "K8s Pods"),
             ("/api/v1/secrets", "K8s Secrets"),
+            ("/api/v1/configmaps", "K8s ConfigMaps"),
             ("/api/v1/services", "K8s Services"),
+            ("/api/v1/serviceaccounts", "K8s ServiceAccounts"),
+            ("/api/v1/persistentvolumes", "K8s PersistentVolumes"),
+            ("/api/v1/persistentvolumeclaims", "K8s PVCs"),
+            ("/api/v1/nodes", "K8s Nodes"),
+            ("/api/v1/endpoints", "K8s Endpoints"),
+            ("/api/v1/namespaces/kube-system/secrets", "K8s kube-system Secrets"),
+            ("/api/v1/namespaces/default/secrets", "K8s default Secrets"),
+            ("/apis/apps/v1/deployments", "K8s Deployments"),
+            ("/apis/apps/v1/daemonsets", "K8s DaemonSets"),
+            ("/apis/apps/v1/statefulsets", "K8s StatefulSets"),
+            ("/apis/apps/v1/replicasets", "K8s ReplicaSets"),
+            ("/apis/batch/v1/jobs", "K8s Jobs"),
+            ("/apis/batch/v1/cronjobs", "K8s CronJobs"),
+            ("/apis/networking.k8s.io/v1/ingresses", "K8s Ingresses"),
+            ("/apis/networking.k8s.io/v1/networkpolicies", "K8s NetworkPolicies"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterroles", "K8s ClusterRoles"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "K8s ClusterRoleBindings"),
+            ("/apis/rbac.authorization.k8s.io/v1/roles", "K8s Roles"),
+            ("/apis/rbac.authorization.k8s.io/v1/rolebindings", "K8s RoleBindings"),
+            ("/apis/storage.k8s.io/v1/storageclasses", "K8s StorageClasses"),
+            ("/apis/policy/v1/poddisruptionbudgets", "K8s PodDisruptionBudgets"),
             ("/apis", "K8s APIs"),
             ("/healthz", "K8s Health"),
+            ("/livez", "K8s Liveness"),
+            ("/readyz", "K8s Readiness"),
             ("/version", "K8s Version"),
             ("/metrics", "K8s Metrics"),
+            ("/metrics/cadvisor", "Kubelet cAdvisor Metrics"),
+            ("/metrics/resource", "Kubelet Resource Metrics"),
+            ("/stats/summary", "Kubelet Stats Summary"),
+            ("/pods", "Kubelet Pods List"),
+            ("/runningpods/", "Kubelet Running Pods"),
+            ("/configz", "Kubelet Config"),
             ("/swagger.json", "K8s Swagger"),
+            ("/openapi/v2", "K8s OpenAPI v2"),
+            ("/openapi/v3", "K8s OpenAPI v3"),
         ];
+        let tests_run = k8s_endpoints.len();
 
         for (endpoint, api_name) in k8s_endpoints {
             let test_url = self.build_url(url, endpoint);
@@ -276,17 +550,20 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 10;
 
         debug!("Testing for container registry exposure");
 
         let registry_endpoints = vec![
             ("/v2/", "Docker Registry v2"),
             ("/v2/_catalog", "Registry Catalog"),
+            ("/v2/_catalog?n=1000", "Registry Catalog (paginated)"),
             ("/v2/library/", "Registry Library"),
             ("/v1/repositories/", "Registry Repositories"),
             ("/v1/_ping", "Registry Ping"),
+            ("/v1/search", "Registry Search"),
+            ("/jwt/auth?service=container_registry&scope=registry:catalog:*", "GitLab Container Registry JWT"),
         ];
+        let tests_run = registry_endpoints.len();
 
         for (endpoint, registry_name) in registry_endpoints {
             let test_url = self.build_url(url, endpoint);
@@ -392,7 +669,6 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 12;
 
         debug!("Testing for container secrets exposure");
 
@@ -401,15 +677,42 @@ impl ContainerScanner {
             "/.dockerenv",
             "/proc/self/environ",
             "/proc/1/environ",
+            "/proc/self/status",
+            "/proc/self/cgroup",
+            "/proc/self/mountinfo",
             "/var/run/secrets/kubernetes.io/serviceaccount/token",
             "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
             "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+            "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+            "/var/run/secrets/azure/tokens/azure-identity-token",
+            "/var/run/secrets/tokens/vault-token",
+            "/var/run/secrets/openshift.io/serviceaccount/token",
+            "/var/run/docker.sock",
+            "/var/lib/kubelet/config.yaml",
+            "/var/lib/kubelet/kubeconfig",
+            "/var/lib/kubelet/pki/kubelet-client-current.pem",
+            "/etc/kubernetes/admin.conf",
+            "/etc/kubernetes/kubelet.conf",
+            "/etc/kubernetes/controller-manager.conf",
+            "/etc/kubernetes/scheduler.conf",
+            "/etc/kubernetes/manifests/etcd.yaml",
+            "/etc/kubernetes/manifests/kube-apiserver.yaml",
+            "/etc/kubernetes/pki/ca.crt",
+            "/etc/kubernetes/pki/apiserver.key",
+            "/etc/kubernetes/pki/etcd/server.key",
+            "/etc/kubernetes/",
             "/.kube/config",
             "/root/.docker/config.json",
+            "/root/.config/containers/auth.json",
+            "/root/.dockercfg",
             "/home/*/.docker/config.json",
             "/etc/docker/daemon.json",
-            "/etc/kubernetes/",
+            "/etc/containerd/config.toml",
+            "/etc/crio/crio.conf",
+            "/etc/rancher/k3s/k3s.yaml",
+            "/etc/rancher/rke2/rke2.yaml",
         ];
+        let tests_run = secret_paths.len();
 
         for secret_path in secret_paths {
             let test_url = self.build_url(url, secret_path);
@@ -526,6 +829,11 @@ impl ContainerScanner {
             (r"-----BEGIN CERTIFICATE-----", "TLS Certificate"),
             (r"-----BEGIN RSA PRIVATE KEY-----", "RSA Private Key"),
             (r"-----BEGIN PRIVATE KEY-----", "Private Key"),
+            (r"-----BEGIN EC PRIVATE KEY-----", "EC Private Key"),
+            (r"-----BEGIN DSA PRIVATE KEY-----", "DSA Private Key"),
+            (r"-----BEGIN OPENSSH PRIVATE KEY-----", "OpenSSH Private Key"),
+            (r"-----BEGIN PGP PRIVATE KEY BLOCK-----", "PGP Private Key"),
+            (r"-----BEGIN ENCRYPTED PRIVATE KEY-----", "Encrypted Private Key"),
             (r#""auths"\s*:"#, "Docker Registry Auth"),
             (r"DOCKER_", "Docker Environment Variable"),
             (r"KUBE_", "Kubernetes Environment Variable"),
@@ -533,6 +841,21 @@ impl ContainerScanner {
             (r"AWS_", "AWS Credential"),
             (r"AZURE_", "Azure Credential"),
             (r"GCP_", "GCP Credential"),
+            (r"\$ANSIBLE_VAULT;1\.[12];AES256", "Ansible Vault"),
+            (r"hvs\.[A-Za-z0-9_-]{20,}", "HashiCorp Vault Token"),
+            (r"(?m)^kind:\s*KubeletConfiguration", "Kubelet Configuration"),
+            (r"(?m)^kind:\s*Config(?:$|\s)", "Kubeconfig File"),
+            (r"(?m)^kind:\s*InitConfiguration", "kubeadm Init Configuration"),
+            (r"(?m)^kind:\s*ClusterConfiguration", "kubeadm Cluster Configuration"),
+            (r"(?m)^current-context:\s*\S", "Kubeconfig (current-context)"),
+            (r#""client-certificate-data"\s*:"#, "Kubeconfig Client Certificate"),
+            (r#""client-key-data"\s*:"#, "Kubeconfig Client Key"),
+            (r"client-key-data:\s*[A-Za-z0-9+/=]{40,}", "Kubeconfig Client Key (YAML)"),
+            (r#"command:\s*\[?\s*"?kube-apiserver"?"#, "kube-apiserver Manifest"),
+            (r#"--etcd-keyfile=|--etcd-certfile="#, "etcd TLS Configuration"),
+            (r#"--service-account-key-file="#, "kube-apiserver Service Account Key"),
+            (r#"\[plugins\."io\.containerd\."#, "Containerd Configuration"),
+            (r#"(?m)^\[crio\.runtime\]"#, "CRI-O Runtime Configuration"),
         ];
 
         for (pattern, secret_type) in patterns {
@@ -652,6 +975,18 @@ impl ContainerScanner {
                  8. Implement proper file permissions (0600)\n\
                  9. Scan for exposed secrets in CI/CD\n\
                  10. Use workload identity instead of static credentials".to_string()
+            }
+            "Exposed Orchestration Dashboard" => {
+                "1. Require authentication on every management API endpoint\n\
+                 2. Place dashboards behind a VPN, bastion, or zero-trust proxy\n\
+                 3. Disable anonymous read APIs (Portainer endpoints, Rancher v3, Harbor systeminfo, ArgoCD)\n\
+                 4. Bind management UIs to localhost or an internal interface only\n\
+                 5. Enable SSO/OIDC with MFA for operator accounts\n\
+                 6. Rotate any tokens or kubeconfigs that may have been exposed\n\
+                 7. Enable audit logging on the management plane\n\
+                 8. Apply network policies / security groups restricting source IPs\n\
+                 9. Patch to the latest version — many of these have CVEs for older releases\n\
+                 10. Review CIS benchmarks for the specific platform (Rancher/Harbor/ArgoCD/Vault)".to_string()
             }
             _ => "Follow container security best practices (CIS Docker Benchmark, CIS Kubernetes Benchmark)".to_string(),
         }
