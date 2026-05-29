@@ -228,6 +228,117 @@ impl InformationDisclosureScanner {
             // Java / JSP
             "/WEB-INF/web.xml",
             "/META-INF/MANIFEST.MF",
+            // Tomcat Manager - RCE via WAR upload if reachable + default creds
+            "/manager/html",
+            "/manager/status",
+            "/manager/text/list",
+            "/host-manager/html",
+            "/host-manager/text/list",
+            // JBoss / WildFly - historic RCE surfaces
+            "/jmx-console/",
+            "/web-console/",
+            "/admin-console/login.seam",
+            "/invoker/JMXInvokerServlet",
+            "/invoker/EJBInvokerServlet",
+            // Oracle WebLogic - CVE-2017-10271, CVE-2019-2725 surfaces
+            "/console/login/LoginForm.jsp",
+            "/wls-wsat/CoordinatorPortType",
+            "/_async/AsyncResponseService",
+            // Jenkins - script console = direct RCE
+            "/script",
+            "/jenkins/script",
+            "/asynchPeople/",
+            "/jenkins/asynchPeople/",
+            // Apache Solr - CVE-2019-0193 / CVE-2021-44228 surfaces
+            "/solr/",
+            "/solr/admin/cores",
+            "/solr/admin/info/system",
+            "/solr/admin/info/properties",
+            // Elasticsearch - unauthenticated cluster/data enum
+            "/_cluster/health",
+            "/_cluster/state",
+            "/_cat/indices",
+            "/_nodes",
+            "/_snapshot/_all",
+            // Kibana - exposes dashboards / saved searches with embedded queries
+            "/api/status",
+            "/api/saved_objects/_find?type=index-pattern",
+            // Grafana - /api/datasources leaks DB URLs and tokens
+            "/api/datasources",
+            "/grafana/api/datasources",
+            "/api/org",
+            "/api/admin/settings",
+            // RabbitMQ Management API - returns broker creds policy
+            "/api/overview",
+            "/api/vhosts",
+            "/api/users",
+            // HashiCorp Vault - sys endpoints disclose mode and seal state
+            "/v1/sys/health",
+            "/v1/sys/seal-status",
+            "/v1/sys/mounts",
+            // HashiCorp Consul - KV recursive listing dumps every stored secret
+            "/v1/kv/?recurse",
+            "/consul/v1/kv/?recurse",
+            "/v1/agent/self",
+            // Prometheus / Alertmanager admin
+            "/api/v1/status/config",
+            "/api/v1/status/runtimeinfo",
+            "/api/v1/alerts",
+            // Hadoop YARN ResourceManager
+            "/cluster/apps",
+            "/ws/v1/cluster/apps",
+            // Apache Spark Master UI
+            "/api/v1/applications",
+            "/json/v1",
+            // Druid / Trino / Presto coordinators
+            "/druid/coordinator/v1/leader",
+            "/ui/api/cluster",
+            "/v1/info",
+            // Apache Airflow exposed UI / variables / connections
+            "/api/v1/variables",
+            "/api/v1/connections",
+            "/api/v1/config",
+            // n8n / Node-RED self-hosted automations
+            "/rest/credentials",
+            "/red/flows",
+            "/flows",
+            // Strapi & Directus self-hosted CMS admin APIs
+            "/admin/init",
+            "/admin/users/me",
+            "/server/info",
+            // Sentry self-hosted internal API
+            "/api/0/internal/options/",
+            // PHP / framework debug bars and profilers
+            "/_profiler",
+            "/_wdt",
+            "/debug/default/view",
+            "/laravel-telescope",
+            "/horizon/api/jobs/pending",
+            // Symfony dev front controllers left in production
+            "/app_dev.php",
+            "/app_dev.php/_profiler",
+            "/index_dev.php",
+            // Spring Cloud Config Server (creds leak)
+            "/encrypt/status",
+            "/decrypt",
+            "/env",
+            "/refresh",
+            // Vue/Nuxt/Vite dev surfaces left in prod
+            "/__open-in-editor",
+            "/__inspect/",
+            "/__vite_ping",
+            // SAP / Adobe admin consoles
+            "/sap/bc/webdynpro/sap/wd_analyze_config_user",
+            "/crx/de/index.jsp",
+            "/system/console",
+            // Microsoft Exchange / SharePoint front doors (creds bruteforce target)
+            "/owa/auth/logon.aspx",
+            "/ews/exchange.asmx",
+            "/autodiscover/autodiscover.xml",
+            // Confluence / Jira default admin surfaces (CVE-rich)
+            "/admin/restapi-browser/",
+            "/plugins/servlet/oauth/consumer-info",
+            "/secure/admin/ViewLogging.jspa",
         ];
         let tests_run = sensitive_files.len();
 
@@ -700,6 +811,49 @@ impl InformationDisclosureScanner {
             }
         }
 
+        // Admin consoles / management APIs reachable without auth = path to RCE
+        // or full data plane takeover. Classified as Critical when the endpoint
+        // itself is the keys-to-the-kingdom; remaining surfaces fall through to High.
+        let critical_admin_paths: &[&str] = &[
+            "/manager/html",
+            "/manager/status",
+            "/manager/text/list",
+            "/host-manager/html",
+            "/host-manager/text/list",
+            "/jmx-console/",
+            "/web-console/",
+            "/admin-console/login.seam",
+            "/invoker/jmxinvokerservlet",
+            "/invoker/ejbinvokerservlet",
+            "/console/login/loginform.jsp",
+            "/wls-wsat/coordinatorporttype",
+            "/_async/asyncresponseservice",
+            "/script",
+            "/jenkins/script",
+            "/solr/admin/cores",
+            "/solr/admin/info/system",
+            "/solr/admin/info/properties",
+            "/api/datasources",
+            "/grafana/api/datasources",
+            "/api/admin/settings",
+            "/v1/kv/?recurse",
+            "/consul/v1/kv/?recurse",
+            "/api/v1/variables",
+            "/api/v1/connections",
+            "/rest/credentials",
+            "/red/flows",
+            "/flows",
+            "/decrypt",
+            "/system/console",
+            "/laravel-telescope",
+            "/horizon/api/jobs/pending",
+        ];
+        for cp in critical_admin_paths {
+            if f.ends_with(cp) || f == *cp || f.contains(cp) {
+                return (Severity::Critical, "CWE-284");
+            }
+        }
+
         (Severity::High, "CWE-200")
     }
 
@@ -949,6 +1103,332 @@ impl InformationDisclosureScanner {
                 || lower.contains("api_key")
                 || lower.contains("_env"))
                 && (body.contains(":") || body.contains("="));
+        }
+
+        // ------------------------------------------------------------------
+        // Server admin consoles & management APIs. Each detector matches a
+        // signature that is essentially impossible to produce by accident -
+        // either a fixed product string in HTML or a JSON/XML schema unique
+        // to that API's response envelope.
+        // ------------------------------------------------------------------
+
+        // Tomcat Manager / Host Manager
+        if fname_lower.contains("/manager/text/list") {
+            // Tomcat Manager text API always starts with "OK - Listed applications"
+            return body.starts_with("OK - Listed applications")
+                || body.contains("OK - Listed applications for virtual host");
+        }
+        if fname_lower.contains("/manager/html") || fname_lower.contains("/manager/status") {
+            return body.contains("Tomcat Web Application Manager")
+                || body.contains("Manager Status")
+                || (body.contains("HTTP Status") && body.contains("Apache Tomcat"));
+        }
+        if fname_lower.contains("/host-manager/html")
+            || fname_lower.contains("/host-manager/text/list")
+        {
+            return body.contains("Tomcat Virtual Host Manager")
+                || body.starts_with("OK - Listed hosts");
+        }
+
+        // JBoss / WildFly legacy consoles
+        if fname_lower.contains("/jmx-console") {
+            return body.contains("JMX Agent View")
+                || body.contains("jboss.management")
+                || body.contains("jboss.system:type=Server");
+        }
+        if fname_lower.contains("/web-console") {
+            return body.contains("JBoss Management Console")
+                || body.contains("JBoss AS Management");
+        }
+        if fname_lower.contains("/admin-console/login.seam") {
+            return body.contains("admin-console") && body.contains("javax.faces");
+        }
+        if fname_lower.contains("/invoker/jmxinvokerservlet")
+            || fname_lower.contains("/invoker/ejbinvokerservlet")
+        {
+            // The invoker serialises a MarshalledInvocation; the magic string is unique.
+            return body.contains("MarshalledInvocation")
+                || body.contains("org.jboss.invocation");
+        }
+
+        // Oracle WebLogic
+        if fname_lower.contains("/console/login/loginform.jsp") {
+            return body.contains("WebLogic Server Administration Console")
+                || body.contains("/console/framework/skins/")
+                || body.contains("BEA WebLogic");
+        }
+        if fname_lower.contains("/wls-wsat/coordinatorporttype")
+            || fname_lower.contains("/_async/asyncresponseservice")
+        {
+            // WSAT/Async endpoints emit a fixed WSDL/SOAP envelope when reachable.
+            return body.contains("wsdl:definitions")
+                && (body.contains("CoordinatorPortType")
+                    || body.contains("AsyncResponseService"));
+        }
+
+        // Jenkins script console = unauth RCE if reachable
+        if fname_lower.ends_with("/script") || fname_lower.contains("/jenkins/script") {
+            return body.contains("Script Console")
+                && (body.contains("Jenkins") || body.contains("Groovy"));
+        }
+        if fname_lower.contains("/asynchpeople") {
+            return body.contains("Jenkins") && body.contains("People");
+        }
+
+        // Apache Solr admin
+        if fname_lower.contains("/solr/admin/cores") {
+            return (body.contains("\"responseHeader\"") && body.contains("\"status\""))
+                && (body.contains("\"initFailures\"") || body.contains("\"defaultCoreName\""));
+        }
+        if fname_lower.contains("/solr/admin/info/system") {
+            return body.contains("\"lucene\"") && body.contains("\"solr-spec-version\"");
+        }
+        if fname_lower.contains("/solr/admin/info/properties") {
+            return body.contains("\"system.properties\"")
+                || (body.contains("\"java.class.path\"") && body.contains("\"user.dir\""));
+        }
+        if fname_lower == "/solr/" || fname_lower.ends_with("/solr/") {
+            return body.contains("Solr Admin") || body.contains("solr-admin-app");
+        }
+
+        // Elasticsearch unauthenticated endpoints
+        if fname_lower.ends_with("/_cluster/health") {
+            return body.contains("\"cluster_name\"")
+                && body.contains("\"number_of_nodes\"")
+                && body.contains("\"status\"");
+        }
+        if fname_lower.ends_with("/_cluster/state") {
+            return body.contains("\"cluster_uuid\"")
+                && (body.contains("\"master_node\"") || body.contains("\"routing_table\""));
+        }
+        if fname_lower.ends_with("/_cat/indices") {
+            // _cat returns plain text: status, index name, uuid columns
+            let lines = body.lines().count();
+            return lines >= 1
+                && (body.contains("yellow") || body.contains("green") || body.contains("red"))
+                && body.contains("open");
+        }
+        if fname_lower.ends_with("/_nodes") {
+            return body.contains("\"cluster_name\"") && body.contains("\"nodes\"")
+                && (body.contains("\"transport_address\"") || body.contains("\"version\""));
+        }
+        if fname_lower.ends_with("/_snapshot/_all") {
+            return body.contains("\"type\"") && body.contains("\"settings\"")
+                && (body.contains("\"fs\"") || body.contains("\"s3\"") || body.contains("\"gcs\""));
+        }
+
+        // Kibana
+        if fname_lower.ends_with("/api/status")
+            || fname_lower.ends_with("/api/saved_objects/_find?type=index-pattern")
+        {
+            return body.contains("\"kibana\"")
+                || (body.contains("\"saved_objects\"") && body.contains("\"index-pattern\""));
+        }
+
+        // Grafana - /api/datasources leaks DB URLs and may include creds
+        if fname_lower.ends_with("/api/datasources")
+            || fname_lower.ends_with("/grafana/api/datasources")
+        {
+            return body.contains("\"basicAuth\"")
+                || (body.contains("\"type\"") && body.contains("\"url\"")
+                    && (body.contains("\"prometheus\"")
+                        || body.contains("\"mysql\"")
+                        || body.contains("\"postgres\"")
+                        || body.contains("\"influxdb\"")
+                        || body.contains("\"loki\"")
+                        || body.contains("\"elasticsearch\"")));
+        }
+        if fname_lower.ends_with("/api/org") {
+            return body.contains("\"id\"") && body.contains("\"name\"")
+                && body.contains("\"address\"");
+        }
+        if fname_lower.ends_with("/api/admin/settings") {
+            return body.contains("\"auth\"") && body.contains("\"security\"")
+                && body.contains("\"server\"");
+        }
+
+        // RabbitMQ Management API
+        if fname_lower.ends_with("/api/overview") {
+            return body.contains("\"rabbitmq_version\"")
+                || (body.contains("\"management_version\"") && body.contains("\"erlang_version\""));
+        }
+        if fname_lower.ends_with("/api/vhosts") || fname_lower.ends_with("/api/users") {
+            return body.contains("\"tracing\"")
+                || (body.contains("\"name\"") && body.contains("\"tags\""));
+        }
+
+        // HashiCorp Vault sys endpoints
+        if fname_lower.ends_with("/v1/sys/health") {
+            return body.contains("\"initialized\"") && body.contains("\"sealed\"")
+                && body.contains("\"standby\"");
+        }
+        if fname_lower.ends_with("/v1/sys/seal-status") {
+            return body.contains("\"sealed\"") && body.contains("\"t\"") && body.contains("\"n\"");
+        }
+        if fname_lower.ends_with("/v1/sys/mounts") {
+            return body.contains("\"secret/\"") || body.contains("\"sys/\"")
+                || (body.contains("\"type\"") && body.contains("\"accessor\""));
+        }
+
+        // HashiCorp Consul KV / agent
+        if fname_lower.contains("/v1/kv/") && fname_lower.contains("recurse") {
+            // recursive KV listing is a JSON array of {Key, Value, ModifyIndex} entries
+            return body.starts_with('[') && body.contains("\"Key\"")
+                && body.contains("\"Value\"") && body.contains("\"ModifyIndex\"");
+        }
+        if fname_lower.ends_with("/v1/agent/self") {
+            return body.contains("\"Config\"") && body.contains("\"Member\"")
+                && (body.contains("\"Datacenter\"") || body.contains("\"NodeName\""));
+        }
+
+        // Prometheus / Alertmanager
+        if fname_lower.ends_with("/api/v1/status/config") {
+            return body.contains("\"status\":\"success\"") && body.contains("\"yaml\"");
+        }
+        if fname_lower.ends_with("/api/v1/status/runtimeinfo") {
+            return body.contains("\"startTime\"") && body.contains("\"CWD\"");
+        }
+        if fname_lower.ends_with("/api/v1/alerts") {
+            return body.contains("\"status\":\"success\"")
+                && (body.contains("\"alerts\"") || body.contains("\"data\":[]"));
+        }
+
+        // Hadoop YARN ResourceManager
+        if fname_lower.contains("/cluster/apps") || fname_lower.contains("/ws/v1/cluster/apps") {
+            return body.contains("\"apps\"") && body.contains("\"app\"")
+                || body.contains("Hadoop") && body.contains("ResourceManager");
+        }
+
+        // Spark / Trino / Presto / Druid coordinator
+        if fname_lower.ends_with("/api/v1/applications") {
+            return body.starts_with('[') && body.contains("\"id\"")
+                && (body.contains("\"sparkUser\"") || body.contains("\"attempts\""));
+        }
+        if fname_lower.ends_with("/v1/info") {
+            return body.contains("\"nodeVersion\"") && body.contains("\"environment\"")
+                && body.contains("\"coordinator\"");
+        }
+        if fname_lower.contains("/druid/coordinator/v1/leader") {
+            return body.starts_with("http://") || body.starts_with("https://");
+        }
+        if fname_lower.ends_with("/ui/api/cluster") {
+            return body.contains("\"runningQueries\"") && body.contains("\"activeWorkers\"");
+        }
+
+        // Apache Airflow public APIs left without auth
+        if fname_lower.ends_with("/api/v1/variables") {
+            return body.contains("\"variables\"") && body.contains("\"total_entries\"");
+        }
+        if fname_lower.ends_with("/api/v1/connections") {
+            return body.contains("\"connections\"")
+                && (body.contains("\"conn_type\"") || body.contains("\"connection_id\""));
+        }
+        if fname_lower.ends_with("/api/v1/config") {
+            return body.contains("\"sections\"") && body.contains("\"options\"");
+        }
+
+        // n8n / Node-RED self-hosted automations
+        if fname_lower.ends_with("/rest/credentials") {
+            return body.contains("\"data\"")
+                && (body.contains("\"type\"") && body.contains("\"name\""));
+        }
+        if fname_lower.ends_with("/red/flows") || fname_lower.ends_with("/flows") {
+            return body.starts_with('[') && body.contains("\"type\"")
+                && (body.contains("\"wires\"") || body.contains("\"flow\""));
+        }
+
+        // Strapi / Directus admin probes
+        if fname_lower.ends_with("/admin/init") {
+            return body.contains("\"data\"") && body.contains("\"hasAdmin\"");
+        }
+        if fname_lower.ends_with("/admin/users/me") || fname_lower.ends_with("/server/info") {
+            return (body.contains("\"data\"") || body.contains("\"directus\""))
+                && (body.contains("\"email\"") || body.contains("\"version\""));
+        }
+
+        // Sentry self-hosted internal options
+        if fname_lower.ends_with("/api/0/internal/options/") {
+            return body.contains("\"system.url-prefix\"")
+                || body.contains("\"mail.from\"")
+                || body.contains("\"auth.allow-registration\"");
+        }
+
+        // Symfony web profiler / debug bar
+        if fname_lower.ends_with("/_profiler") || fname_lower.ends_with("/_wdt") {
+            return body.contains("Symfony Profiler")
+                || body.contains("sf-toolbar")
+                || (body.contains("class=\"sf-") && body.contains("Symfony"));
+        }
+        if fname_lower.ends_with("/app_dev.php")
+            || fname_lower.contains("/app_dev.php/_profiler")
+            || fname_lower.ends_with("/index_dev.php")
+        {
+            return body.contains("Symfony") && (body.contains("debug") || body.contains("dev"));
+        }
+
+        // Laravel Telescope / Horizon
+        if fname_lower.contains("/laravel-telescope") {
+            return body.contains("Telescope") && body.contains("Laravel");
+        }
+        if fname_lower.contains("/horizon/api/jobs/pending") {
+            return body.starts_with('[') || body.contains("\"jobs\"")
+                && body.contains("\"queue\"");
+        }
+
+        // Spring Cloud Config Server
+        if fname_lower.ends_with("/encrypt/status") {
+            return body.contains("\"status\"") && body.contains("\"description\"");
+        }
+        if fname_lower.ends_with("/refresh") {
+            // Actuator /refresh returns the list of refreshed property names.
+            return body.starts_with('[')
+                && (body.contains("\"contexts\"") || body.contains("\"refreshed\""));
+        }
+
+        // Vue/Nuxt/Vite dev surfaces left in prod
+        if fname_lower.ends_with("/__open-in-editor") {
+            return body.contains("Open in editor")
+                || body.contains("launch-editor")
+                || body.contains("File not found");
+        }
+        if fname_lower.ends_with("/__inspect/") {
+            return body.contains("vite-plugin-inspect")
+                || body.contains("Plugin Inspector");
+        }
+        if fname_lower.ends_with("/__vite_ping") {
+            // /__vite_ping returns literally "pong" only when the dev server is live.
+            return body.trim() == "pong";
+        }
+
+        // SAP / Adobe AEM admin surfaces
+        if fname_lower.contains("/sap/bc/webdynpro/sap/wd_analyze_config_user") {
+            return body.contains("Web Dynpro") || body.contains("SAP NetWeaver");
+        }
+        if fname_lower.contains("/crx/de/index.jsp") {
+            return body.contains("CRXDE") || body.contains("Adobe Experience Manager");
+        }
+        if fname_lower.contains("/system/console") {
+            return body.contains("Apache Felix") || body.contains("OSGi Management Console");
+        }
+
+        // Exchange / OWA / EWS - high-value bruteforce targets
+        if fname_lower.contains("/owa/auth/logon.aspx") {
+            return body.contains("Outlook Web App") || body.contains("Outlook Web Access");
+        }
+        if fname_lower.contains("/ews/exchange.asmx") {
+            return body.contains("Exchange Web Services") || body.contains("ExchangeServicePortType");
+        }
+        if fname_lower.contains("/autodiscover/autodiscover.xml") {
+            return body.contains("<Autodiscover") || body.contains("MissingParametersException");
+        }
+
+        // Confluence / Jira admin probes
+        if fname_lower.contains("/admin/restapi-browser/")
+            || fname_lower.contains("/plugins/servlet/oauth/consumer-info")
+            || fname_lower.contains("/secure/admin/viewlogging.jspa")
+        {
+            return body.contains("Atlassian") || body.contains("Confluence")
+                || body.contains("Jira") || body.contains("consumer-info");
         }
 
         // Use pattern-based detection instead of relying on response similarity

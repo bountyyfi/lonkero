@@ -399,6 +399,380 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Atlassian Statuspage - takeover of a public status page lets an attacker
+    // post fake outages or maintenance windows on the victim's brand.
+    ServiceFingerprint {
+        name: "Statuspage",
+        cname_patterns: &[".statuspage.io", "statuspage.io"],
+        http_signatures: &[
+            "You are being redirected",
+            "There isn't a Statuspage here",
+        ],
+        header_patterns: &[("server", "Cowboy")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the status page subdomain in Atlassian Statuspage.",
+    },
+    // Webflow - hosted site builder; well-documented dangling CNAME takeover.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".webflow.io", "proxy-ssl.webflow.com", ".proxy-ssl.webflow.com"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+            "<title>Webflow | 404</title>",
+        ],
+        header_patterns: &[("x-served-by", "Webflow")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the custom domain to a Webflow project you control.",
+    },
+    // Wix - claim the domain in a Wix site.
+    ServiceFingerprint {
+        name: "Wix",
+        cname_patterns: &[".wixdns.net", ".wixsite.com"],
+        http_signatures: &[
+            "Error ConnectYourDomain occurred",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or connect the domain to a Wix site you control.",
+    },
+    // Acquia (Drupal Cloud) - takeover possible by registering a new project.
+    ServiceFingerprint {
+        name: "Acquia",
+        cname_patterns: &[".acquia-sites.com", ".acquia-test.co"],
+        http_signatures: &[
+            "The site you are looking for could not be found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in Acquia Cloud.",
+    },
+    // Strikingly - claimable by registering a Strikingly site with the same custom domain.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com", ".strikingly.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND.",
+            "But if you're looking to build your own website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in a Strikingly site.",
+    },
+    // Intercom Help / Custom Help Center - phishing-prone if taken over.
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &[".custom.intercom.help", ".intercom.help"],
+        http_signatures: &[
+            "Uh oh. That page doesn't exist.",
+            "This page is reserved for artistic browsers",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the custom Help Center domain in Intercom.",
+    },
+    // Readme.io - hosted developer docs; brand-impact takeover.
+    ServiceFingerprint {
+        name: "Readme.io",
+        cname_patterns: &[".readme.io", ".readme.com"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the project in Readme.io.",
+    },
+    // Big Cartel - hosted storefront; takeover hosts attacker store on victim brand.
+    ServiceFingerprint {
+        name: "Big Cartel",
+        cname_patterns: &[".bigcartel.com"],
+        http_signatures: &[
+            "<h1>Oops! We couldn&#8217;t find that page.</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the custom domain in Big Cartel.",
+    },
+    // Aha! - product roadmap SaaS; takeover impacts roadmap trust.
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &[".aha.io"],
+        http_signatures: &[
+            "There is no portal here ... sending you back to Aha!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the portal subdomain in Aha!",
+    },
+    // Smartling - translation platform, dangling CNAME takeover documented.
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &[".smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Smartling.",
+    },
+    // Worksites/Workplace / Brightcove etc. - tinybridge takeover patterns.
+    ServiceFingerprint {
+        name: "Brightcove",
+        cname_patterns: &["bcvp0rtal.com", "brightcovegallery.com", "gallery.video"],
+        http_signatures: &[
+            "<p class=\"bc-gallery-error-code\">Error Code: 404</p>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the gallery in Brightcove.",
+    },
+    // Tilda complements with Tave (photographer site SaaS).
+    ServiceFingerprint {
+        name: "Tave",
+        cname_patterns: &[".clientaccess.tave.com"],
+        http_signatures: &[
+            "<h1>Error 404: Page Not Found</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Tave.",
+    },
+    // Pingdom public status pages - similar takeover impact as Statuspage.
+    ServiceFingerprint {
+        name: "Pingdom",
+        cname_patterns: &["stats.pingdom.com"],
+        http_signatures: &[
+            "Public Report Not Activated",
+            "pingdom",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or activate the public report in Pingdom.",
+    },
+    // Worksites / Help center: HelpJuice
+    ServiceFingerprint {
+        name: "HelpJuice",
+        cname_patterns: &[".helpjuice.com"],
+        http_signatures: &[
+            "We could not find what you're looking for.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the help center in HelpJuice.",
+    },
+    // Freshdesk
+    ServiceFingerprint {
+        name: "Freshdesk",
+        cname_patterns: &[".freshdesk.com"],
+        http_signatures: &[
+            "May be this is still fresh!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the helpdesk subdomain in Freshdesk.",
+    },
+    // LaunchRock landing pages
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere. Don't worry...",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the landing page in LaunchRock.",
+    },
+    // Tictail
+    ServiceFingerprint {
+        name: "Tictail",
+        cname_patterns: &["domains.tictail.com"],
+        http_signatures: &[
+            "to target URL: <a href=\"https://tictail.com",
+            "Start selling on Tictail.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Tictail.",
+    },
+    // Mashery - API management; takeover hosts attacker docs on victim brand.
+    ServiceFingerprint {
+        name: "Mashery",
+        cname_patterns: &[".mashery.com"],
+        http_signatures: &[
+            "Unrecognized domain <strong>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the API portal in Mashery.",
+    },
+    // Tilda neighbour: Cargo (.cargopublic.com)
+    ServiceFingerprint {
+        name: "Cargo Public",
+        cname_patterns: &[".cargopublic.com"],
+        http_signatures: &[
+            "404 - Page not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the site in Cargo.",
+    },
+    // GitBook hosted documentation
+    ServiceFingerprint {
+        name: "GitBook",
+        cname_patterns: &[".gitbook.io", ".gitbook.com"],
+        http_signatures: &[
+            "If you need specifics, here they are:",
+            "Domain not found",
+        ],
+        header_patterns: &[("server", "GitBook")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the space in GitBook.",
+    },
+    // Canny.io - feedback portal; takeover hosts attacker collected feedback on victim brand.
+    ServiceFingerprint {
+        name: "Canny",
+        cname_patterns: &["cname.canny.io"],
+        http_signatures: &[
+            "Company Not Found",
+            "There is no such company. Did you enter the right URL?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the company subdomain in Canny.",
+    },
+    // Hubspot landing pages
+    ServiceFingerprint {
+        name: "Hubspot",
+        cname_patterns: &[".hs-sites.com", ".hubspotpagebuilder.com"],
+        http_signatures: &[
+            "Domain not found",
+            "does not exist in our system",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Hubspot.",
+    },
+    // Unbounce landing pages
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server",
+        ],
+        header_patterns: &[("server", "Unbounce")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to an Unbounce page you control.",
+    },
+    // Worksites / Help Scout Docs is already present. Add Kajabi.
+    ServiceFingerprint {
+        name: "Kajabi",
+        cname_patterns: &["endpoint.mykajabi.com"],
+        http_signatures: &[
+            "<h1>The page you were looking for doesn't exist.</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Kajabi.",
+    },
+    // Thinkific - course platform.
+    ServiceFingerprint {
+        name: "Thinkific",
+        cname_patterns: &[".thinkific.com"],
+        http_signatures: &[
+            "You may have mistyped the address or the page may have moved.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the course domain in Thinkific.",
+    },
+    // Teachable - course platform.
+    ServiceFingerprint {
+        name: "Teachable",
+        cname_patterns: &[".teachable.com"],
+        http_signatures: &[
+            "<h1>Domain Not Set up</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the course domain in Teachable.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
