@@ -454,6 +454,299 @@ impl GoogleDorkingScanner {
             impact: "Public Trello boards may expose project details and credentials".to_string(),
         });
 
+        // Atlassian Confluence (cloud and self-hosted) wikis and Jira tickets
+        dorks.push(GoogleDork {
+            category: "Project Management".to_string(),
+            query: format!(
+                "site:atlassian.net \"{}\" | site:jira.com \"{}\"",
+                clean_domain, clean_domain
+            ),
+            description: "Find publicly indexed Atlassian Confluence pages and Jira tickets"
+                .to_string(),
+            impact: "Public Confluence pages and Jira tickets routinely leak credentials, internal architecture, customer data, and reproduction steps for unpatched issues."
+                .to_string(),
+        });
+
+        // Notion shared workspaces
+        dorks.push(GoogleDork {
+            category: "Project Management".to_string(),
+            query: format!(
+                "site:notion.site \"{}\" | site:notion.so \"{}\"",
+                clean_domain, clean_domain
+            ),
+            description: "Find publicly shared Notion pages referencing the domain".to_string(),
+            impact: "Public Notion workspaces often contain runbooks, on-call rotations, internal docs, and embedded secrets.".to_string(),
+        });
+
+        // Postman public collections and workspaces
+        dorks.push(GoogleDork {
+            category: "API Documentation".to_string(),
+            query: format!(
+                "site:postman.com \"{}\" | site:documenter.getpostman.com \"{}\" | site:explore.postman.com \"{}\"",
+                clean_domain, clean_domain, clean_domain
+            ),
+            description: "Find published Postman collections, workspaces, and documenter pages."
+                .to_string(),
+            impact: "Public Postman collections commonly embed API keys, bearer tokens, and full unauthenticated request examples for production endpoints.".to_string(),
+        });
+
+        // SwaggerHub published API specs
+        dorks.push(GoogleDork {
+            category: "API Documentation".to_string(),
+            query: format!("site:app.swaggerhub.com \"{}\"", clean_domain),
+            description: "Find SwaggerHub-published OpenAPI specifications".to_string(),
+            impact: "Public OpenAPI specs reveal full endpoint inventory, authentication schemes, and request shapes for the API.".to_string(),
+        });
+
+        // ReadMe.io developer hubs
+        dorks.push(GoogleDork {
+            category: "API Documentation".to_string(),
+            query: format!("site:readme.io \"{}\"", clean_domain),
+            description: "Find developer documentation hosted on ReadMe.io".to_string(),
+            impact: "ReadMe.io hubs often expose private API references that were intended for partner-only access.".to_string(),
+        });
+
+        // Stack Overflow exposures (questions sometimes paste real tokens)
+        dorks.push(GoogleDork {
+            category: "Information Leakage".to_string(),
+            query: format!(
+                "site:stackoverflow.com \"{}\" (\"api_key\" OR \"apikey\" OR \"bearer\" OR \"x-api-key\" OR \"authorization:\")",
+                clean_domain
+            ),
+            description: "Find StackOverflow questions mentioning the domain alongside auth tokens"
+                .to_string(),
+            impact: "Developers regularly paste real production tokens, cookies, and bearer headers into StackOverflow questions when troubleshooting.".to_string(),
+        });
+
+        // Reddit mentions (often discloses incidents and internal tooling)
+        dorks.push(GoogleDork {
+            category: "Information Leakage".to_string(),
+            query: format!("site:reddit.com \"{}\"", clean_domain),
+            description: "Find Reddit discussions mentioning the domain".to_string(),
+            impact: "Reddit posts (especially r/sysadmin, r/devops, r/cscareerquestions) frequently leak internal tooling, incident details, and screenshots of dashboards."
+                .to_string(),
+        });
+
+        // GitHub Gists - extremely common credential-leak surface
+        dorks.push(GoogleDork {
+            category: "Code Leaks".to_string(),
+            query: format!("site:gist.github.com \"{}\"", clean_domain),
+            description: "Find GitHub Gists referencing the domain".to_string(),
+            impact: "Gists are routinely used as a quick paste target by developers and frequently contain secrets, internal URLs, and database dumps.".to_string(),
+        });
+
+        // GitHub raw content (often indexed individually)
+        dorks.push(GoogleDork {
+            category: "Code Leaks".to_string(),
+            query: format!(
+                "site:raw.githubusercontent.com \"{}\" (BEGIN | API_KEY | password | token | secret)",
+                clean_domain
+            ),
+            description: "Find raw GitHub file content mentioning the domain near credential keywords"
+                .to_string(),
+            impact: "Direct raw.githubusercontent.com hits combined with credential keywords are high-signal for accidentally committed secrets.".to_string(),
+        });
+
+        // BitBucket Snippets and repositories
+        dorks.push(GoogleDork {
+            category: "Code Repositories".to_string(),
+            query: format!(
+                "site:bitbucket.org \"{}\" | site:bitbucket.io \"{}\"",
+                clean_domain, clean_domain
+            ),
+            description: "Find BitBucket repositories and snippets".to_string(),
+            impact: "BitBucket Snippets are the equivalent of GitHub Gists and often contain credentials and internal scripts.".to_string(),
+        });
+
+        // SourceGraph public code search
+        dorks.push(GoogleDork {
+            category: "Code Repositories".to_string(),
+            query: format!("site:sourcegraph.com \"{}\"", clean_domain),
+            description: "Find code search results referencing the domain on Sourcegraph.com"
+                .to_string(),
+            impact: "Sourcegraph indexes far more repositories than appear on GitHub search; hits often point at archived or fork-only secret leaks."
+                .to_string(),
+        });
+
+        // Linear and Asana public boards
+        dorks.push(GoogleDork {
+            category: "Project Management".to_string(),
+            query: format!(
+                "site:linear.app \"{}\" | site:asana.com \"{}\"",
+                clean_domain, clean_domain
+            ),
+            description: "Find Linear or Asana public project pages".to_string(),
+            impact: "Public project trackers expose engineering priorities, vulnerability tickets, and customer escalations."
+                .to_string(),
+        });
+
+        // Hugging Face spaces (frequently leak API keys via Gradio apps)
+        dorks.push(GoogleDork {
+            category: "Code Repositories".to_string(),
+            query: format!("site:huggingface.co \"{}\"", clean_domain),
+            description: "Find Hugging Face Spaces or models referencing the domain".to_string(),
+            impact: "Hugging Face Spaces often embed credentials in `app.py` or `.env` files and proxy requests to internal APIs.".to_string(),
+        });
+
+        // Docker Hub - leaked internal images
+        dorks.push(GoogleDork {
+            category: "Container Images".to_string(),
+            query: format!("site:hub.docker.com \"{}\"", clean_domain),
+            description: "Find Docker Hub images referencing the domain".to_string(),
+            impact: "Internal Docker images pushed to a public namespace expose source code, baked-in secrets, and environment configuration."
+                .to_string(),
+        });
+
+        // Quay.io container registry
+        dorks.push(GoogleDork {
+            category: "Container Images".to_string(),
+            query: format!("site:quay.io \"{}\"", clean_domain),
+            description: "Find Quay.io container images referencing the domain".to_string(),
+            impact: "Public Quay.io images frequently contain proprietary application code and embedded credentials.".to_string(),
+        });
+
+        // npm and PyPI - typosquat or company-namespace packages
+        dorks.push(GoogleDork {
+            category: "Package Repositories".to_string(),
+            query: format!(
+                "site:npmjs.com \"{}\" | site:pypi.org \"{}\"",
+                clean_domain, clean_domain
+            ),
+            description: "Find npm or PyPI packages referencing the domain".to_string(),
+            impact: "Internal packages accidentally published publicly typically contain source code, build configuration, and registry credentials."
+                .to_string(),
+        });
+
+        // Wayback Machine - historical snapshots of removed files
+        dorks.push(GoogleDork {
+            category: "Historical Data".to_string(),
+            query: format!("site:web.archive.org \"{}\"", clean_domain),
+            description: "Find Wayback Machine snapshots of the domain".to_string(),
+            impact: "Removed pages, leaked file listings, and old admin endpoints often remain accessible via the Wayback Machine.".to_string(),
+        });
+
+        // Censys / Shodan historical mentions
+        dorks.push(GoogleDork {
+            category: "Asset Intelligence".to_string(),
+            query: format!(
+                "site:censys.io \"{}\" | site:shodan.io \"{}\"",
+                clean_domain, clean_domain
+            ),
+            description: "Find Censys and Shodan host pages for the domain".to_string(),
+            impact: "Search-engine asset databases enumerate IPs, certificates, exposed services, and banner-disclosed software versions for the target."
+                .to_string(),
+        });
+
+        // CRT.sh certificate transparency
+        dorks.push(GoogleDork {
+            category: "Asset Intelligence".to_string(),
+            query: format!("site:crt.sh \"{}\"", clean_domain),
+            description: "Find certificate transparency log entries".to_string(),
+            impact: "Certificate transparency exposes every subdomain ever issued a TLS certificate, often including internal/staging hostnames.".to_string(),
+        });
+
+        // VirusTotal historical relationships
+        dorks.push(GoogleDork {
+            category: "Asset Intelligence".to_string(),
+            query: format!("site:virustotal.com \"{}\"", clean_domain),
+            description: "Find VirusTotal entries referencing the domain".to_string(),
+            impact: "VirusTotal aggregates passive DNS, observed URLs, and file submissions related to the domain — a rich recon corpus."
+                .to_string(),
+        });
+
+        // Cloud bucket listings indexed by Google
+        dorks.push(GoogleDork {
+            category: "Cloud Storage".to_string(),
+            query: format!(
+                "(intitle:\"Index of\" | intitle:\"Bucket loot\") (\"{}\" OR \"backup\" OR \".sql\" OR \".env\" OR \"credentials\") site:storage.googleapis.com | site:s3.amazonaws.com",
+                clean_domain
+            ),
+            description: "Find publicly listed cloud-bucket index pages".to_string(),
+            impact: "Directory listings on S3/GCS buckets are a high-signal indicator of full bucket read access and frequently expose database dumps, backups, and `.env` files."
+                .to_string(),
+        });
+
+        // Git-history exposure on the live site
+        dorks.push(GoogleDork {
+            category: "Sensitive Files".to_string(),
+            query: format!(
+                "site:{} (inurl:.git/HEAD | inurl:.git/config | inurl:.svn/entries | inurl:.hg/store | inurl:.DS_Store)",
+                clean_domain
+            ),
+            description: "Find exposed VCS metadata that allows full source-tree reconstruction"
+                .to_string(),
+            impact: "Exposed `.git/`, `.svn/`, or `.hg/` directories let an attacker reconstruct the entire source code and configuration history of the application.".to_string(),
+        });
+
+        // Environment files served by web roots
+        dorks.push(GoogleDork {
+            category: "Sensitive Files".to_string(),
+            query: format!(
+                "site:{} (inurl:.env | inurl:.env.local | inurl:.env.production | inurl:.env.bak | inurl:web.config | inurl:appsettings.json | inurl:application.yml | inurl:application.properties)",
+                clean_domain
+            ),
+            description: "Find dotenv and framework-configuration files served from the web root"
+                .to_string(),
+            impact: "These files almost universally contain database credentials, API keys, signing secrets, and full infrastructure configuration.".to_string(),
+        });
+
+        // CI/CD artifacts and pipeline configs
+        dorks.push(GoogleDork {
+            category: "Sensitive Files".to_string(),
+            query: format!(
+                "site:{} (inurl:.github/workflows | inurl:.gitlab-ci.yml | inurl:bitbucket-pipelines.yml | inurl:Jenkinsfile | inurl:azure-pipelines.yml | inurl:buildspec.yml)",
+                clean_domain
+            ),
+            description: "Find CI/CD pipeline definitions exposed via the web root".to_string(),
+            impact: "Pipeline files reveal the build, test, deploy chain and often reference (or embed) registry credentials, signing keys, and deploy tokens.".to_string(),
+        });
+
+        // Database dumps and SQL artifacts
+        dorks.push(GoogleDork {
+            category: "Sensitive Files".to_string(),
+            query: format!(
+                "site:{} (ext:sql | ext:dump | ext:rdb | ext:bson | inurl:dump.sql | inurl:backup.sql | inurl:database.sql)",
+                clean_domain
+            ),
+            description: "Find database dumps and backup artifacts indexed on the target"
+                .to_string(),
+            impact: "Indexed `.sql`/`.dump`/`.rdb` files typically contain complete database snapshots including PII, password hashes, and session data.".to_string(),
+        });
+
+        // Private/internal key material
+        dorks.push(GoogleDork {
+            category: "Sensitive Files".to_string(),
+            query: format!(
+                "site:{} (ext:pem | ext:key | ext:p12 | ext:pfx | ext:jks | ext:keystore | inurl:id_rsa | inurl:id_ed25519)",
+                clean_domain
+            ),
+            description: "Find private-key material exposed under the target domain".to_string(),
+            impact: "Exposed private keys allow TLS impersonation, signing forgery (JWT, S/MIME), and direct host access via SSH.".to_string(),
+        });
+
+        // Heap dumps and core files
+        dorks.push(GoogleDork {
+            category: "Sensitive Files".to_string(),
+            query: format!(
+                "site:{} (ext:hprof | ext:phd | ext:dmp | inurl:heapdump | inurl:threaddump | inurl:core.)",
+                clean_domain
+            ),
+            description: "Find application heap/core dumps".to_string(),
+            impact: "Heap and core dumps contain in-memory secrets (session tokens, decrypted DB credentials, encryption keys) at the time of capture.".to_string(),
+        });
+
+        // Spring Boot Actuator and similar internal management endpoints
+        dorks.push(GoogleDork {
+            category: "Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (inurl:/actuator | inurl:/actuator/env | inurl:/actuator/heapdump | inurl:/actuator/threaddump | inurl:/actuator/loggers | inurl:/actuator/configprops | inurl:/actuator/beans | inurl:/actuator/mappings)",
+                clean_domain
+            ),
+            description: "Find exposed Spring Boot Actuator endpoints".to_string(),
+            impact: "Unauthenticated Actuator endpoints expose environment variables, in-memory secrets, full configuration, and heap dumps — often a direct path to credential theft."
+                .to_string(),
+        });
+
         // Build categories map
         let mut by_category: HashMap<String, Vec<GoogleDork>> = HashMap::new();
         for dork in &dorks {

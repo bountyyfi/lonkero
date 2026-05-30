@@ -50,7 +50,11 @@ mod uuid {
 }
 
 /// Common paths where OpenAPI specs are served
+// OPENAPI_PATHS only triggers a finding when the response parses as a valid
+// OpenAPI/Swagger document (must contain an `openapi` or `swagger` version key),
+// so even noisy 200-shell SPAs cannot produce a false positive here.
 const OPENAPI_PATHS: &[&str] = &[
+    // Generic conventions
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,20 +74,160 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    "/openapi.yml",
+    "/swagger.yml",
+    "/api-docs.yml",
+    "/openapi",
+    "/api.json",
+    "/api.yaml",
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    // Versioned API + spec combinations
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v1/spec",
+    "/api/v2/spec",
+    // Spring Boot / Springfox / springdoc-openapi defaults
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v3/api-docs",
+    "/app/v3/api-docs",
+    // FastAPI defaults (`/openapi.json` already listed above)
+    "/docs/oauth2-redirect",
+    // NestJS @nestjs/swagger defaults
+    "/api-json",
+    "/docs-json",
+    "/api/docs-json",
+    "/swagger-json",
+    // Django REST framework / drf-spectacular / drf-yasg
+    "/api/schema/",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    "/swagger.json/",
+    "/swagger/?format=openapi",
+    // Laravel l5-swagger / Scribe
+    "/docs/api-docs.json",
+    "/api/documentation",
+    "/api/documentation.json",
+    "/docs.openapi",
+    // Hapi.js (hapi-swagger)
+    "/documentation/swagger.json",
+    "/swaggerui/swagger.json",
+    // API Platform (Symfony)
+    "/docs.json",
+    "/docs.jsonld",
+    "/docs.jsonopenapi",
+    "/api/docs.json",
+    "/api/docs.jsonld",
+    "/api/docs.jsonopenapi",
+    // Strapi
+    "/documentation/v1.0.0/full_documentation.json",
+    "/documentation/v1.0.0",
+    // ASP.NET Core (Swashbuckle / NSwag)
+    "/swagger/v1/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/api/swagger/v1/swagger.json",
+    // GraphQL is out of scope here, but many SDKs publish a REST gateway map at:
+    "/api/openapi",
+    "/api/v1/openapi",
+    "/api/v2/openapi",
+    "/internal/openapi.json",
+    "/private/openapi.json",
+    "/admin/openapi.json",
+    "/internal/swagger.json",
+    "/admin/swagger.json",
+    "/management/api-docs",
+    "/manage/api-docs",
+    // Kubernetes / cloud-native operators frequently expose this
+    "/openapi/v2",
+    "/openapi/v3",
+    "/apis/openapi/v3",
+    // Mock servers (Prism, Stoplight) and contract tooling
+    "/specs/openapi.json",
+    "/specs/swagger.json",
+    "/contract/openapi.json",
+    "/contract.json",
+    // Common static asset locations for hosted specs
+    "/static/openapi.json",
+    "/static/swagger.json",
+    "/static/api-docs.json",
+    "/assets/openapi.json",
+    "/assets/swagger.json",
+    "/public/openapi.json",
+    "/public/swagger.json",
+    "/dist/swagger.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI paths.
+///
+/// Every match is gated by `swagger-ui` / `redoc` / `rapidoc` body markers in
+/// `check_swagger_ui_exposure`, so generic 200 catch-all SPAs cannot cause a
+/// false positive — the page must self-identify as an API UI.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI canonical names
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui",
+    "/swagger/ui/",
+    "/swaggerui/",
+    "/swaggerui/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    // Springdoc / Springfox
+    "/swagger-ui/index.html?configUrl=/v3/api-docs/swagger-config",
+    "/webjars/swagger-ui/index.html",
+    // FastAPI / NestJS / API Platform doc roots
+    "/docs",
     "/docs/",
+    "/redoc",
+    "/redoc/",
+    "/swagger",
+    "/api",
+    "/api/",
+    "/api-docs",
     "/api-docs/",
     "/api/docs",
-    "/redoc",
+    "/api/docs/",
+    // Django / DRF
+    "/api/redoc/",
+    // Generic doc roots
+    "/documentation",
+    "/documentation/",
+    "/api/documentation",
+    "/api/documentation/",
+    // ReDoc / RapiDoc / Stoplight
+    "/redoc.html",
+    "/api/redoc",
+    "/api/redoc.html",
     "/rapidoc",
+    "/rapidoc/",
+    "/api/rapidoc",
+    "/elements",
+    "/elements/",
+    "/stoplight",
+    "/stoplight/",
+    // Strapi admin docs viewer
+    "/documentation/v1.0.0",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

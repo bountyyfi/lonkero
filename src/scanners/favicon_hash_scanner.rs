@@ -57,12 +57,78 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Try common favicon locations. Each candidate is gated by both a
+        // strict `image/*` Content-Type check and a body-length sanity check
+        // in `check_favicon` below, so SPAs that 200 every path cannot trigger
+        // false positives — the bytes must actually be icon data before any
+        // hash is computed.
         let favicon_paths = vec![
+            // Canonical
             "/favicon.ico",
             "/favicon.png",
+            "/favicon.svg",
+            "/favicon-16x16.png",
+            "/favicon-32x32.png",
+            "/favicon-64x64.png",
+            "/favicon-96x96.png",
+            "/favicon-128.png",
+            "/favicon-196x196.png",
+            // Apple touch icon family
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            "/apple-touch-icon-57x57.png",
+            "/apple-touch-icon-60x60.png",
+            "/apple-touch-icon-72x72.png",
+            "/apple-touch-icon-76x76.png",
+            "/apple-touch-icon-114x114.png",
+            "/apple-touch-icon-120x120.png",
+            "/apple-touch-icon-144x144.png",
+            "/apple-touch-icon-152x152.png",
+            "/apple-touch-icon-180x180.png",
+            // Android / PWA
+            "/android-chrome-192x192.png",
+            "/android-chrome-512x512.png",
+            "/android-icon-192x192.png",
+            "/mstile-150x150.png",
+            "/safari-pinned-tab.svg",
+            // Common static-asset roots used by frameworks and CMSes
+            "/static/favicon.ico",
+            "/static/favicon.png",
+            "/static/images/favicon.ico",
+            "/static/img/favicon.ico",
+            "/static/icons/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/favicon.png",
+            "/assets/images/favicon.ico",
+            "/assets/img/favicon.ico",
+            "/assets/icons/favicon.ico",
+            "/images/favicon.ico",
+            "/img/favicon.ico",
+            "/icons/favicon.ico",
+            "/public/favicon.ico",
+            "/public/favicon.png",
+            "/dist/favicon.ico",
+            "/build/favicon.ico",
+            "/media/favicon.ico",
+            // Next.js / Nuxt / Vite / Angular conventions
+            "/_next/static/favicon.ico",
+            "/_nuxt/favicon.ico",
+            "/_app/favicon.ico",
+            "/_astro/favicon.ico",
+            "/wp-content/uploads/favicon.ico",
+            "/wp-content/themes/favicon.ico",
+            // Admin panels / internal apps frequently keep their own favicons
+            "/admin/favicon.ico",
+            "/admin/static/favicon.ico",
+            "/admin/assets/favicon.ico",
+            "/portal/favicon.ico",
+            "/manage/favicon.ico",
+            "/console/favicon.ico",
+            "/dashboard/favicon.ico",
+            // Versioned CMS theme paths sometimes outlive the live favicon
+            "/themes/favicon.ico",
+            "/skin/favicon.ico",
+            "/styles/favicon.ico",
         ];
 
         // Also check for link tags in HTML
