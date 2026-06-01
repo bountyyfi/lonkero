@@ -49,41 +49,184 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// These are deterministic, framework-default routes — not heuristic guesses. Hitting an
+/// arbitrary path that happens to return JSON is filtered out by `parse_openapi_spec`,
+/// which requires a real `openapi` or `swagger` version key, so non-spec responses are
+/// discarded silently. List is deduplicated so each path is probed at most once.
 const OPENAPI_PATHS: &[&str] = &[
+    // Generic conventions
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api-docs.yml",
+    "/api.json",
+    "/api.yaml",
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    "/openapi",
+    "/openapi/spec",
+    "/openapi/spec.json",
+    "/openapi/spec.yaml",
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+
+    // Versioned generic
     "/swagger/v1/swagger.json",
+    "/swagger/v1/swagger.yaml",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v3/api-docs/public",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v3/api-docs/swagger-config",
+
+    // Spring Boot / Spring Cloud Gateway (springdoc-openapi defaults)
     "/api/swagger.json",
     "/api/openapi.json",
+    "/openapi/v3/api-docs",
+    "/openapi/v2/api-docs",
+    "/openapi/swagger.json",
+    "/openapi/swagger.yaml",
+
+    // Actuator-mounted specs (Spring)
+    "/actuator/openapi",
+    "/actuator/openapi.json",
+    "/actuator/openapi.yaml",
+    "/actuator/v3/api-docs",
+    "/actuator/swagger.json",
+
+    // Django REST Framework (drf-yasg / drf-spectacular defaults)
+    "/swagger/?format=openapi",
+    "/api/schema",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/openapi.json",
+    "/api/schema/openapi.yaml",
+    "/static/drf-yasg/swagger.json",
+
+    // NestJS (@nestjs/swagger) default
+    "/api/api-docs",
+    "/api/api-docs-json",
+    "/api/api-docs-yaml",
+    "/api/docs-json",
+    "/api/docs-yaml",
+
+    // ASP.NET / Swashbuckle / NSwag
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+
+    // Go: chi-swagger / go-swagger / gin-swagger / echo-swagger / Buffalo
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/docs/swagger.yaml",
+    "/docs/v1/openapi.json",
+    "/docs/v2/openapi.json",
+    "/docs/v3/openapi.json",
+
+    // Ruby on Rails / Sinatra (rswag / grape-swagger defaults)
+    "/api-docs/v1/swagger.json",
+    "/api-docs/v2/swagger.json",
+    "/api-docs/v3/swagger.json",
+    "/api/swagger_doc.json",
+
+    // Hasura GraphQL Engine REST endpoints expose OpenAPI for REST connectors
+    "/api/rest/openapi.json",
+
+    // Common dump locations (often left behind by build scripts)
+    "/static/openapi.json",
+    "/static/swagger.json",
+    "/public/openapi.json",
+    "/public/swagger.json",
+    "/assets/openapi.json",
+    "/assets/swagger.json",
+    "/dist/openapi.json",
+    "/dist/swagger.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API explorer paths.
+///
+/// Restricted to well-known framework defaults. Any positive match is confirmed by the
+/// `check_swagger_ui_exposure` step verifying a distinctive UI fingerprint before
+/// reporting — so adding more paths grows coverage without raising the false-positive
+/// floor. Entries are deduplicated.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI defaults
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui",
     "/swagger/",
+    "/swagger",
+    "/swagger/index.html",
+    "/swagger/swagger-ui.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger/",
+    "/api/swagger",
     "/docs/",
+    "/docs",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/v1/docs",
+    "/v2/docs",
+    "/v3/docs",
+    // Spring webjars-mounted UI
+    "/webjars/swagger-ui/index.html",
+    "/webjars/springfox-swagger-ui/index.html",
+    // ReDoc
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/docs/redoc",
+    // RapiDoc
     "/rapidoc",
+    "/rapidoc.html",
+    "/api/rapidoc",
+    // Stoplight Elements
+    "/elements",
+    "/elements/",
+    "/api/elements",
+    // Scalar API Reference
+    "/scalar",
+    "/scalar/",
+    "/api/reference",
+    // GraphiQL / Altair (commonly co-hosted with OpenAPI specs)
+    "/graphiql",
+    "/altair",
+    "/playground",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
