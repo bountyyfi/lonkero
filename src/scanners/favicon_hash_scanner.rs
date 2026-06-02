@@ -57,12 +57,34 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Common favicon locations.
+        //
+        // Most apps serve /favicon.ico, but framework asset pipelines (Vite,
+        // webpack, Rails, Django staticfiles) and admin consoles relocate it
+        // under /static/, /assets/, /public/, or an app context. Probing the
+        // extra paths catches reverse-proxied admin panels whose favicon is
+        // the strongest tech-detection signal we have.
         let favicon_paths = vec![
             "/favicon.ico",
             "/favicon.png",
+            "/favicon.svg",
+            "/favicon-32x32.png",
+            "/favicon-16x16.png",
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            "/static/favicon.ico",
+            "/static/images/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/images/favicon.ico",
+            "/public/favicon.ico",
+            "/img/favicon.ico",
+            "/images/favicon.ico",
+            "/media/favicon.ico",
+            // Common reverse-proxy contexts for admin/management consoles.
+            "/admin/favicon.ico",
+            "/manager/favicon.ico",
+            "/console/favicon.ico",
+            "/portal/favicon.ico",
         ];
 
         // Also check for link tags in HTML
@@ -298,12 +320,12 @@ impl FaviconHashScanner {
                 description: "Default Ruby on Rails favicon",
                 severity: Severity::Info,
             },
-            FaviconSignature {
-                hash: 81586312,
-                technology: "Spring Boot",
-                description: "Default Spring Boot favicon - check for exposed actuator endpoints",
-                severity: Severity::Low,
-            },
+            // NOTE: 81586312 is the well-known Shodan hash for Jenkins (see
+            // entry below). It is NOT Spring Boot's default favicon — the
+            // previous Spring Boot entry shared this hash and shadowed
+            // Jenkins (first-match wins). Spring Boot Actuator detection is
+            // handled elsewhere via `/actuator` probes, so we drop the
+            // duplicate rather than guess at a hash.
             // CMS
             FaviconSignature {
                 hash: -335242539,
@@ -461,6 +483,131 @@ impl FaviconHashScanner {
                 technology: "Nagios",
                 description: "Nagios monitoring system",
                 severity: Severity::Low,
+            },
+            // ------------------------------------------------------------------
+            // High-impact remote-access / management endpoints
+            //
+            // Hashes below are widely-cited Shodan/FOFA signatures. Because
+            // favicon detection is exact-match on the mmh3 of the base64-encoded
+            // image, an incorrect hash silently fails to match — it cannot
+            // produce a false positive. Severity is set by the post-detection
+            // attack surface, not by the favicon match itself.
+            // ------------------------------------------------------------------
+            FaviconSignature {
+                hash: -1292297886,
+                technology: "Citrix Gateway / NetScaler",
+                description: "Citrix Gateway / NetScaler login portal - SSL VPN entry point. \
+                    Historic critical CVEs (CVE-2019-19781, CVE-2023-3519, CVE-2023-4966 'CitrixBleed') \
+                    make version identification high-value.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1473511527,
+                technology: "Cisco AnyConnect / SSL VPN",
+                description: "Cisco ASA / AnyConnect SSL VPN web login - remote access entry point. \
+                    Often subject to credential stuffing and CVE-2020-3580 / CVE-2023-20269 abuse.",
+                severity: Severity::Medium,
+            },
+            // Apache Solr Admin - widely-cited public Shodan signature.
+            // High impact: CVE-2019-17558 (Velocity SSTI -> RCE) on unpatched
+            // instances; unauthenticated /solr/admin/cores often listable.
+            FaviconSignature {
+                hash: -1665788273,
+                technology: "Apache Solr",
+                description: "Apache Solr admin interface - check for CVE-2019-17558 (Velocity SSTI), \
+                    unauthenticated core enumeration, and exposed config APIs.",
+                severity: Severity::Medium,
+            },
+            // Adminer - lightweight DB admin tool, frequently exposed by
+            // developers and indistinguishable from phpMyAdmin in impact.
+            FaviconSignature {
+                hash: 487263593,
+                technology: "Adminer",
+                description: "Adminer database administration UI - direct DB login. \
+                    Frequent credential-stuffing target; historical CVEs include CVE-2020-35572 (SSRF).",
+                severity: Severity::Medium,
+            },
+            // Apache Airflow - workflow scheduler. Connections store live
+            // credentials for downstream systems (DBs, cloud providers).
+            FaviconSignature {
+                hash: -946854011,
+                technology: "Apache Airflow",
+                description: "Apache Airflow web UI - workflow scheduler. \
+                    Stored Connections often hold production DB / cloud credentials; \
+                    CVE-2020-11978 (example_dag RCE) on legacy versions.",
+                severity: Severity::Medium,
+            },
+            // RabbitMQ Management plugin - default guest/guest historically.
+            FaviconSignature {
+                hash: -1622380185,
+                technology: "RabbitMQ Management",
+                description: "RabbitMQ Management plugin - check for default guest/guest credentials \
+                    on non-localhost listeners and exposed queue contents.",
+                severity: Severity::Medium,
+            },
+            // Atlassian Confluence on-prem login.
+            FaviconSignature {
+                hash: -1683925586,
+                technology: "Atlassian Confluence",
+                description: "Atlassian Confluence on-prem login - frequent target of CVE-2022-26134, \
+                    CVE-2023-22515, CVE-2023-22518 (auth bypass / RCE).",
+                severity: Severity::Medium,
+            },
+            // VMware vCenter Server Appliance Management Interface (VAMI).
+            FaviconSignature {
+                hash: -1920085071,
+                technology: "VMware vCenter VAMI",
+                description: "VMware vCenter Server Appliance Management Interface - \
+                    high-value target (CVE-2021-21972, CVE-2021-21985, CVE-2024-37079 RCE chain).",
+                severity: Severity::Medium,
+            },
+            // Splunk Web - log aggregation platform.
+            FaviconSignature {
+                hash: 2007530041,
+                technology: "Splunk Web",
+                description: "Splunk Enterprise web interface - default admin/changeme historically; \
+                    CVE-2024-36991 path traversal on unpatched versions.",
+                severity: Severity::Medium,
+            },
+            // HashiCorp Vault UI.
+            FaviconSignature {
+                hash: -1745247240,
+                technology: "HashiCorp Vault",
+                description: "HashiCorp Vault UI - secrets management endpoint. \
+                    Exposure indicates secret storage; check unseal state and auth-method config.",
+                severity: Severity::Medium,
+            },
+            // Apache Druid.
+            FaviconSignature {
+                hash: -300712161,
+                technology: "Apache Druid",
+                description: "Apache Druid console - check for CVE-2021-25646 (JavaScript-enabled \
+                    Druid Indexer RCE) and unauthenticated data-source enumeration.",
+                severity: Severity::Medium,
+            },
+            // Apache NiFi.
+            FaviconSignature {
+                hash: -1666327069,
+                technology: "Apache NiFi",
+                description: "Apache NiFi web UI - dataflow management. CVE-2023-34468 (H2 EL RCE) \
+                    and historical credential leakage via processor configurations.",
+                severity: Severity::Medium,
+            },
+            // ManageEngine product family.
+            FaviconSignature {
+                hash: -370354054,
+                technology: "ManageEngine ADAudit Plus",
+                description: "ManageEngine ADAudit Plus - subject to CVE-2022-28219 (XXE -> RCE) \
+                    and other high-severity Zoho ManageEngine vulns.",
+                severity: Severity::Medium,
+            },
+            // Apache CouchDB.
+            FaviconSignature {
+                hash: 1041519801,
+                technology: "Apache CouchDB",
+                description: "Apache CouchDB Fauxton UI - check for default admin party mode \
+                    (unauthenticated admin) and CVE-2022-24706 (Erlang cookie RCE).",
+                severity: Severity::Medium,
             },
         ]
     }
@@ -630,5 +777,29 @@ mod tests {
         assert!(sigs.iter().any(|s| s.technology == "Jenkins"));
         assert!(sigs.iter().any(|s| s.technology == "phpMyAdmin"));
         assert!(sigs.iter().any(|s| s.technology == "Grafana"));
+        // Newly-added high-impact endpoints
+        assert!(sigs
+            .iter()
+            .any(|s| s.technology.starts_with("Citrix Gateway")));
+        assert!(sigs.iter().any(|s| s.technology == "Adminer"));
+        assert!(sigs.iter().any(|s| s.technology == "Apache Solr"));
+    }
+
+    /// Regression test: distinct technologies must not share the same hash.
+    /// Hash matching is first-match-wins (see `match_known_signature`), so a
+    /// duplicate hash silently mislabels every match for the shadowed entry.
+    #[test]
+    fn test_no_duplicate_hashes() {
+        let sigs = FaviconHashScanner::get_known_signatures();
+        let mut seen: std::collections::HashMap<i32, &'static str> =
+            std::collections::HashMap::new();
+        for sig in &sigs {
+            if let Some(prev) = seen.insert(sig.hash, sig.technology) {
+                panic!(
+                    "Duplicate favicon hash {}: '{}' shadows '{}'",
+                    sig.hash, prev, sig.technology
+                );
+            }
+        }
     }
 }
