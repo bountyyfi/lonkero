@@ -49,41 +49,124 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Every entry is downloaded then fed to `parse_openapi_spec`, which only
+/// accepts a body containing a structural `"openapi"` or `"swagger"` key.
+/// That structural gate means even broad paths like `/spec` cannot produce a
+/// false positive — a CMS article or generic 200 page is rejected at parse.
 const OPENAPI_PATHS: &[&str] = &[
+    // Classic Swagger / OpenAPI
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api-docs.yml",
+    "/api.json",
+    "/api.yaml",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    // Springfox / Springdoc (Java)
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // .NET / ASP.NET Core variants
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/docs/v3",
+    // Versioned shortcuts
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    // NestJS defaults
+    "/api-json",
+    "/api/docs-json",
+    "/docs-json",
+    "/docs.json",
+    // Generic alternates
     "/api/swagger.json",
+    "/api/swagger.yaml",
     "/api/openapi.json",
+    "/api/openapi.yaml",
     "/docs/swagger.json",
     "/docs/openapi.json",
     "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/openapi/v2/api-docs",
+    // Hand-shipped Postman / Insomnia collections (often dropped by mistake)
+    "/postman_collection.json",
+    "/postman-collection.json",
+    "/postman.json",
+    "/insomnia.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API explorer paths
 const SWAGGER_UI_PATHS: &[&str] = &[
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger",
     "/docs/",
+    "/docs/index.html",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    // ReDoc renderer
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/redoc-static.html",
+    "/redoc/index.html",
+    "/api/redoc",
+    // Other interactive renderers
     "/rapidoc",
+    "/rapidoc.html",
+    "/scalar",
+    "/scalar/",
+    "/elements",
+    "/elements/",
+    // LoopBack
+    "/explorer/",
+    "/explorer/index.html",
+    // FastAPI / Starlette defaults
+    "/swagger",
+    "/docs",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

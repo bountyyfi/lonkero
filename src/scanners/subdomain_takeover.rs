@@ -399,6 +399,239 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Statuspage.io – critical: status pages frequently host live incident comms,
+    // an attacker controlling status.target.com can publish fake "all systems
+    // operational" messages or phishing during incidents.
+    ServiceFingerprint {
+        name: "Statuspage",
+        cname_patterns: &[".statuspage.io", "statuspageio.com"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io",
+            "There is no such status page",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to Statuspage, or claim the page name in your Statuspage account.",
+    },
+    // DigitalOcean App Platform
+    ServiceFingerprint {
+        name: "DigitalOcean App Platform",
+        cname_patterns: &[".ondigitalocean.app"],
+        http_signatures: &[
+            "Domain uses DO name servers with no records",
+            "page not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to ondigitalocean.app, or attach the domain to an active DigitalOcean App.",
+    },
+    // Render – common SaaS host. The "x-render-routing: no-server" header is
+    // a deterministic dangling-route signal, so we anchor on that.
+    ServiceFingerprint {
+        name: "Render",
+        cname_patterns: &[".onrender.com"],
+        http_signatures: &[
+            "Not Found",
+        ],
+        header_patterns: &[("x-render-routing", "no-server")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to onrender.com, or create a Render service that owns this custom domain.",
+    },
+    // Railway
+    ServiceFingerprint {
+        name: "Railway",
+        cname_patterns: &[".up.railway.app", ".railway.app"],
+        http_signatures: &[
+            "Application not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to railway.app, or attach the custom domain to an existing Railway service.",
+    },
+    // AWS Elastic Beanstalk – documented takeover when an environment is
+    // terminated but the CNAME is left dangling.
+    ServiceFingerprint {
+        name: "AWS Elastic Beanstalk",
+        cname_patterns: &[".elasticbeanstalk.com"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::Critical,
+        cvss: 9.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the dangling CNAME or recreate the Elastic Beanstalk environment with the same name in the same region (names are region-scoped and re-claimable).",
+    },
+    // Webflow
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &["proxy-ssl.webflow.com", "proxy.webflow.com", ".webflow.io"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the Webflow CNAME, or add this hostname as a custom domain inside a Webflow site.",
+    },
+    // Strikingly
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".strikinglydns.com", ".s.strikingly.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND.",
+            "But if you're looking to build your own website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to Strikingly, or claim this hostname in a Strikingly site.",
+    },
+    // ReadMe.io – developer docs portals often hold API keys and internal
+    // architectural detail in published pages once an attacker claims them.
+    ServiceFingerprint {
+        name: "ReadMe.io",
+        cname_patterns: &[".readme.io"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to readme.io, or claim the project in ReadMe.",
+    },
+    // HatenaBlog
+    ServiceFingerprint {
+        name: "HatenaBlog",
+        cname_patterns: &["hatenablog.com"],
+        http_signatures: &[
+            "404 Blog is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or register the blog under this hostname on Hatena.",
+    },
+    // LaunchRock
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the page in LaunchRock.",
+    },
+    // Smartling
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &["smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or configure the domain in Smartling.",
+    },
+    // HubSpot CMS
+    ServiceFingerprint {
+        name: "HubSpot CMS",
+        cname_patterns: &[".hs-sites.com", ".hubspotusercontent.com"],
+        http_signatures: &[
+            "Domain not found",
+            "is not connected to a website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to HubSpot, or attach the domain to a HubSpot CMS Hub page.",
+    },
+    // Intercom (custom Help Center domain)
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &["custom.intercom.help"],
+        http_signatures: &[
+            "Uh oh. That page doesn\u{2019}t exist",
+            "This page is reserved for artistic dogs.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to intercom.help, or attach the help center to an Intercom workspace.",
+    },
+    // Frontify
+    ServiceFingerprint {
+        name: "Frontify",
+        cname_patterns: &[".frontify.com"],
+        http_signatures: &[
+            "404 - page not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to Frontify, or attach the brand portal hostname in Frontify.",
+    },
+    // Acquia Cloud Site Factory
+    ServiceFingerprint {
+        name: "Acquia",
+        cname_patterns: &[".acquia-sites.com", ".acquia.io"],
+        http_signatures: &[
+            "The site you are looking for could not be found",
+            "Web Site Not Found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the domain to an active Acquia site.",
+    },
+    // Worksites.net (Apptio / IBM)
+    ServiceFingerprint {
+        name: "Worksites.net",
+        cname_patterns: &[".worksites.net"],
+        http_signatures: &[
+            "Hello! Sorry, but the webs",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the workspace on Worksites.net.",
+    },
 ];
 
 /// DNS resolution result for a subdomain

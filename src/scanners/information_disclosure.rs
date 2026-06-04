@@ -97,6 +97,16 @@ impl InformationDisclosureScanner {
             "/.env.backup",
             "/.env.bak",
             "/.env.save",
+            "/.env.dist",
+            "/.env.example",
+            "/.env.test",
+            "/.env.testing",
+            "/.env.docker",
+            "/.env.dev",
+            "/.env.qa",
+            "/.env.uat",
+            "/.env.vault",
+            "/.envrc",
             // Config files
             "/config.php",
             "/config.json",
@@ -118,11 +128,26 @@ impl InformationDisclosureScanner {
             // Rails
             "/config/master.key",
             "/config/credentials.yml.enc",
+            "/config/secret_token.rb",
+            "/config/initializers/secret_token.rb",
+            // Symfony parameters
+            "/app/config/parameters.yml",
+            "/config/parameters.yml",
+            "/config/packages/parameters.yml",
+            // Azure Functions local settings (often deployed by mistake)
+            "/local.settings.json",
+            // Generic secrets files
+            "/secrets.json",
+            "/secrets.yml",
+            "/secrets.yaml",
+            "/secret.json",
+            "/secret.yml",
             // Git & VCS
             "/.git/config",
             "/.git/HEAD",
             "/.git/index",
             "/.git/logs/HEAD",
+            "/.git-credentials",
             "/.svn/entries",
             "/.svn/wc.db",
             "/.hg/hgrc",
@@ -132,6 +157,17 @@ impl InformationDisclosureScanner {
             "/package.json",
             "/auth.json",
             "/.npmrc",
+            "/.pypirc",
+            "/.gem/credentials",
+            "/.cargo/credentials",
+            "/.cargo/credentials.toml",
+            "/.gradle/gradle.properties",
+            "/.m2/settings.xml",
+            // S3 / AWS legacy CLI tools
+            "/.s3cfg",
+            "/.boto",
+            // Sentry CLI auth token
+            "/.sentryclirc",
             // Web server configs
             "/.htaccess",
             "/.htpasswd",
@@ -160,6 +196,20 @@ impl InformationDisclosureScanner {
             "/wp-config.php.bak",
             "/wp-config.php.old",
             "/index.php.old",
+            // Editor / OS leftovers next to wp-config — common, devastating
+            "/wp-config.php~",
+            "/.wp-config.php.swp",
+            "/wp-config.php.swp",
+            "/wp-config.php.swo",
+            "/wp-config.php.save",
+            "/wp-config.bak",
+            // ASP.NET / IIS legacy
+            "/web.config.bak",
+            "/web.config.old",
+            "/web.config~",
+            // Rails / Django backups
+            "/config/database.yml.bak",
+            "/config/database.yml.old",
             // Cloud credentials
             "/.aws/credentials",
             "/.aws/config",
@@ -657,6 +707,18 @@ impl InformationDisclosureScanner {
             "/.my.cnf",
             "/auth.json",
             "/.npmrc",
+            "/.pypirc",
+            "/.gem/credentials",
+            "/.cargo/credentials",
+            "/.cargo/credentials.toml",
+            "/.gradle/gradle.properties",
+            "/.m2/settings.xml",
+            "/.s3cfg",
+            "/.boto",
+            "/.sentryclirc",
+            "/.git-credentials",
+            "/.envrc",
+            "/.env.vault",
             "/dump.rdb",
             "/sites/default/settings.php",
             "/app/etc/local.xml",
@@ -664,11 +726,34 @@ impl InformationDisclosureScanner {
             "/local_settings.py",
             "/appsettings.production.json",
             "/appsettings.json",
+            "/local.settings.json",
             "/config/credentials.yml.enc",
+            "/config/secret_token.rb",
+            "/config/initializers/secret_token.rb",
+            "/app/config/parameters.yml",
+            "/config/parameters.yml",
+            "/config/packages/parameters.yml",
+            "/secrets.json",
+            "/secrets.yml",
+            "/secrets.yaml",
+            "/secret.json",
+            "/secret.yml",
             "/.idea/datasources.xml",
             "/.idea/datasources.local.xml",
             "/.vscode/sftp.json",
             "/sftp-config.json",
+            // Editor swap / backup files next to credential-holding configs.
+            "/wp-config.php~",
+            "/.wp-config.php.swp",
+            "/wp-config.php.swp",
+            "/wp-config.php.swo",
+            "/wp-config.php.save",
+            "/wp-config.bak",
+            "/config/database.yml.bak",
+            "/config/database.yml.old",
+            "/web.config.bak",
+            "/web.config.old",
+            "/web.config~",
         ];
         for cp in critical_paths {
             if f.ends_with(cp) || f == *cp {
@@ -907,6 +992,182 @@ impl InformationDisclosureScanner {
         if fname_lower.ends_with("/.npmrc") {
             return body.contains("_authToken")
                 || body.contains("//registry.npmjs.org/:_auth");
+        }
+
+        // Package-registry / publishing credentials.
+        // Each format has a unique structural signature, making FPs essentially
+        // impossible while every confirmed hit means a publish-token leak
+        // (immediate supply-chain risk).
+        if fname_lower.ends_with("/.pypirc") {
+            return (body.contains("[pypi]") || body.contains("[distutils]"))
+                && (body.contains("password")
+                    || body.contains("__token__")
+                    || body.contains("username"));
+        }
+        if fname_lower.ends_with("/.gem/credentials") {
+            return body.contains(":rubygems_api_key:");
+        }
+        if fname_lower.ends_with("/.cargo/credentials")
+            || fname_lower.ends_with("/.cargo/credentials.toml")
+        {
+            return body.contains("[registry]") && body.contains("token");
+        }
+        if fname_lower.ends_with("/.gradle/gradle.properties") {
+            let lower = body.to_lowercase();
+            return lower.contains("signing.password")
+                || lower.contains("signing.keyid")
+                || lower.contains("nexususername")
+                || lower.contains("nexuspassword")
+                || lower.contains("ossrhusername")
+                || lower.contains("ossrhpassword")
+                || lower.contains("sonatypeusername")
+                || lower.contains("gradle.publish.key");
+        }
+        if fname_lower.ends_with("/.m2/settings.xml") {
+            return body.contains("<settings")
+                && body.contains("<server")
+                && (body.contains("<password>") || body.contains("<privateKey>"));
+        }
+
+        // s3cmd / boto legacy AWS credential files
+        if fname_lower.ends_with("/.s3cfg") {
+            return body.contains("[default]")
+                && (body.contains("access_key") || body.contains("secret_key"));
+        }
+        if fname_lower.ends_with("/.boto") {
+            return body.contains("[Credentials]")
+                && (body.contains("aws_access_key_id") || body.contains("gs_access_key_id"));
+        }
+
+        // Sentry CLI auth token – grants release-publish access to projects.
+        if fname_lower.ends_with("/.sentryclirc") {
+            return body.contains("[auth]")
+                && (body.contains("token") || body.contains("api_key"));
+        }
+
+        // Git stored credentials – cleartext https://user:pass@host per line.
+        if fname_lower.ends_with("/.git-credentials") {
+            use regex::Regex;
+            return Regex::new(r"https?://[^:/\s]+:[^@\s]+@[A-Za-z0-9.\-]+")
+                .map(|re| re.is_match(body))
+                .unwrap_or(false);
+        }
+
+        // direnv .envrc – `export KEY=...` lines, typically with secrets.
+        if fname_lower.ends_with("/.envrc") {
+            return body.contains("export ")
+                && (body.contains("_KEY")
+                    || body.contains("_TOKEN")
+                    || body.contains("_SECRET")
+                    || body.contains("PASSWORD")
+                    || body.contains("AWS_"));
+        }
+
+        // dotenv-vault encrypted env. Anchored on the literal header.
+        if fname_lower.ends_with("/.env.vault") {
+            return body.contains("DOTENV_VAULT_")
+                && (body.contains("=\"") || body.contains("="));
+        }
+
+        // Azure Functions local.settings.json – frequently pushed by mistake
+        // and contains storage connection strings + AzureWebJobsStorage.
+        if fname_lower.ends_with("/local.settings.json") {
+            return body.contains("\"IsEncrypted\"")
+                && body.contains("\"Values\"")
+                && (body.contains("AzureWebJobs")
+                    || body.contains("ConnectionString")
+                    || body.contains("AccountKey="));
+        }
+
+        // Rails legacy secret_token.rb – session signing key.
+        if fname_lower.ends_with("/secret_token.rb")
+            || fname_lower.ends_with("/initializers/secret_token.rb")
+        {
+            return body.contains("secret_token")
+                && body.contains("=")
+                // 128+ char hex token — anything shorter is a sample.
+                && body.matches(char::is_alphanumeric).count() >= 64;
+        }
+
+        // Symfony parameters.yml – DB credentials + secret key.
+        if fname_lower.ends_with("/parameters.yml")
+            || fname_lower.ends_with("/parameters.yaml")
+        {
+            return body.contains("parameters:")
+                && (body.contains("database_password")
+                    || body.contains("database_user")
+                    || body.contains("mailer_password")
+                    || body.contains("secret:"));
+        }
+
+        // Generic secrets.{json,yml,yaml}.
+        // Require structural markers plus credential keywords so that an
+        // unrelated 200-page (CMS article titled "Our Secrets") cannot match.
+        if fname_lower.ends_with("/secrets.json")
+            || fname_lower.ends_with("/secret.json")
+        {
+            let lower = body.to_lowercase();
+            return body.contains("{")
+                && body.contains("}")
+                && (lower.contains("\"password\"")
+                    || lower.contains("\"secret\"")
+                    || lower.contains("\"api_key\"")
+                    || lower.contains("\"apikey\"")
+                    || lower.contains("\"token\"")
+                    || lower.contains("\"private_key\""));
+        }
+        if fname_lower.ends_with("/secrets.yml")
+            || fname_lower.ends_with("/secrets.yaml")
+            || fname_lower.ends_with("/secret.yml")
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("password:")
+                || lower.contains("secret:")
+                || lower.contains("api_key:")
+                || lower.contains("token:")
+                || lower.contains("private_key:"))
+                && !lower.contains("<!doctype html")
+                && !lower.contains("<html");
+        }
+
+        // Editor swap / backup files next to wp-config.php and friends.
+        // We treat them as wp-config.php for content detection.
+        if fname_lower.contains("wp-config")
+            && (fname_lower.ends_with(".swp")
+                || fname_lower.ends_with(".swo")
+                || fname_lower.ends_with(".save")
+                || fname_lower.ends_with(".bak")
+                || fname_lower.ends_with("~"))
+        {
+            return body.contains("DB_PASSWORD")
+                || body.contains("DB_USER")
+                || body.contains("DB_NAME")
+                || body.contains("AUTH_KEY")
+                || body.contains("SECURE_AUTH_KEY")
+                || body.contains("define(");
+        }
+
+        // web.config backups – verify it's actually IIS XML config.
+        if fname_lower.contains("web.config")
+            && (fname_lower.ends_with(".bak")
+                || fname_lower.ends_with(".old")
+                || fname_lower.ends_with("~"))
+        {
+            return body.contains("<configuration")
+                && (body.contains("connectionString")
+                    || body.contains("<appSettings")
+                    || body.contains("<system.web"));
+        }
+
+        // Rails database.yml backup – YAML with adapter + password keys.
+        if fname_lower.contains("/database.yml")
+            && (fname_lower.ends_with(".bak") || fname_lower.ends_with(".old"))
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("adapter:")
+                || lower.contains("production:")
+                || lower.contains("development:"))
+                && (lower.contains("password:") || lower.contains("username:"));
         }
 
         // Redis RDB snapshot - binary signature
