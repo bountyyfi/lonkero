@@ -49,41 +49,144 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI/Swagger specifications are served.
+///
+/// Every entry below is a documented framework / library default — we deliberately
+/// avoid generic wildcards because spec discovery is most valuable when the result
+/// is a parseable JSON/YAML body. The detector still validates the response shape
+/// (`swagger`/`openapi` root key) before flagging, so an unrelated 200 won't be
+/// mistaken for a spec.
 const OPENAPI_PATHS: &[&str] = &[
+    // Generic
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
     "/api-docs.json",
+    "/openapi.yaml",
+    "/openapi.yml",
+    "/swagger.yaml",
+    "/swagger.yml",
+    "/api-docs.yaml",
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    // Versioned variants
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/v1.0/swagger.json",
+    "/swagger/v2.0/swagger.json",
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    // Common nested locations
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/swagger.json",
+    "/api/v2/openapi.json",
+    "/api/v3/swagger.json",
+    "/api/v3/openapi.json",
+    "/api/docs/swagger.json",
+    "/api/docs/openapi.json",
+    "/api/spec",
+    "/api/specification",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/api-spec.json",
     "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    // Spring Boot / springdoc-openapi defaults
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    // Django REST framework / drf-spectacular
+    "/schema/",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    // FastAPI / Starlette / NestJS defaults
+    "/openapi",
+    "/api/openapi",
+    "/api/v1/openapi",
+    // GraphQL spec endpoints (commonly leaked alongside REST specs)
+    "/graphql/schema.json",
+    "/graphql/schema",
+    "/api/graphql/schema",
+    // Postman collection exports occasionally checked in by mistake
+    "/postman.json",
+    "/postman_collection.json",
+    "/collection.json",
+    "/docs/postman.json",
+    // RAML / API Blueprint / Stoplight
+    "/api.raml",
+    "/api.apib",
+    "/stoplight.json",
+    // Misc internal documentation roots
+    "/docs/api.json",
+    "/docs/spec.json",
+    "/docs/spec.yaml",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger / Redoc / RapiDoc / Stoplight UI paths.
+///
+/// These are HTML viewers that load a spec from a sibling URL. Finding one
+/// virtually guarantees the spec itself is reachable somewhere on the host.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI
     "/swagger-ui.html",
-    "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui/index.html",
     "/swagger/",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    "/api/v1/swagger-ui",
+    "/api/v2/swagger-ui",
+    "/api/v3/swagger-ui",
+    // Generic docs roots
     "/docs/",
+    "/docs/index.html",
     "/api-docs/",
+    "/api-docs/index.html",
     "/api/docs",
+    "/api/docs/",
+    "/api/documentation",
+    // Redoc
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/docs/redoc",
+    // RapiDoc
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/api/rapidoc",
+    // Stoplight Elements
+    "/stoplight",
+    "/stoplight/",
+    "/elements",
+    // GraphQL playgrounds — same class of "API explorer" exposure.
+    "/graphql",
+    "/graphiql",
+    "/graphql/console",
+    "/graphql-playground",
+    "/playground",
+    "/altair",
+    // Spring REST Docs / actuator-exposed API explorers
+    "/actuator/openapi",
+    "/actuator/swaggerui",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
