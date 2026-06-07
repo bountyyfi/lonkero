@@ -49,8 +49,19 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Paths fall into three groups:
+/// 1. Vendor defaults (springdoc, springfox, drf-yasg, FastAPI, NestJS, .NET Swashbuckle).
+/// 2. Versioned API doc paths typical of microservices behind reverse proxies.
+/// 3. Less-common framework/library defaults (Flask, Falcon, Hapi, Strapi) seen in
+///    production exposures during real engagements.
+///
+/// Discovery is cheap (each probe is a single GET) and each match is verified by the
+/// caller via `is_valid_swagger_or_openapi_spec()`, so adding paths cannot create new
+/// false positives — non-matching responses are simply ignored.
 const OPENAPI_PATHS: &[&str] = &[
+    // --- Most common defaults ---
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,20 +81,135 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // --- springdoc / springfox ---
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // Spring Boot Actuator exposure (springdoc.show-actuator=true)
+    "/actuator/openapi",
+    // --- API-versioned endpoints behind reverse proxies ---
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    // --- Flask-RESTX / flask-restful-swagger / apispec ---
+    "/apispec.json",
+    "/apispec_1.json",
+    "/swagger/spec",
+    // --- drf-yasg / drf-spectacular (Django REST Framework) ---
+    // (`/swagger.yaml` is already listed in the top defaults block.)
+    "/swagger/?format=openapi",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    // --- FastAPI / Starlette defaults ---
+    "/openapi.yml",
+    "/api/openapi.yaml",
+    // --- NestJS / Express Swagger defaults ---
+    "/api-json",
+    "/api/api-json",
+    "/api/v1/api-json",
+    // --- .NET Swashbuckle defaults (often versioned) ---
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // --- Generic alternate names ---
+    "/api.json",
+    "/api.yaml",
+    "/spec.json",
+    "/spec.yaml",
+    "/openapi",
+    "/api-doc",
+    "/api-doc.json",
+    "/api-doc.yaml",
+    "/apidocs.json",
+    "/swagger-doc",
+    "/swagger-spec",
+    // --- Misc framework defaults ---
+    // GraphQL Mesh / SOFA / GraphQL-to-REST gateways
+    "/openapi.spec.json",
+    "/openapi-spec",
+    // Strapi (admin API)
+    "/documentation/v1.0.0",
+    // Hasura Console
+    "/console/api/openapi",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI paths.
+///
+/// Mirrors the spec-path list: vendor defaults first, then versioned/reverse-proxied
+/// variants, then generic fallbacks. Each candidate is fetched once and the body
+/// must contain Swagger UI / Redoc / RapiDoc / Stoplight Elements markers downstream
+/// before a finding is emitted.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // --- Swagger UI defaults ---
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger/",
+    "/docs/swagger-ui.html",
+    "/docs/swagger-ui/",
+    "/docs/swagger/",
+    "/openapi/swagger-ui.html",
+    "/openapi/swagger-ui/",
+    "/swagger-ui/swagger-ui.html",
+    // --- Versioned UIs (springdoc, Swashbuckle) ---
+    "/api/v1/swagger-ui.html",
+    "/api/v2/swagger-ui.html",
+    "/api/v3/swagger-ui.html",
+    "/v1/swagger-ui.html",
+    "/v2/swagger-ui.html",
+    "/v3/swagger-ui.html",
+    // --- Generic docs paths ---
     "/docs/",
+    "/docs",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/apidocs",
+    "/apidocs/",
+    "/api-explorer",
+    "/api-explorer/",
+    "/explorer",
+    "/explorer/",
+    // --- Redoc / RapiDoc / Stoplight Elements / Scalar / Rapipdf ---
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/docs/redoc",
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/elements",
+    "/stoplight",
+    "/scalar",
+    "/scalar/",
+    "/reference",
+    "/reference/",
+    // --- GraphQL playground / GraphiQL (often paired with REST docs) ---
+    "/playground",
+    "/graphiql",
+    "/graphql-playground",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

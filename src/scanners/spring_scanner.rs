@@ -166,6 +166,177 @@ impl SpringScanner {
                 Severity::Critical,
                 "Legacy heap dump endpoint",
             ),
+            // /actuator/configprops dumps every @ConfigurationProperties bean - this is
+            // where datasource URLs, message broker URIs, OAuth client secrets and
+            // third-party API keys typically live. Same payoff as /env.
+            (
+                "/actuator/configprops",
+                "Configuration Properties",
+                Severity::Critical,
+                "Dumps @ConfigurationProperties beans - typically contains datasource URLs, broker URIs, OAuth secrets",
+            ),
+            // /actuator/beans lists every Spring bean and its dependencies - perfect
+            // recon for chaining further exploitation (find DataSource beans, AuthN
+            // providers, etc.).
+            (
+                "/actuator/beans",
+                "Bean Definitions",
+                Severity::Medium,
+                "Lists every Spring bean and its dependencies - aids further exploitation",
+            ),
+            // Thread dumps contain stack traces with parameter values, headers, and
+            // sometimes Authorization tokens of in-flight requests.
+            (
+                "/actuator/threaddump",
+                "Thread Dump",
+                Severity::High,
+                "JVM thread stacks - may contain in-flight request parameters and tokens",
+            ),
+            (
+                "/actuator/dump",
+                "Thread Dump (Legacy)",
+                Severity::High,
+                "Spring Boot 1.x thread dump endpoint",
+            ),
+            // HTTP trace/exchanges record the last N HTTP requests *including*
+            // Authorization, Cookie and Set-Cookie headers - direct session theft.
+            (
+                "/actuator/httptrace",
+                "HTTP Trace",
+                Severity::Critical,
+                "Recent HTTP requests with Authorization/Cookie headers - session theft",
+            ),
+            (
+                "/actuator/httpexchanges",
+                "HTTP Exchanges",
+                Severity::Critical,
+                "Spring Boot 3.x HTTP trace - recent requests with Authorization/Cookie headers",
+            ),
+            (
+                "/trace",
+                "HTTP Trace (Legacy)",
+                Severity::Critical,
+                "Spring Boot 1.x HTTP trace endpoint",
+            ),
+            // Audit events expose authentication failures/successes and the
+            // principals involved.
+            (
+                "/actuator/auditevents",
+                "Audit Events",
+                Severity::High,
+                "Authentication events including principal usernames and failure reasons",
+            ),
+            // Scheduled tasks reveal internal service hostnames and job semantics.
+            (
+                "/actuator/scheduledtasks",
+                "Scheduled Tasks",
+                Severity::Medium,
+                "Reveals internal cron jobs, target hosts and intervals",
+            ),
+            (
+                "/actuator/quartz",
+                "Quartz Scheduler",
+                Severity::Medium,
+                "Quartz jobs/triggers - exposes internal job configuration",
+            ),
+            (
+                "/actuator/integrationgraph",
+                "Spring Integration Graph",
+                Severity::Medium,
+                "Reveals internal Spring Integration flow channels and adapters",
+            ),
+            // Sessions endpoint exposes session IDs - direct hijack vector.
+            (
+                "/actuator/sessions",
+                "Active Sessions",
+                Severity::Critical,
+                "Lists active HTTP session IDs - direct session hijack",
+            ),
+            // /actuator/caches can leak cached payloads (including authenticated
+            // user data) when combined with cache reading.
+            (
+                "/actuator/caches",
+                "Cache Names",
+                Severity::Low,
+                "Names of internal caches - aids cache poisoning/disclosure attacks",
+            ),
+            (
+                "/actuator/conditions",
+                "Autoconfig Conditions",
+                Severity::Low,
+                "Reveals enabled/disabled auto-configurations - aids fingerprinting",
+            ),
+            // /actuator/info often contains git.commit.id, version, build host —
+            // useful for matching public CVEs to the running build.
+            (
+                "/actuator/info",
+                "Application Info",
+                Severity::Low,
+                "Build metadata (git SHA, version, host) - aids CVE matching",
+            ),
+            // Prometheus / metrics may contain hostnames and queue depths.
+            (
+                "/actuator/prometheus",
+                "Prometheus Metrics",
+                Severity::Low,
+                "Internal metrics may reveal hostnames, queues, internal service names",
+            ),
+            (
+                "/actuator/metrics",
+                "Metrics",
+                Severity::Low,
+                "Internal metric names may reveal service topology",
+            ),
+            // Refresh/restart endpoints can be POSTed to trigger configuration
+            // reload or context restart - same severity as /shutdown.
+            (
+                "/actuator/refresh",
+                "Spring Cloud Refresh",
+                Severity::Critical,
+                "Spring Cloud configuration refresh - reloads remote config (denial-of-service / config injection)",
+            ),
+            (
+                "/actuator/restart",
+                "Spring Cloud Restart",
+                Severity::Critical,
+                "Spring Cloud context restart - denial-of-service",
+            ),
+            // CVE-2022-22947: Spring Cloud Gateway actuator allows arbitrary code
+            // execution via SpEL when /actuator/gateway/routes is writable.
+            (
+                "/actuator/gateway/routes",
+                "Spring Cloud Gateway Routes",
+                Severity::Critical,
+                "Exposes gateway routes; if writable, CVE-2022-22947 allows SpEL RCE",
+            ),
+            (
+                "/actuator/gateway/refresh",
+                "Gateway Refresh",
+                Severity::High,
+                "Triggers reload of Spring Cloud Gateway routes",
+            ),
+            // Flyway/Liquibase reveal historical schema migrations including
+            // sensitive table/column names.
+            (
+                "/actuator/flyway",
+                "Flyway Migrations",
+                Severity::Medium,
+                "Database migration history including table and column names",
+            ),
+            (
+                "/actuator/liquibase",
+                "Liquibase Changesets",
+                Severity::Medium,
+                "Database changeset history - reveals schema",
+            ),
+            // SBOM in Spring Boot 3.3+ exposes the dependency list verbatim,
+            // making n-day exploitation trivial.
+            (
+                "/actuator/sbom/application",
+                "Application SBOM",
+                Severity::Medium,
+                "Full software bill of materials - aids n-day exploitation",
+            ),
         ];
 
         for (path, name, severity, description) in actuator_endpoints {
@@ -177,15 +348,50 @@ impl SpringScanner {
                     // Require actual actuator-specific content, not just any JSON.
                     // Previously matched `contains("{")` or `len() > 10` which
                     // matches ANY response and creates massive false positives.
+                    //
+                    // /actuator/prometheus is plain text (# HELP / # TYPE format), not
+                    // JSON, so it needs its own check. Same for the heap dump (binary).
+                    let body = &response.body;
+                    let is_prometheus = path.ends_with("/prometheus")
+                        && body.contains("# HELP")
+                        && body.contains("# TYPE");
                     let is_actuator = path.contains("heapdump")
-                        || (response.body.contains("{") && (
-                            response.body.contains("\"status\"")
-                            || response.body.contains("\"_links\"")
-                            || response.body.contains("\"loggers\"")
-                            || response.body.contains("\"levels\"")
-                            || response.body.contains("\"propertySources\"")
-                            || response.body.contains("\"activeProfiles\"")
-                            || response.body.contains("\"dispatcherServlet\"")
+                        || is_prometheus
+                        || (body.contains("{") && (
+                            body.contains("\"status\"")
+                            || body.contains("\"_links\"")
+                            || body.contains("\"loggers\"")
+                            || body.contains("\"levels\"")
+                            || body.contains("\"propertySources\"")
+                            || body.contains("\"activeProfiles\"")
+                            || body.contains("\"dispatcherServlet\"")
+                            // Spring Boot 2.x+ wraps most endpoint payloads in
+                            // `{"contexts":{"application":{...}}}`. The literal
+                            // `"contexts"` key plus a `{` is a strong Spring marker.
+                            || (body.contains("\"contexts\"") && body.contains("\"application\""))
+                            // /actuator/threaddump
+                            || (body.contains("\"threads\"") && body.contains("\"threadName\""))
+                            // /actuator/httptrace and /actuator/httpexchanges
+                            || (body.contains("\"traces\"") && body.contains("\"timeTaken\""))
+                            || (body.contains("\"exchanges\"") && body.contains("\"timeTaken\""))
+                            // /actuator/auditevents
+                            || (body.contains("\"events\"") && body.contains("\"principal\"") && body.contains("\"timestamp\""))
+                            // /actuator/scheduledtasks
+                            || (body.contains("\"cron\"") && body.contains("\"runnable\""))
+                            // /actuator/sessions (Spring Session)
+                            || (body.contains("\"sessions\"") && body.contains("\"creationTime\""))
+                            // /actuator/caches
+                            || (body.contains("\"cacheManagers\"") && body.contains("\"caches\""))
+                            // /actuator/metrics
+                            || (body.contains("\"names\"") && (body.contains("\"jvm.") || body.contains("\"http.server.requests\"")))
+                            // /actuator/info — Spring git/build/java sections
+                            || (body.contains("\"git\"") && body.contains("\"commit\""))
+                            // Spring Cloud Gateway /actuator/gateway/routes
+                            || (body.contains("\"route_id\"") && body.contains("\"predicates\""))
+                            // /actuator/integrationgraph
+                            || (body.contains("\"contentDescriptor\"") && body.contains("\"nodes\""))
+                            // /actuator/sbom/application
+                            || (body.contains("\"bomFormat\"") && body.contains("CycloneDX"))
                         ));
 
                     if is_actuator {
