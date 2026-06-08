@@ -195,6 +195,10 @@ impl AspNetScanner {
         vulnerabilities.extend(kestrel_vulns);
         tests_run += kestrel_tests;
 
+        let (diag_vulns, diag_tests) = self.check_diagnostic_endpoints(url, config).await?;
+        vulnerabilities.extend(diag_vulns);
+        tests_run += diag_tests;
+
         if let Some(ref ver) = version_info {
             let (cve_vulns, cve_tests) = self.check_version_cves(url, ver, config).await?;
             vulnerabilities.extend(cve_vulns);
@@ -816,6 +820,21 @@ impl AspNetScanner {
 
         let config_paths = [
             ("/web.config", "IIS Configuration", Severity::Critical),
+            ("/Web.config", "IIS Configuration", Severity::Critical),
+            ("/web.config.bak", "Web.config Backup", Severity::Critical),
+            ("/web.config~", "Web.config Editor Backup", Severity::Critical),
+            ("/web.config.old", "Web.config Old Copy", Severity::Critical),
+            ("/web.config.orig", "Web.config Original", Severity::Critical),
+            ("/web.config.save", "Web.config Saved Copy", Severity::Critical),
+            ("/Web.config.bak", "Web.config Backup", Severity::Critical),
+            ("/Web.Debug.config", "Web.config (Debug Transform)", Severity::Critical),
+            ("/Web.Release.config", "Web.config (Release Transform)", Severity::Critical),
+            ("/Web.Production.config", "Web.config (Production Transform)", Severity::Critical),
+            ("/Web.Staging.config", "Web.config (Staging Transform)", Severity::Critical),
+            ("/global.asax", "Global.asax", Severity::Medium),
+            ("/global.asax.cs", "Global.asax Source", Severity::High),
+            ("/Global.asax", "Global.asax", Severity::Medium),
+            ("/Global.asax.cs", "Global.asax Source", Severity::High),
             ("/appsettings.json", "App Settings", Severity::Critical),
             (
                 "/appsettings.Development.json",
@@ -828,7 +847,29 @@ impl AspNetScanner {
                 Severity::Critical,
             ),
             (
+                "/appsettings.Staging.json",
+                "Staging Settings",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.Local.json",
+                "Local Settings",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.json.bak",
+                "App Settings Backup",
+                Severity::Critical,
+            ),
+            ("/secrets.json", "User Secrets", Severity::Critical),
+            ("/secrets.xml", "Legacy User Secrets", Severity::Critical),
+            (
                 "/connectionstrings.config",
+                "Connection Strings",
+                Severity::Critical,
+            ),
+            (
+                "/connectionStrings.config",
                 "Connection Strings",
                 Severity::Critical,
             ),
@@ -837,6 +878,8 @@ impl AspNetScanner {
                 "IIS App Host Config",
                 Severity::High,
             ),
+            ("/hosting.json", "Kestrel Hosting Config", Severity::High),
+            ("/web.release.config", "Release Transform", Severity::Critical),
             ("/bin/", "Binary Directory", Severity::Medium),
             ("/obj/", "Build Objects", Severity::Low),
             ("/.vs/", "Visual Studio Directory", Severity::Medium),
@@ -849,6 +892,24 @@ impl AspNetScanner {
                 "Launch Settings",
                 Severity::Medium,
             ),
+            (
+                "/Properties/PublishProfiles/",
+                "Publish Profiles Directory",
+                Severity::High,
+            ),
+            (
+                "/wwwroot/web.config",
+                "wwwroot Web.config",
+                Severity::Critical,
+            ),
+            // ASP.NET resource handlers occasionally serve the source map / project
+            // files. /Trace.axd and /elmah.axd are owned by the dedicated info_disclosure
+            // module so they are intentionally excluded here.
+            ("/__bundles", "ASP.NET Bundle Manifest", Severity::Low),
+            ("/__browserLink/requestData/", "Visual Studio BrowserLink", Severity::High),
+            ("/_vti_bin/", "FrontPage / SharePoint Bin", Severity::High),
+            ("/_vti_pvt/", "FrontPage / SharePoint Private", Severity::High),
+            ("/aspnet_client/", "aspnet_client Directory", Severity::Low),
         ];
 
         for (path, name, severity) in config_paths {
@@ -857,6 +918,26 @@ impl AspNetScanner {
 
             if let Ok(resp) = self.http_client.get(&config_url).await {
                 if resp.status_code == 200 && resp.body.len() > 20 {
+                    // Reject SPA fallback HTML. Many React/Blazor apps return the
+                    // index.html shell for unknown paths; without this guard every
+                    // entry above would fire.
+                    let ct = resp
+                        .headers
+                        .get("content-type")
+                        .or_else(|| resp.headers.get("Content-Type"))
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+                    let body_head = resp.body.trim_start();
+                    let looks_html_shell = (ct.contains("text/html")
+                        && (body_head.starts_with("<!DOCTYPE")
+                            || body_head.starts_with("<!doctype")
+                            || body_head.starts_with("<html")))
+                        && !resp.body.contains("<configuration")
+                        && !resp.body.contains("<%@");
+                    if looks_html_shell {
+                        continue;
+                    }
+
                     let sensitive_patterns = [
                         "connectionString",
                         "password",
@@ -878,17 +959,79 @@ impl AspNetScanner {
 
                     let has_sensitive = sensitive_patterns.iter().any(|p| resp.body.contains(p));
 
-                    // Also verify it's actually an ASP.NET config file, not a generic page
-                    let is_config_file = resp.body.contains("<configuration")
-                        || resp.body.contains("<appSettings")
-                        || resp.body.contains("<connectionStrings")
-                        || (resp.body.trim().starts_with('{') && resp.body.contains("\"ConnectionStrings\""))
-                        || resp.body.contains("<?xml");
+                    // Per-path signature: each file family has a deterministic marker.
+                    let path_lower = path.to_lowercase();
+                    let body = &resp.body;
+                    let trimmed = body.trim_start();
+                    let is_xml_config = body.contains("<configuration")
+                        || body.contains("<appSettings")
+                        || body.contains("<connectionStrings")
+                        || body.contains("<system.web")
+                        || body.contains("<system.webServer");
+                    let is_appsettings_json = trimmed.starts_with('{')
+                        && (body.contains("\"ConnectionStrings\"")
+                            || body.contains("\"Logging\"")
+                            || body.contains("\"AllowedHosts\"")
+                            || body.contains("\"Kestrel\"")
+                            || body.contains("\"AzureAd\""));
+                    let is_secrets_json = path_lower.ends_with("secrets.json")
+                        && trimmed.starts_with('{')
+                        && body.len() > 10;
+                    let is_hosting_json = path_lower.ends_with("hosting.json")
+                        && trimmed.starts_with('{')
+                        && (body.contains("server.urls") || body.contains("\"urls\""));
+                    let is_launch_settings = path_lower.contains("launchsettings.json")
+                        && trimmed.starts_with('{')
+                        && (body.contains("\"profiles\"") || body.contains("applicationUrl"));
+                    let is_publish_profile = path_lower.contains("publishprofiles")
+                        && (body.contains("<Project") || body.contains(".pubxml"));
+                    let is_global_asax = path_lower.ends_with("global.asax")
+                        && (body.contains("<%@ Application")
+                            || body.contains("Application Language="));
+                    let is_global_asax_cs = path_lower.ends_with(".cs")
+                        && (body.contains("using System")
+                            || body.contains("namespace ")
+                            || body.contains("public class "));
+                    let is_browser_link = path_lower.contains("__browserlink")
+                        && trimmed.starts_with('{')
+                        && body.contains("\"data\"");
+                    let is_bundle_manifest = path_lower.contains("__bundles")
+                        && (body.contains("ScriptBundle") || body.contains("StyleBundle"));
+                    let is_vti = path_lower.starts_with("/_vti_")
+                        && (body.contains("FrontPage Server Extensions")
+                            || body.contains("vti_"));
+                    let is_git_config = path_lower.ends_with(".git/config")
+                        && body.contains("[core]")
+                        && body.contains("repositoryformatversion");
+                    let is_nuget_config = path_lower.ends_with("nuget.config")
+                        && body.contains("<configuration")
+                        && body.contains("packageSources");
+                    let is_packages_config = path_lower.ends_with("packages.config")
+                        && body.contains("<packages")
+                        && body.contains("<package ");
 
-                    // Only report if it has sensitive content OR is actually a config file
-                    if !has_sensitive && !is_config_file {
+                    let is_config_file = is_xml_config
+                        || is_appsettings_json
+                        || is_secrets_json
+                        || is_hosting_json
+                        || is_launch_settings
+                        || is_publish_profile
+                        || is_global_asax
+                        || is_global_asax_cs
+                        || is_browser_link
+                        || is_bundle_manifest
+                        || is_vti
+                        || is_git_config
+                        || is_nuget_config
+                        || is_packages_config;
+
+                    // Only report if signature confirms file type.
+                    if !is_config_file {
                         continue;
                     }
+                    // Plus, we want to keep `has_sensitive` for severity bump, but it's
+                    // no longer enough on its own.
+                    let _ = has_sensitive;
 
                     let final_severity = if has_sensitive {
                         Severity::Critical
@@ -1359,6 +1502,435 @@ impl AspNetScanner {
                     discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_confidence: None,
                 ml_data: None,
+                });
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// High-impact ASP.NET diagnostic / source-disclosure endpoints. Each entry is
+    /// gated by a deterministic per-path signature so SPA fallbacks and 200-OK
+    /// catch-alls don't trigger findings.
+    async fn check_diagnostic_endpoints(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let base = url.trim_end_matches('/');
+
+        // (path, descriptive name, severity, cvss, signature-check closure key)
+        #[derive(Clone, Copy, Debug)]
+        enum DiagSig {
+            // Application Insights ApplicationInsights.config XML
+            AppInsightsXml,
+            // SignalR /negotiate JSON envelope
+            SignalRNegotiate,
+            // gRPC reflection / service list
+            GrpcWeb,
+            // OData service document
+            OData,
+            // SOAP WSDL / .svc service description
+            SoapWsdl,
+            // PDB symbol file
+            PdbFile,
+            // ELMAH XML/JSON (without the front-end UI - ELMAH RSS, ELMAH download)
+            ElmahFeed,
+            // Trace.axd raw view (request log)
+            TraceAxd,
+            // Web Deploy MS Deploy handler
+            MsDeploy,
+            // SharePoint _layouts list
+            Sharepoint,
+            // Sitecore login
+            Sitecore,
+            // Umbraco install / config
+            Umbraco,
+        }
+
+        let probes: &[(&str, &str, Severity, f32, DiagSig)] = &[
+            (
+                "/ApplicationInsights.config",
+                "Application Insights Config",
+                Severity::High,
+                7.5,
+                DiagSig::AppInsightsXml,
+            ),
+            (
+                "/applicationinsights.config",
+                "Application Insights Config",
+                Severity::High,
+                7.5,
+                DiagSig::AppInsightsXml,
+            ),
+            (
+                "/signalr/negotiate",
+                "SignalR Hub Negotiation Endpoint",
+                Severity::Low,
+                3.7,
+                DiagSig::SignalRNegotiate,
+            ),
+            (
+                "/signalr/hubs",
+                "SignalR Hub Listing",
+                Severity::Medium,
+                5.3,
+                DiagSig::SignalRNegotiate,
+            ),
+            (
+                "/odata",
+                "OData Service Root",
+                Severity::Medium,
+                5.3,
+                DiagSig::OData,
+            ),
+            (
+                "/odata/$metadata",
+                "OData $metadata Schema",
+                Severity::Medium,
+                5.3,
+                DiagSig::OData,
+            ),
+            (
+                "/api/odata/$metadata",
+                "OData $metadata Schema",
+                Severity::Medium,
+                5.3,
+                DiagSig::OData,
+            ),
+            // SOAP / WCF
+            (
+                "/Service.svc?wsdl",
+                "WCF Service WSDL",
+                Severity::Low,
+                3.7,
+                DiagSig::SoapWsdl,
+            ),
+            (
+                "/Service.svc",
+                "WCF Service Endpoint",
+                Severity::Low,
+                3.7,
+                DiagSig::SoapWsdl,
+            ),
+            // gRPC-Web reflection (CVE-2024-43485-style)
+            (
+                "/grpc.reflection.v1alpha.ServerReflection",
+                "gRPC Reflection Endpoint",
+                Severity::Medium,
+                5.3,
+                DiagSig::GrpcWeb,
+            ),
+            // PDB symbol files leak class/method names + line numbers
+            (
+                "/bin/Debug/net8.0/MyApp.pdb",
+                "PDB Symbol File",
+                Severity::High,
+                7.5,
+                DiagSig::PdbFile,
+            ),
+            (
+                "/bin/App.pdb",
+                "PDB Symbol File",
+                Severity::High,
+                7.5,
+                DiagSig::PdbFile,
+            ),
+            // ELMAH download / RSS / feed (UI is owned by another module; these are
+            // the raw error-log export endpoints not commonly covered there).
+            (
+                "/elmah.axd/download",
+                "ELMAH Error Log Download (CSV)",
+                Severity::Critical,
+                9.1,
+                DiagSig::ElmahFeed,
+            ),
+            (
+                "/elmah.axd/digestrss",
+                "ELMAH Error Log RSS",
+                Severity::High,
+                7.5,
+                DiagSig::ElmahFeed,
+            ),
+            (
+                "/elmah.axd/rss",
+                "ELMAH Error Log RSS",
+                Severity::High,
+                7.5,
+                DiagSig::ElmahFeed,
+            ),
+            (
+                "/admin/elmah.axd/download",
+                "ELMAH Error Log Download (CSV)",
+                Severity::Critical,
+                9.1,
+                DiagSig::ElmahFeed,
+            ),
+            // Trace.axd direct request log
+            (
+                "/Trace.axd",
+                "ASP.NET Trace Viewer",
+                Severity::High,
+                7.5,
+                DiagSig::TraceAxd,
+            ),
+            (
+                "/trace.axd",
+                "ASP.NET Trace Viewer",
+                Severity::High,
+                7.5,
+                DiagSig::TraceAxd,
+            ),
+            // Web Deploy / MSDeploy.axd
+            (
+                "/MsDeploy.axd",
+                "Web Deploy Handler",
+                Severity::High,
+                7.5,
+                DiagSig::MsDeploy,
+            ),
+            (
+                "/msdeploy.axd",
+                "Web Deploy Handler",
+                Severity::High,
+                7.5,
+                DiagSig::MsDeploy,
+            ),
+            // SharePoint
+            (
+                "/_layouts/15/start.aspx",
+                "SharePoint _layouts Surface",
+                Severity::Medium,
+                5.3,
+                DiagSig::Sharepoint,
+            ),
+            (
+                "/_layouts/viewlsts.aspx",
+                "SharePoint Lists Browser",
+                Severity::Medium,
+                5.3,
+                DiagSig::Sharepoint,
+            ),
+            (
+                "/_api/web",
+                "SharePoint REST API Root",
+                Severity::Medium,
+                5.3,
+                DiagSig::Sharepoint,
+            ),
+            // Sitecore
+            (
+                "/sitecore/login/default.aspx",
+                "Sitecore CMS Login",
+                Severity::Medium,
+                5.3,
+                DiagSig::Sitecore,
+            ),
+            (
+                "/sitecore/admin/serializationtool.aspx",
+                "Sitecore Serialization Tool",
+                Severity::High,
+                7.5,
+                DiagSig::Sitecore,
+            ),
+            // Umbraco
+            (
+                "/umbraco",
+                "Umbraco CMS Admin",
+                Severity::Low,
+                3.7,
+                DiagSig::Umbraco,
+            ),
+            (
+                "/umbraco/install/",
+                "Umbraco Installer",
+                Severity::Critical,
+                9.8,
+                DiagSig::Umbraco,
+            ),
+        ];
+
+        for (path, name, severity, cvss, sig) in probes {
+            tests_run += 1;
+            let probe_url = format!("{}{}", base, path);
+
+            if let Ok(resp) = self.http_client.get(&probe_url).await {
+                if resp.status_code != 200 && resp.status_code != 401 && resp.status_code != 403 {
+                    continue;
+                }
+                let body = &resp.body;
+                let body_lower = body.to_lowercase();
+                let ct = resp
+                    .headers
+                    .get("content-type")
+                    .or_else(|| resp.headers.get("Content-Type"))
+                    .map(|s| s.to_lowercase())
+                    .unwrap_or_default();
+
+                let matched = match sig {
+                    DiagSig::AppInsightsXml => {
+                        resp.status_code == 200
+                            && (body.contains("<ApplicationInsights")
+                                || body.contains("InstrumentationKey")
+                                || body.contains("ConnectionString=\"InstrumentationKey="))
+                    }
+                    DiagSig::SignalRNegotiate => {
+                        resp.status_code == 200
+                            && ct.contains("application/json")
+                            && (body.contains("\"ConnectionToken\"")
+                                || body.contains("\"connectionId\"")
+                                || body.contains("\"availableTransports\""))
+                    }
+                    DiagSig::GrpcWeb => {
+                        resp.status_code == 200
+                            && (ct.contains("application/grpc")
+                                || ct.contains("application/grpc-web")
+                                || body.contains("grpc-status"))
+                    }
+                    DiagSig::OData => {
+                        resp.status_code == 200
+                            && (body.contains("xmlns:edmx=")
+                                || body.contains("<edmx:Edmx")
+                                || body.contains("OData-Version")
+                                || (ct.contains("application/json")
+                                    && body.contains("\"@odata.context\"")))
+                    }
+                    DiagSig::SoapWsdl => {
+                        resp.status_code == 200
+                            && (body.contains("<wsdl:definitions")
+                                || body.contains("<definitions")
+                                || body.contains("targetNamespace=\"http://tempuri.org/\"")
+                                || body.contains("<soap:binding"))
+                    }
+                    DiagSig::PdbFile => {
+                        let bytes = body.as_bytes();
+                        // PDB7 magic "BSJB" appears in portable PDB / metadata blobs.
+                        bytes.starts_with(b"Microsoft C/C++ MSF 7.00")
+                            || (body.len() > 1024 && body.contains("BSJB"))
+                    }
+                    DiagSig::ElmahFeed => {
+                        // ELMAH download = CSV; RSS = XML rss; both have distinct shapes.
+                        let csv_shape = body.starts_with("Application,Host,Type,Source,")
+                            || body.contains("Application,Host,Type,Source");
+                        let rss_shape = body.contains("<rss")
+                            && body_lower.contains("elmah");
+                        let json_shape = ct.contains("application/json")
+                            && body.contains("\"errors\"");
+                        resp.status_code == 200 && (csv_shape || rss_shape || json_shape)
+                    }
+                    DiagSig::TraceAxd => {
+                        resp.status_code == 200
+                            && body.contains("Application Trace")
+                            && body.contains("Trace.axd")
+                            && (body.contains("Time of Request")
+                                || body.contains("View Details"))
+                    }
+                    DiagSig::MsDeploy => {
+                        // MsDeploy.axd returns 200 with "MSDEPLOY" version markers, or
+                        // 401 with WWW-Authenticate Negotiate + "Microsoft-IIS".
+                        let server_lower = resp
+                            .headers
+                            .get("server")
+                            .map(|s| s.to_lowercase())
+                            .unwrap_or_default();
+                        let wwwauth_lower = resp
+                            .headers
+                            .get("www-authenticate")
+                            .map(|s| s.to_lowercase())
+                            .unwrap_or_default();
+                        (resp.status_code == 200
+                            && (body.contains("MSDeploy") || body.contains("MSDEPLOY")))
+                            || (resp.status_code == 401
+                                && server_lower.contains("microsoft-iis")
+                                && (wwwauth_lower.contains("negotiate")
+                                    || wwwauth_lower.contains("ntlm")))
+                    }
+                    DiagSig::Sharepoint => {
+                        resp.status_code == 200
+                            && (body.contains("MicrosoftSharePointTeamServices")
+                                || body.contains("SharePoint Foundation")
+                                || body.contains("/_layouts/")
+                                || body.contains("X-SharePointHealthScore"))
+                            || resp.headers.contains_key("MicrosoftSharePointTeamServices")
+                            || resp.headers.contains_key("microsoftsharepointteamservices")
+                            || resp.headers.contains_key("X-SharePointHealthScore")
+                    }
+                    DiagSig::Sitecore => {
+                        body_lower.contains("sitecore")
+                            && (body_lower.contains("password")
+                                || body_lower.contains("login")
+                                || body_lower.contains("admin"))
+                    }
+                    DiagSig::Umbraco => {
+                        body_lower.contains("umbraco")
+                            && (body.contains("umbraco.systemFolders")
+                                || body.contains("umbracoConfigurationStatus")
+                                || body_lower.contains("umbraco - back office")
+                                || body_lower.contains("umbraco backoffice")
+                                || body_lower.contains("umbraco installer")
+                                || body_lower.contains("install package"))
+                    }
+                };
+
+                if !matched {
+                    continue;
+                }
+
+                // For App Insights, escalate severity when we can read the actual
+                // instrumentation key.
+                let (sev, cvss_use, extra_note) = if matches!(sig, DiagSig::AppInsightsXml)
+                    && body.contains("InstrumentationKey=")
+                {
+                    (
+                        Severity::High,
+                        7.5,
+                        " Instrumentation key visible in response.",
+                    )
+                } else {
+                    (severity.clone(), *cvss, "")
+                };
+
+                vulnerabilities.push(Vulnerability {
+                    id: format!("aspnet_diag_{}", Self::generate_id()),
+                    vuln_type: format!("{} Exposed", name),
+                    severity: sev,
+                    confidence: Confidence::High,
+                    category: "Information Disclosure".to_string(),
+                    url: probe_url.clone(),
+                    parameter: Some(path.to_string()),
+                    payload: path.to_string(),
+                    description: format!(
+                        "{} is publicly accessible at {}.{}",
+                        name, path, extra_note
+                    ),
+                    evidence: Some(format!(
+                        "Status: {}\nContent-Type: {}\nMatched signature for {:?}",
+                        resp.status_code, ct, sig
+                    )),
+                    cwe: "CWE-200".to_string(),
+                    cvss: cvss_use,
+                    verified: true,
+                    false_positive: false,
+                    remediation: match sig {
+                        DiagSig::AppInsightsXml => "Move the instrumentation key to a server-only configuration source (User Secrets, Azure Key Vault, environment variable) and disable static serving of ApplicationInsights.config.".to_string(),
+                        DiagSig::SignalRNegotiate => "If SignalR is not in use, remove the handler. Otherwise restrict /signalr to authenticated users via [Authorize] on hubs.".to_string(),
+                        DiagSig::GrpcWeb => "Disable gRPC reflection in production via `services.AddGrpc().AddJsonTranscoding()` without `MapGrpcReflectionService()` in Program.cs.".to_string(),
+                        DiagSig::OData => "Require authentication on the OData controller (`[Authorize]`) and restrict `$metadata` for unauthenticated callers.".to_string(),
+                        DiagSig::SoapWsdl => "Disable HTTP GET WSDL exposure: in web.config remove `<serviceMetadata httpGetEnabled=\"true\"/>` from the service behaviour.".to_string(),
+                        DiagSig::PdbFile => "Configure the static-file pipeline to deny .pdb/.dll/.exe and avoid deploying bin/Debug artifacts to wwwroot.".to_string(),
+                        DiagSig::ElmahFeed => "Place ELMAH behind authentication: <elmah><security allowRemoteAccess=\"false\"/></elmah>. Also remove /elmah.axd/download in production.".to_string(),
+                        DiagSig::TraceAxd => "Set `<trace enabled=\"false\" localOnly=\"true\"/>` in web.config.".to_string(),
+                        DiagSig::MsDeploy => "Disable the Web Deploy / MSDeploy handler on production servers or scope it to internal management VLANs only.".to_string(),
+                        DiagSig::Sharepoint => "Restrict /_layouts and /_api with proper authentication and remove anonymous access if not required.".to_string(),
+                        DiagSig::Sitecore => "Restrict /sitecore admin endpoints to internal networks and rotate default admin credentials.".to_string(),
+                        DiagSig::Umbraco => "Remove the installer after deployment and restrict /umbraco access to internal IPs only.".to_string(),
+                    },
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                    ml_confidence: None,
+                    ml_data: None,
                 });
             }
         }
