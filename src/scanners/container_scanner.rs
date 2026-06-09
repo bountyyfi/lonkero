@@ -159,7 +159,7 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 15;
+        let tests_run = 33;
 
         debug!("Testing for Kubernetes API exposure");
 
@@ -169,11 +169,30 @@ impl ContainerScanner {
             ("/api/v1/pods", "K8s Pods"),
             ("/api/v1/secrets", "K8s Secrets"),
             ("/api/v1/services", "K8s Services"),
+            ("/api/v1/configmaps", "K8s ConfigMaps"),
+            ("/api/v1/nodes", "K8s Nodes"),
+            ("/api/v1/serviceaccounts", "K8s ServiceAccounts"),
+            ("/api/v1/persistentvolumes", "K8s PersistentVolumes"),
+            ("/api/v1/persistentvolumeclaims", "K8s PersistentVolumeClaims"),
+            ("/api/v1/events", "K8s Events"),
             ("/apis", "K8s APIs"),
+            ("/apis/apps/v1/deployments", "K8s Deployments"),
+            ("/apis/apps/v1/statefulsets", "K8s StatefulSets"),
+            ("/apis/apps/v1/daemonsets", "K8s DaemonSets"),
+            ("/apis/batch/v1/jobs", "K8s Jobs"),
+            ("/apis/batch/v1/cronjobs", "K8s CronJobs"),
+            ("/apis/networking.k8s.io/v1/ingresses", "K8s Ingresses"),
+            ("/apis/networking.k8s.io/v1/networkpolicies", "K8s NetworkPolicies"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterroles", "K8s ClusterRoles"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "K8s ClusterRoleBindings"),
             ("/healthz", "K8s Health"),
+            ("/livez", "K8s Liveness"),
+            ("/readyz", "K8s Readiness"),
             ("/version", "K8s Version"),
             ("/metrics", "K8s Metrics"),
             ("/swagger.json", "K8s Swagger"),
+            ("/openapi/v2", "K8s OpenAPI v2"),
+            ("/openapi/v3", "K8s OpenAPI v3"),
         ];
 
         for (endpoint, api_name) in k8s_endpoints {
@@ -276,15 +295,20 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 10;
+        let tests_run = 12;
 
         debug!("Testing for container registry exposure");
 
         let registry_endpoints = vec![
             ("/v2/", "Docker Registry v2"),
             ("/v2/_catalog", "Registry Catalog"),
+            ("/v2/_catalog?n=1000", "Registry Catalog (bulk)"),
             ("/v2/library/", "Registry Library"),
+            ("/v2/library/ubuntu/tags/list", "Registry Tags (ubuntu)"),
+            ("/v2/library/nginx/tags/list", "Registry Tags (nginx)"),
+            ("/v2/library/alpine/manifests/latest", "Registry Manifest (alpine)"),
             ("/v1/repositories/", "Registry Repositories"),
+            ("/v1/search", "Registry Search"),
             ("/v1/_ping", "Registry Ping"),
         ];
 
@@ -392,23 +416,66 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 12;
+        let tests_run = 40;
 
         debug!("Testing for container secrets exposure");
 
+        // Each of these paths returns a structurally-recognizable secret if
+        // exposed via a path-traversal / mis-routed reverse-proxy / mis-served
+        // static-file mount. `detect_container_secret` below requires a strong
+        // structural anchor (PEM header, JWT prefix, AWS_ env var, …) so a
+        // generic HTML page cannot match.
         let secret_paths = vec![
+            // Container runtime + daemon
             "/run/secrets/",
             "/.dockerenv",
             "/proc/self/environ",
             "/proc/1/environ",
+            "/proc/self/cgroup",
+            "/proc/1/cgroup",
+            "/proc/self/mountinfo",
+            "/etc/docker/daemon.json",
+            "/var/lib/docker/containers/",
+            // Kubernetes service-account projection (the path inside every pod)
             "/var/run/secrets/kubernetes.io/serviceaccount/token",
             "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
             "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+            // Kubelet + kubeconfig
             "/.kube/config",
+            "/etc/kubernetes/",
+            "/etc/kubernetes/admin.conf",
+            "/etc/kubernetes/kubelet.conf",
+            "/etc/kubernetes/controller-manager.conf",
+            "/etc/kubernetes/scheduler.conf",
+            "/etc/kubernetes/pki/ca.crt",
+            "/etc/kubernetes/pki/apiserver.crt",
+            "/etc/kubernetes/pki/apiserver.key",
+            "/etc/kubernetes/pki/etcd/server.crt",
+            "/etc/kubernetes/pki/etcd/server.key",
+            "/etc/kubernetes/manifests/kube-apiserver.yaml",
+            "/etc/kubernetes/manifests/etcd.yaml",
+            // Docker / OCI / Helm credentials
             "/root/.docker/config.json",
             "/home/*/.docker/config.json",
-            "/etc/docker/daemon.json",
-            "/etc/kubernetes/",
+            "/root/.config/helm/repositories.yaml",
+            // Build / deployment manifests left under web root
+            "/Dockerfile",
+            "/docker-compose.yml",
+            "/docker-compose.yaml",
+            "/docker-stack.yml",
+            "/.env",
+            "/.env.local",
+            "/.env.production",
+            "/.env.development",
+            // Cloud metadata endpoints reachable via SSRF-style or local-net hops.
+            // The detector requires JSON/IAM-shaped output, so an HTML page that
+            // happens to mention "169.254" won't trigger.
+            "/latest/meta-data/",
+            "/latest/meta-data/iam/security-credentials/",
+            "/latest/user-data",
+            "/computeMetadata/v1/instance/service-accounts/default/token",
+            "/metadata/instance?api-version=2021-02-01",
+            "/openstack/latest/meta_data.json",
         ];
 
         for secret_path in secret_paths {
@@ -521,24 +588,85 @@ impl ContainerScanner {
     }
 
     fn detect_container_secret(&self, body: &str) -> Option<String> {
-        let patterns = vec![
-            (r"eyJhbGciOi", "Kubernetes Service Account Token"),
+        // Each pattern is either a vendor-prefixed credential, a PEM armor block,
+        // or a structurally unambiguous JSON / YAML field. Generic environment
+        // variable name patterns (AWS_, KUBE_) require an `=` or `:` suffix to
+        // avoid matching a casual mention in HTML docs.
+        let patterns: &[(&str, &str)] = &[
+            // JWT — kubelet / serviceaccount tokens always have the {"alg":"…" header
+            // (`eyJhbGciOi` is the literal base64 prefix of `{"alg":"`). Payload
+            // begins with `eyJ` (`{"`). Signature is optional because partially-leaked
+            // tokens (e.g. truncated by an error page) are still actionable findings.
+            (
+                r"eyJhbGciOi[A-Za-z0-9_\-]{6,}\.eyJ[A-Za-z0-9_\-]{10,}(?:\.[A-Za-z0-9_\-]{10,})?",
+                "Kubernetes Service Account Token (JWT)",
+            ),
+            // PEM blocks — cannot appear by accident in an HTML error page.
             (r"-----BEGIN CERTIFICATE-----", "TLS Certificate"),
             (r"-----BEGIN RSA PRIVATE KEY-----", "RSA Private Key"),
+            (r"-----BEGIN EC PRIVATE KEY-----", "EC Private Key"),
+            (r"-----BEGIN OPENSSH PRIVATE KEY-----", "OpenSSH Private Key"),
             (r"-----BEGIN PRIVATE KEY-----", "Private Key"),
-            (r#""auths"\s*:"#, "Docker Registry Auth"),
-            (r"DOCKER_", "Docker Environment Variable"),
-            (r"KUBE_", "Kubernetes Environment Variable"),
-            (r"KUBERNETES_", "Kubernetes Environment Variable"),
-            (r"AWS_", "AWS Credential"),
-            (r"AZURE_", "Azure Credential"),
-            (r"GCP_", "GCP Credential"),
+            (r"-----BEGIN ENCRYPTED PRIVATE KEY-----", "Encrypted Private Key"),
+            // ~/.docker/config.json
+            (r#""auths"\s*:\s*\{"#, "Docker Registry Auth (config.json)"),
+            // kubeconfig — YAML with these three keys is uniquely a kubeconfig.
+            (
+                r"(?ms)^apiVersion:\s*v1.*^kind:\s*Config.*^clusters:",
+                "Kubernetes kubeconfig",
+            ),
+            // AWS access key id — IAM-issued prefix.
+            (r"\bAKIA[0-9A-Z]{16}\b", "AWS Access Key ID"),
+            (r"\bASIA[0-9A-Z]{16}\b", "AWS STS Temporary Key"),
+            // IMDSv2 IAM credential JSON — always carries these four keys together.
+            (
+                r#""AccessKeyId"\s*:\s*"[A-Z0-9]{16,}".+"SecretAccessKey"\s*:"#,
+                "AWS IMDS IAM Credentials",
+            ),
+            // GCP metadata token JSON
+            (
+                r#""access_token"\s*:\s*"ya29\.[A-Za-z0-9_\-]+""#,
+                "GCP Metadata Access Token",
+            ),
+            // Azure IMDS token JSON
+            (
+                r#""access_token"\s*:\s*"[A-Za-z0-9_\-\.]+","client_id"\s*:"#,
+                "Azure IMDS Access Token",
+            ),
+            // .env file with a real-looking key (require both a key and a =VALUE).
+            (
+                r"(?m)^(?:AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|DATABASE_URL|DB_PASSWORD|SECRET_KEY_BASE|DJANGO_SECRET_KEY|RAILS_MASTER_KEY|APP_KEY)\s*=\s*\S",
+                "Dotenv Secret",
+            ),
+            // Environment-name patterns — require `=VALUE` or `:VALUE` so the
+            // pattern doesn't match a plain word in documentation.
+            (
+                r"(?m)^DOCKER_[A-Z_]+\s*[:=]\s*\S",
+                "Docker Environment Variable",
+            ),
+            (
+                r"(?m)^KUBE(?:RNETES)?_[A-Z_]+\s*[:=]\s*\S",
+                "Kubernetes Environment Variable",
+            ),
+            (
+                r"(?m)^AZURE_[A-Z_]+\s*[:=]\s*\S",
+                "Azure Credential Env",
+            ),
+            (
+                r"(?m)^GCP_[A-Z_]+\s*[:=]\s*\S",
+                "GCP Credential Env",
+            ),
+            // /proc/self/cgroup line that reveals the container runtime + ID.
+            (
+                r"/(?:docker|kubepods|containerd|crio)/[0-9a-f]{12,}",
+                "Container Runtime Cgroup Path",
+            ),
         ];
 
         for (pattern, secret_type) in patterns {
             if let Ok(re) = Regex::new(pattern) {
                 if re.is_match(body) {
-                    return Some(secret_type.to_string());
+                    return Some((*secret_type).to_string());
                 }
             }
         }

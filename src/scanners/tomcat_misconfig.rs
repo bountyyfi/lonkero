@@ -283,6 +283,193 @@ impl TomcatMisconfigScanner {
             }
         }
 
+        // Test 6: Sensitive Tomcat / Spring-Boot configuration & log file disclosure.
+        //
+        // Each path is anchored to a content fingerprint unique to the real file —
+        // a generic 200 OK with any HTML is NOT enough to fire. This keeps the
+        // signal-to-noise ratio extremely high on real targets.
+        //
+        // Severity tiers:
+        //   Critical : tomcat-users.xml, context.xml  (live credentials likely)
+        //   High     : web.xml, server.xml            (deployment / connector secrets)
+        //   Medium   : catalina.policy, log files      (paths, IPs, stack traces)
+        tests_run += 1;
+        let sensitive_files: Vec<(&str, &str)> = vec![
+            ("/WEB-INF/web.xml", "Tomcat web.xml deployment descriptor"),
+            ("/WEB-INF/classes/application.properties", "Spring Boot application.properties"),
+            ("/WEB-INF/classes/application.yml", "Spring Boot application.yml"),
+            ("/WEB-INF/classes/application-dev.properties", "Spring Boot dev profile properties"),
+            ("/WEB-INF/classes/application-prod.properties", "Spring Boot prod profile properties"),
+            ("/WEB-INF/classes/log4j.properties", "log4j configuration"),
+            ("/WEB-INF/classes/logback.xml", "logback configuration"),
+            ("/META-INF/context.xml", "Tomcat context.xml (may contain DB credentials)"),
+            ("/META-INF/MANIFEST.MF", "JAR manifest"),
+            ("/conf/tomcat-users.xml", "Tomcat user/role definitions"),
+            ("/conf/server.xml", "Tomcat server.xml configuration"),
+            ("/conf/catalina.policy", "Tomcat security policy"),
+            ("/conf/catalina.properties", "Tomcat catalina.properties"),
+            ("/conf/web.xml", "Tomcat default web.xml"),
+            ("/conf/context.xml", "Tomcat global context.xml"),
+            ("/conf/logging.properties", "Tomcat logging configuration"),
+            ("/logs/catalina.out", "Tomcat main log file"),
+            ("/logs/manager.log", "Tomcat manager log"),
+            ("/logs/host-manager.log", "Tomcat host-manager log"),
+            ("/logs/localhost_access_log.txt", "Tomcat access log"),
+        ];
+
+        // Pre-compile the access log regex once.
+        let access_log_re =
+            regex::Regex::new(r#"\d+\.\d+\.\d+\.\d+ \S+ \S+ \[\d+/\w+/\d{4}"#).ok();
+
+        for (path, desc) in &sensitive_files {
+            tests_run += 1;
+            let test_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if response.status_code != 200 || response.body.is_empty() {
+                        continue;
+                    }
+                    let body = &response.body;
+                    let body_lower = body.to_lowercase();
+
+                    // Soft-block error pages that some servers return with 200.
+                    if body_lower.contains("<title>404")
+                        || body_lower.contains("not found</title>")
+                        || body_lower.contains("access denied")
+                    {
+                        continue;
+                    }
+
+                    let confirmed = match *path {
+                        "/WEB-INF/web.xml" | "/conf/web.xml" => {
+                            body.contains("<web-app")
+                                && (body_lower.contains("<servlet")
+                                    || body_lower.contains("<filter")
+                                    || body_lower.contains("<security-constraint"))
+                        }
+                        "/META-INF/context.xml" | "/conf/context.xml" => {
+                            body.contains("<Context")
+                                && (body_lower.contains("<resource")
+                                    || body_lower.contains("<realm")
+                                    || body_lower.contains("<valve"))
+                        }
+                        "/conf/tomcat-users.xml" => {
+                            body.contains("<tomcat-users")
+                                && (body_lower.contains("<user ")
+                                    || body_lower.contains("<role "))
+                        }
+                        "/conf/server.xml" => {
+                            body.contains("<Server") && body_lower.contains("<connector")
+                        }
+                        "/conf/catalina.policy" => {
+                            body.contains("grant codeBase") && body.contains("permission")
+                        }
+                        "/conf/catalina.properties" => {
+                            body_lower.contains("common.loader=")
+                                || body_lower.contains("server.loader=")
+                                || body_lower.contains("shared.loader=")
+                        }
+                        "/conf/logging.properties" => {
+                            body_lower.contains("handlers=")
+                                && body_lower.contains("java.util.logging")
+                        }
+                        "/META-INF/MANIFEST.MF" => {
+                            body.starts_with("Manifest-Version:")
+                                || body.contains("Manifest-Version: 1.0")
+                        }
+                        "/WEB-INF/classes/application.properties"
+                        | "/WEB-INF/classes/application-dev.properties"
+                        | "/WEB-INF/classes/application-prod.properties" => {
+                            body_lower.contains("spring.")
+                                || body_lower.contains("server.port=")
+                                || body_lower.contains("datasource.")
+                                || body_lower.contains("logging.level")
+                        }
+                        "/WEB-INF/classes/application.yml" => {
+                            (body_lower.contains("spring:")
+                                || body_lower.contains("server:"))
+                                && body.contains(':')
+                        }
+                        "/WEB-INF/classes/log4j.properties" => {
+                            body_lower.contains("log4j.rootlogger")
+                                || body_lower.contains("log4j.appender")
+                        }
+                        "/WEB-INF/classes/logback.xml" => {
+                            body.contains("<configuration")
+                                && (body_lower.contains("<appender")
+                                    || body_lower.contains("<logger"))
+                        }
+                        "/logs/catalina.out"
+                        | "/logs/manager.log"
+                        | "/logs/host-manager.log" => {
+                            body_lower.contains("org.apache.catalina")
+                                || body_lower.contains("starting service")
+                                || body.contains("INFO [")
+                                || body.contains("SEVERE [")
+                        }
+                        "/logs/localhost_access_log.txt" => access_log_re
+                            .as_ref()
+                            .map(|r| r.is_match(body))
+                            .unwrap_or(false),
+                        _ => false,
+                    };
+
+                    if !confirmed {
+                        continue;
+                    }
+
+                    let (severity, cvss) = match *path {
+                        "/conf/tomcat-users.xml"
+                        | "/META-INF/context.xml"
+                        | "/conf/context.xml" => (Severity::Critical, 9.0),
+                        "/WEB-INF/web.xml"
+                        | "/conf/web.xml"
+                        | "/conf/server.xml"
+                        | "/WEB-INF/classes/application.properties"
+                        | "/WEB-INF/classes/application-dev.properties"
+                        | "/WEB-INF/classes/application-prod.properties"
+                        | "/WEB-INF/classes/application.yml" => (Severity::High, 7.5),
+                        _ => (Severity::Medium, 5.3),
+                    };
+
+                    // Trim a preview so the evidence is useful but bounded.
+                    let preview: String = body.chars().take(240).collect();
+
+                    info!(
+                        "Tomcat sensitive file disclosed at {} ({})",
+                        test_url, desc
+                    );
+                    vulnerabilities.push(self.create_vulnerability(
+                        &test_url,
+                        "TOMCAT_SENSITIVE_FILE_DISCLOSURE",
+                        &format!("Tomcat Sensitive File Disclosure: {}", path),
+                        &format!(
+                            "{} accessible without authentication at {}.\nFingerprint: matched expected file structure.\nFirst 240 chars:\n{}",
+                            desc, path, preview
+                        ),
+                        severity,
+                        Confidence::High,
+                        cvss,
+                        "1. Block direct access to /WEB-INF, /META-INF, /conf, /logs at the reverse proxy.\n\
+                         2. Tomcat's default servlet rejects /WEB-INF — if these paths are served, the\n\
+                            fronting proxy (nginx/Apache/IIS) is misrouting or path normalization is off.\n\
+                         3. If tomcat-users.xml or context.xml are exposed, rotate every credential they\n\
+                            contain immediately (DB passwords, manager creds, realm secrets).\n\
+                         4. Move log files outside the deployable webapp directory; never publish /logs.\n\
+                         5. Re-deploy with <security-constraint> on /WEB-INF/* and /META-INF/* in web.xml\n\
+                            and verify with `curl -I .../WEB-INF/web.xml` that the response is 404."
+                    ));
+                    // One finding per scan is enough — the remediation is the same and
+                    // we don't want noise from multiple paths exposed by the same misconfig.
+                    break;
+                }
+                Err(e) => {
+                    debug!("Sensitive file check failed for {}: {}", test_url, e);
+                }
+            }
+        }
+
         // Test 5: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
         tests_run += 1;
         // This is a network-level check, we can only detect via headers or info disclosure

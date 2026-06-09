@@ -344,6 +344,118 @@ impl VarnishMisconfigScanner {
             debug!("No caching proxy detected, skipping cache poisoning tests");
         }
 
+        // Test 6: vagent2 (Varnish Agent) administrative HTTP API exposure.
+        //
+        // vagent2 ships with Varnish Plus / Cache-enterprise and exposes a JSON
+        // admin surface over HTTP. When it is mistakenly published to the
+        // internet — usually because it shares a hostname with the cache and
+        // the operator forgot to bind it to localhost — an unauthenticated
+        // attacker can read the live VCL, dump the panic log (containing
+        // arbitrary leaked request bodies), and reload backends to attacker-
+        // controlled hosts.
+        //
+        // Each endpoint is matched on a vagent-specific JSON shape so a generic
+        // 200 OK cannot trigger.
+        tests_run += 1;
+        let vagent_endpoints: &[(&str, &str, &[&str])] = &[
+            (
+                "/vcljson",
+                "vagent2 VCL list (live config dump)",
+                &["\"available\"", "\"vcl\"", "\"active\""],
+            ),
+            (
+                "/vcl",
+                "vagent2 active VCL source",
+                &["vcl 4.", "sub vcl_recv", "backend default"],
+            ),
+            (
+                "/panic",
+                "vagent2 panic log (leaks request data + stack)",
+                &["Last panic", "Panic in thread", "Backtrace:"],
+            ),
+            (
+                "/paramquery",
+                "vagent2 runtime parameters",
+                &[
+                    "\"name\":\"default_ttl\"",
+                    "\"name\":\"thread_pools\"",
+                    "\"name\":\"workspace_client\"",
+                ],
+            ),
+            (
+                "/stats",
+                "vagent2 statistics",
+                &[
+                    "\"MAIN.cache_hit\"",
+                    "\"MAIN.client_req\"",
+                    "\"MAIN.backend_conn\"",
+                ],
+            ),
+            (
+                "/backend.json",
+                "vagent2 backend definitions",
+                &["\"backends\"", "\"director\"", "\"probe\""],
+            ),
+            (
+                "/banlist",
+                "vagent2 ban list (cache invalidation entries)",
+                &["\"bans\"", "\"obj.http", "\"req.url"],
+            ),
+        ];
+
+        for (path, desc, anchors) in vagent_endpoints {
+            tests_run += 1;
+            let test_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if response.status_code != 200 || response.body.is_empty() {
+                        continue;
+                    }
+                    let body = &response.body;
+
+                    // Require at least two distinct vagent-specific markers so a
+                    // generic JSON API that happens to contain one matching token
+                    // (e.g. "backends" in a cloud SDK response) cannot trigger.
+                    let matched: usize = anchors.iter().filter(|m| body.contains(*m)).count();
+                    if matched < 2 {
+                        continue;
+                    }
+
+                    info!(
+                        "vagent2 admin endpoint exposed at {} ({})",
+                        test_url, desc
+                    );
+                    vulnerabilities.push(self.create_vulnerability(
+                        &test_url,
+                        "VARNISH_VAGENT_ADMIN_EXPOSED",
+                        &format!("Varnish vagent2 Admin Endpoint Exposed: {}", path),
+                        &format!(
+                            "{}\nURL: {}\nMatched anchors: {}/{}\nThe vagent2 administrative HTTP API is reachable without authentication and is leaking live cache configuration / state.",
+                            desc, test_url, matched, anchors.len()
+                        ),
+                        Severity::Critical,
+                        Confidence::High,
+                        9.1,
+                        "1. Bind vagent2 to 127.0.0.1 only: edit /etc/default/varnish-agent\n\
+                            (or the systemd unit) so the -L flag listens on localhost.\n\
+                         2. If remote management is required, put vagent2 behind HTTPS + HTTP\n\
+                            basic-auth through a reverse proxy with IP allowlisting.\n\
+                         3. Treat a previously-public vagent2 as compromised: review\n\
+                            /panic for leaked request bodies, rotate any credentials those\n\
+                            requests carried, and audit the active VCL for attacker-added\n\
+                            backends or `return(pass)` clauses.\n\
+                         4. Disable /panic in production (varnish_panic_endpoint = off) so a\n\
+                            future leak does not include in-flight request data.",
+                    ));
+                    break;
+                }
+                Err(e) => {
+                    debug!("vagent2 check failed for {}: {}", test_url, e);
+                }
+            }
+        }
+
         // Test 5: OPTIONS method to discover allowed methods
         tests_run += 1;
         match self.http_client.request_with_method("OPTIONS", url).await {
