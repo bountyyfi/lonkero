@@ -49,8 +49,14 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// The list mixes framework defaults (Springdoc, Quarkus, FastAPI, NestJS,
+/// Django REST framework, Flask-restx, ASP.NET) with the legacy Swagger 1.x
+/// `/api-docs` layouts that some long-lived gateways still publish. All paths
+/// are static; dynamic discovery happens elsewhere via HTML / link headers.
 const OPENAPI_PATHS: &[&str] = &[
+    // Original list
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,20 +76,126 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Springdoc (Spring Boot 2.x+ standard)
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v3/api-docs",
+    "/api/v3/api-docs.yaml",
+    // Springfox (older Spring Boot)
+    "/v2/api-docs",
+    "/v2/api-docs?group=default",
+    "/api/v2/api-docs",
+    // Quarkus / SmallRye
+    "/q/openapi",
+    "/q/openapi.json",
+    "/q/openapi.yaml",
+    "/openapi",
+    // ASP.NET / .NET 6+
+    "/swagger/v1/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // FastAPI / Starlette default
+    "/openapi.yml",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    // NestJS default
+    "/api/docs-json",
+    "/api/docs-yaml",
+    "/docs-json",
+    // Django REST Framework / drf-spectacular / drf-yasg
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/swagger.json/",
+    "/swagger.yaml/",
+    // Flask-restx / Flask-restplus
+    "/swagger.json",
+    "/swaggerui/",
+    // Tyk / Kong / api-gateways
+    "/tyk/apis/",
+    "/openapi-spec.json",
+    "/openapi-spec.yaml",
+    // Loopback
+    "/explorer/swagger.json",
+    "/explorer/swagger.yaml",
+    // Hapi
+    "/swagger.json",
+    "/documentation/swagger.json",
+    // Stoplight / Prism
+    "/spec.yaml",
+    "/spec.json",
+    "/reference/openapi.json",
+    "/reference/openapi.yaml",
+    // Common gateway / proxy variants
+    "/api/swagger/v1/swagger.json",
+    "/api/swagger/v2/swagger.json",
+    "/api/swagger/v3/swagger.json",
+    "/admin/swagger.json",
+    "/internal/openapi.json",
+    "/private/openapi.json",
+    "/_/openapi.json",
+    "/__swagger__/openapi.json",
+    // Yaml fallbacks at the well-known location
+    "/.well-known/openapi.yaml",
+    "/.well-known/api-catalog",
+    // Service-name prefixed variants
+    "/api/swagger-config",
+    "/api-docs/swagger-config",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI paths.
+///
+/// Discovery here is purely for surfacing the UI — actual security analysis
+/// uses the underlying spec found via OPENAPI_PATHS or via the
+/// `swagger-config` JSON returned by `/swagger-resources`.
 const SWAGGER_UI_PATHS: &[&str] = &[
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
     "/docs/",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
     "/rapidoc",
+    "/rapidoc.html",
+    // Springdoc default UI mount
+    "/swagger-ui/index.html",
+    "/swagger-ui.html",
+    "/webjars/swagger-ui/index.html",
+    // Quarkus
+    "/q/swagger-ui",
+    "/q/swagger-ui/",
+    // FastAPI default
+    "/docs",
+    "/redoc",
+    // NestJS
+    "/api",
+    "/api/",
+    // Stoplight Elements
+    "/api-reference",
+    "/api-reference/",
+    // Common test/staging mount points
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/v1/docs",
+    "/v2/docs",
+    "/v3/docs",
+    "/internal/docs",
+    "/admin/docs",
+    "/dev/docs",
+    "/staging/docs",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

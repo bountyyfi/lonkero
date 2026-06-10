@@ -454,6 +454,356 @@ impl GoogleDorkingScanner {
             impact: "Public Trello boards may expose project details and credentials".to_string(),
         });
 
+        // ----------------------------------------------------------------
+        // High-impact sensitive-data recon dorks.
+        //
+        // Each dork below is anchored on a vendor- or filename-specific
+        // string (e.g. `DB_PASSWORD`, `.git/config`, `kind: Secret`) so the
+        // operator can take the query straight to Google with a low chance
+        // of having to wade through unrelated matches.
+        // ----------------------------------------------------------------
+
+        // Exposed .env files (Laravel / Symfony / Node / Rails)
+        dorks.push(GoogleDork {
+            category: "Exposed Secrets".to_string(),
+            query: format!(
+                "site:{} (inurl:.env | inurl:.env.local | inurl:.env.production | inurl:.env.dev) intext:DB_PASSWORD | intext:APP_KEY | intext:AWS_SECRET",
+                clean_domain
+            ),
+            description: "Find indexed .env files containing application secrets".to_string(),
+            impact: "Full database credentials, app encryption keys, and cloud secrets — immediate full compromise.".to_string(),
+        });
+
+        // Exposed .git directory
+        dorks.push(GoogleDork {
+            category: "Exposed Secrets".to_string(),
+            query: format!(
+                "site:{} (inurl:\".git/config\" | inurl:\".git/HEAD\" | inurl:\".git/logs/HEAD\")",
+                clean_domain
+            ),
+            description: "Find publicly browsable .git directories".to_string(),
+            impact: "Full source-code dump via git tree reconstruction; often includes historic secrets.".to_string(),
+        });
+
+        // Exposed wp-config backups
+        dorks.push(GoogleDork {
+            category: "Exposed Secrets".to_string(),
+            query: format!(
+                "site:{} (inurl:wp-config.php.bak | inurl:wp-config.txt | inurl:wp-config.old | inurl:wp-config.php~ | inurl:wp-config.php.swp)",
+                clean_domain
+            ),
+            description: "Find WordPress configuration backups served as text".to_string(),
+            impact: "Direct disclosure of database credentials, AUTH_KEY / NONCE_KEY secrets, and salts.".to_string(),
+        });
+
+        // Database dumps
+        dorks.push(GoogleDork {
+            category: "Database Dumps".to_string(),
+            query: format!(
+                "site:{} (ext:sql | ext:db | ext:sqlite | ext:dbf | ext:mdb) (intext:\"INSERT INTO\" | intext:\"CREATE TABLE\" | intext:\"DROP TABLE\")",
+                clean_domain
+            ),
+            description: "Find exposed database dumps containing raw INSERT/CREATE statements".to_string(),
+            impact: "Whole-database data exfiltration including user records, hashes, and PII.".to_string(),
+        });
+
+        // Heap dumps / core dumps (JVM, Node, native)
+        dorks.push(GoogleDork {
+            category: "Memory Dumps".to_string(),
+            query: format!(
+                "site:{} (ext:hprof | ext:dmp | ext:dump | ext:core | inurl:heapdump | inurl:\"/actuator/heapdump\")",
+                clean_domain
+            ),
+            description: "Find exposed JVM heap dumps and process core dumps".to_string(),
+            impact: "Heap dumps contain in-memory secrets: JWT signing keys, DB passwords, session tokens.".to_string(),
+        });
+
+        // Spring Boot Actuator (very high impact when exposed)
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (inurl:\"/actuator/env\" | inurl:\"/actuator/heapdump\" | inurl:\"/actuator/threaddump\" | inurl:\"/actuator/mappings\" | inurl:\"/actuator/configprops\")",
+                clean_domain
+            ),
+            description: "Find exposed Spring Boot Actuator management endpoints".to_string(),
+            impact: "/env leaks env-var secrets; /heapdump enables full memory exfiltration; /mappings enumerates internal routes.".to_string(),
+        });
+
+        // Kubernetes / Helm / kubeconfig
+        dorks.push(GoogleDork {
+            category: "Kubernetes Secrets".to_string(),
+            query: format!(
+                "site:{} (inurl:\".kube/config\" | inurl:kubeconfig | (inurl:values.yaml intext:password) | (intext:\"kind: Secret\" intext:\"data:\"))",
+                clean_domain
+            ),
+            description: "Find kubeconfig files, Helm values with passwords, and serialized Kubernetes Secrets".to_string(),
+            impact: "Cluster-admin credentials, base64-encoded secrets, and full control-plane access.".to_string(),
+        });
+
+        // Terraform state files (contain plaintext secrets)
+        dorks.push(GoogleDork {
+            category: "Infrastructure as Code".to_string(),
+            query: format!(
+                "site:{} (ext:tfstate | ext:tfstate.backup | ext:tfvars)",
+                clean_domain
+            ),
+            description: "Find exposed Terraform state and variable files".to_string(),
+            impact: "Plaintext provider credentials, DB passwords, and inventory of the entire cloud estate.".to_string(),
+        });
+
+        // CI / pipeline configuration with embedded secrets
+        dorks.push(GoogleDork {
+            category: "CI/CD Configuration".to_string(),
+            query: format!(
+                "site:{} (inurl:.gitlab-ci.yml | inurl:.travis.yml | inurl:.circleci/config.yml | inurl:bitbucket-pipelines.yml | inurl:azure-pipelines.yml | inurl:Jenkinsfile)",
+                clean_domain
+            ),
+            description: "Find exposed CI/CD pipeline definitions".to_string(),
+            impact: "Reveals deployment topology, secret names, and occasionally inline tokens.".to_string(),
+        });
+
+        // Open directory listings (the original sensitive-finder)
+        dorks.push(GoogleDork {
+            category: "Directory Listings".to_string(),
+            query: format!(
+                "site:{} intitle:\"Index of /\" (intext:\"Parent Directory\" | intext:\"Last modified\")",
+                clean_domain
+            ),
+            description: "Find Apache/nginx autoindex listings".to_string(),
+            impact: "Browsable filesystem exposes backups, log files, and source archives.".to_string(),
+        });
+
+        // Apache/nginx server-status (mod_status)
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (inurl:server-status intitle:\"Apache Status\" | inurl:server-info intitle:\"Apache Server Information\" | inurl:nginx_status)",
+                clean_domain
+            ),
+            description: "Find exposed mod_status / nginx stub_status pages".to_string(),
+            impact: "Reveals every request URL processed by the server (incl. session tokens in query strings).".to_string(),
+        });
+
+        // phpinfo() pages
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (inurl:phpinfo.php | inurl:info.php | inurl:test.php intext:\"PHP Version\") intext:\"PHP Logo\"",
+                clean_domain
+            ),
+            description: "Find exposed phpinfo() output".to_string(),
+            impact: "Discloses full server filesystem layout, env vars, loaded extensions, INI paths — primary recon for chained RCE.".to_string(),
+        });
+
+        // Kibana / Elasticsearch console
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Kibana\" inurl:app/kibana | inurl:_cat/indices | inurl:_search?q | intitle:\"Elasticsearch\" inurl:_cluster)",
+                clean_domain
+            ),
+            description: "Find exposed Kibana dashboards and Elasticsearch APIs".to_string(),
+            impact: "Direct query access to log/event indices that frequently contain PII and bearer tokens.".to_string(),
+        });
+
+        // Grafana login pages
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Grafana\" inurl:login | intitle:\"Grafana\" inurl:/d/)",
+                clean_domain
+            ),
+            description: "Find exposed Grafana instances".to_string(),
+            impact: "Default `admin:admin` historically common; dashboards reveal architecture and metrics endpoints.".to_string(),
+        });
+
+        // Prometheus / Alertmanager
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Prometheus Time Series Collection and Processing Server\" | inurl:/graph?g0.expr | intitle:\"Alertmanager\")",
+                clean_domain
+            ),
+            description: "Find exposed Prometheus and Alertmanager UIs".to_string(),
+            impact: "Unauthenticated query of internal metrics + ability to silence production alerts.".to_string(),
+        });
+
+        // Kubernetes Dashboard
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Kubernetes Dashboard\" | inurl:\"/api/v1/namespaces/kubernetes-dashboard\")",
+                clean_domain
+            ),
+            description: "Find exposed Kubernetes Dashboard installations".to_string(),
+            impact: "Anonymous-bound dashboards historically allow full cluster-admin pod exec.".to_string(),
+        });
+
+        // Mongo Express, Redis Commander, pgAdmin, phpMyAdmin
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Mongo Express\" | intitle:\"Redis Commander\" | intitle:\"phpMyAdmin\" inurl:index.php | intitle:\"pgAdmin\" inurl:login)",
+                clean_domain
+            ),
+            description: "Find exposed database admin web UIs".to_string(),
+            impact: "Default credentials and weak auth on these tools = full database read/write.".to_string(),
+        });
+
+        // RabbitMQ / Kafka / Hadoop UI
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (intitle:\"RabbitMQ Management\" | intitle:\"Kafka Manager\" | intitle:\"Hadoop\" inurl:cluster | intitle:\"YARN ResourceManager\")",
+                clean_domain
+            ),
+            description: "Find exposed message-broker and big-data cluster UIs".to_string(),
+            impact: "Queue/topic enumeration, message peeking, and on Hadoop/YARN: pre-auth RCE via job submission.".to_string(),
+        });
+
+        // Jenkins (script console + build history)
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (inurl:/script intitle:\"Script Console\" | inurl:/manage/script | intitle:\"Dashboard [Jenkins]\")",
+                clean_domain
+            ),
+            description: "Find exposed Jenkins masters and Groovy script consoles".to_string(),
+            impact: "Script Console = pre-auth Groovy RCE when anonymous read/admin is set.".to_string(),
+        });
+
+        // Spring Cloud / Eureka / Consul
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Eureka\" inurl:apps | inurl:/v1/agent/checks intext:\"Consul\" | inurl:/ui/dc1)",
+                clean_domain
+            ),
+            description: "Find exposed Eureka registries and Consul UIs".to_string(),
+            impact: "Internal service inventory + ability to manipulate discovery to hijack traffic.".to_string(),
+        });
+
+        // Hardcoded webhooks indexed in public pages
+        dorks.push(GoogleDork {
+            category: "Hardcoded Webhooks".to_string(),
+            query: format!(
+                "site:{} (intext:\"hooks.slack.com/services/\" | intext:\"discord.com/api/webhooks/\" | intext:\"discordapp.com/api/webhooks/\")",
+                clean_domain
+            ),
+            description: "Find Slack/Discord webhook URLs in indexed pages".to_string(),
+            impact: "Anyone can post arbitrary messages into internal channels — phishing pivot and reputation damage.".to_string(),
+        });
+
+        // Hardcoded high-value tokens / API keys
+        dorks.push(GoogleDork {
+            category: "Hardcoded Credentials".to_string(),
+            query: format!(
+                "site:{} (intext:\"sk_live_\" | intext:\"AKIA\" intext:\"SECRET\" | intext:\"AIza\" intext:\"key=\" | intext:\"ghp_\" | intext:\"glpat-\")",
+                clean_domain
+            ),
+            description: "Find indexed pages containing live Stripe / AWS / Google / GitHub / GitLab tokens".to_string(),
+            impact: "Each prefix is vendor-issued and uniquely identifies a live credential — direct take-over.".to_string(),
+        });
+
+        // JWT leaking through HTML / JS bundles
+        dorks.push(GoogleDork {
+            category: "Hardcoded Credentials".to_string(),
+            query: format!(
+                "site:{} intext:\"eyJhbGciOi\"",
+                clean_domain
+            ),
+            description: "Find JWT tokens embedded in indexed HTML or JS".to_string(),
+            impact: "JWTs often have long expiries; static service-account tokens grant ongoing API access.".to_string(),
+        });
+
+        // Cloud metadata reflected through SSRF-prone proxies
+        dorks.push(GoogleDork {
+            category: "Cloud Metadata Leakage".to_string(),
+            query: format!(
+                "site:{} (intext:\"ami-id\" intext:\"instance-id\" | intext:\"iam/security-credentials\" | intext:\"metadata.google.internal\")",
+                clean_domain
+            ),
+            description: "Find cached responses that echo cloud instance metadata".to_string(),
+            impact: "Indicates an SSRF-to-IMDS path that may already have leaked role credentials.".to_string(),
+        });
+
+        // Generic backup / temp file extensions
+        dorks.push(GoogleDork {
+            category: "Backup Files".to_string(),
+            query: format!(
+                "site:{} (ext:bak | ext:old | ext:backup | ext:save | ext:swp | ext:swo | ext:orig | ext:tmp | ext:~)",
+                clean_domain
+            ),
+            description: "Find files served with backup/editor swap extensions".to_string(),
+            impact: "Editor swaps and renamed backups frequently expose pre-deploy source with debug code and credentials.".to_string(),
+        });
+
+        // VS Code / JetBrains IDE config that leaks remotes, paths, debug ports
+        dorks.push(GoogleDork {
+            category: "IDE Configuration".to_string(),
+            query: format!(
+                "site:{} (inurl:\".vscode/settings.json\" | inurl:\".vscode/sftp.json\" | inurl:\".idea/workspace.xml\" | inurl:\".idea/dataSources.xml\")",
+                clean_domain
+            ),
+            description: "Find exposed editor configuration files".to_string(),
+            impact: "sftp.json contains deploy passwords; dataSources.xml contains DB connection strings.".to_string(),
+        });
+
+        // Composer / NPM / Pipfile lock disclosure (precise SCA-aware exploits)
+        dorks.push(GoogleDork {
+            category: "Dependency Files".to_string(),
+            query: format!(
+                "site:{} (inurl:composer.lock | inurl:package-lock.json | inurl:yarn.lock | inurl:Pipfile.lock | inurl:Gemfile.lock | inurl:go.sum)",
+                clean_domain
+            ),
+            description: "Find dependency lock files served from web root".to_string(),
+            impact: "Exact version manifest enables targeted CVE exploitation against known-vulnerable transitive deps.".to_string(),
+        });
+
+        // Mailing-list and code-review leaks of internal email/credentials
+        dorks.push(GoogleDork {
+            category: "Information Leakage".to_string(),
+            query: format!(
+                "(site:lists.openwall.net | site:seclists.org | site:marc.info) \"{}\"",
+                clean_domain
+            ),
+            description: "Find domain references in public security mailing lists".to_string(),
+            impact: "Past disclosures may reveal unpatched bugs, internal contacts, and architectural details.".to_string(),
+        });
+
+        // GitHub code-search variants (more specific than generic site:github.com)
+        dorks.push(GoogleDork {
+            category: "Code Repositories".to_string(),
+            query: format!(
+                "site:github.com \"{}\" (DB_PASSWORD | SECRET_KEY | API_KEY | private_key | password)",
+                clean_domain
+            ),
+            description: "Find GitHub commits/files referencing the domain alongside secret-shaped tokens".to_string(),
+            impact: "Catches contractors / interns committing creds tied to the target into public repos.".to_string(),
+        });
+
+        // SOAP/WSDL legacy interfaces
+        dorks.push(GoogleDork {
+            category: "API Endpoints".to_string(),
+            query: format!(
+                "site:{} (ext:wsdl | inurl:?wsdl | filetype:wsdl)",
+                clean_domain
+            ),
+            description: "Find exposed SOAP/WSDL service definitions".to_string(),
+            impact: "Full enumeration of legacy SOAP methods, often unauthenticated and XXE/XPath-injection prone.".to_string(),
+        });
+
+        // Atlassian Crowd / Confluence / Jira indexed admin/anonymous pages
+        dorks.push(GoogleDork {
+            category: "Exposed Admin Endpoints".to_string(),
+            query: format!(
+                "site:{} (inurl:\"/wiki/people\" | inurl:\"/secure/Dashboard.jspa\" | inurl:\"/crowd/console\" | inurl:\"/plugins/servlet/oauth/users\")",
+                clean_domain
+            ),
+            description: "Find anonymously accessible Atlassian admin/people pages".to_string(),
+            impact: "User-directory enumeration feeds password-spray and reveals internal organisational structure.".to_string(),
+        });
+
         // Build categories map
         let mut by_category: HashMap<String, Vec<GoogleDork>> = HashMap::new();
         for dork in &dorks {
