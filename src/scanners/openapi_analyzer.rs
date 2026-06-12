@@ -70,6 +70,58 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Additional versioned api-docs endpoints (Springfox/Springdoc, Drf-yasg, NestJS)
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v1/api-docs",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/openapi.yaml",
+    "/api/v2/openapi.yaml",
+    "/api/v3/openapi.yaml",
+    "/api/openapi.yaml",
+    "/api/openapi",
+    "/api/swagger",
+    "/openapi",
+    "/swagger",
+    // Stoplight / RapidAPI / generic spec exposure
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    "/api-spec",
+    "/api-spec.json",
+    "/api-spec.yaml",
+    "/docs.json",
+    "/docs.yaml",
+    "/api/docs.json",
+    "/api/docs/swagger.json",
+    "/api/docs/openapi.json",
+    // Swagger UI configuration endpoints (often leak internal urls)
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    "/swagger-config",
+    "/swagger-config.json",
+    "/v2/api-docs/swagger-config",
+    "/v3/api-docs/swagger-config",
+    // GraphQL spec exports occasionally co-hosted with OpenAPI
+    "/sdl",
+    "/sdl.json",
+    "/schema.json",
+    "/schema.graphql",
+    // Common dev / test exposure paths
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +136,31 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Additional UI mounts commonly leaked in production
+    "/swagger-ui",
+    "/swagger/index.html",
+    "/api/swagger-ui",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/v1/swagger-ui",
+    "/api/v2/swagger-ui",
+    "/api/v3/swagger-ui",
+    "/apidocs",
+    "/apidocs/",
+    "/api-explorer",
+    "/api-explorer/",
+    "/explorer",
+    "/explorer/",
+    "/api/explorer",
+    "/redoc/",
+    "/redoc.html",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/api/redoc",
+    "/api/rapidoc",
+    "/playground",
+    "/api/playground",
+    "/graphql-playground",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -134,6 +211,139 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     (
         r"(?i)(?:dev|staging|test)[._-]",
         "non-production environment",
+    ),
+    // High-precision provider tokens — strict prefix + length, very low false-positive rate
+    (
+        r"\bAKIA[0-9A-Z]{16}\b",
+        "AWS Access Key ID",
+    ),
+    (
+        r"\bASIA[0-9A-Z]{16}\b",
+        "AWS STS temporary access key",
+    ),
+    (
+        r"\bxox[abposr]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,34}\b",
+        "Slack token",
+    ),
+    (
+        r"\bxoxe\.xoxp-[0-9]-[0-9a-zA-Z-]{145,}\b",
+        "Slack refresh token",
+    ),
+    (
+        r"\bghp_[A-Za-z0-9]{36}\b",
+        "GitHub Personal Access Token",
+    ),
+    (
+        r"\bgho_[A-Za-z0-9]{36}\b",
+        "GitHub OAuth token",
+    ),
+    (
+        r"\bghu_[A-Za-z0-9]{36}\b",
+        "GitHub user-to-server token",
+    ),
+    (
+        r"\bghs_[A-Za-z0-9]{36}\b",
+        "GitHub server-to-server token",
+    ),
+    (
+        r"\bghr_[A-Za-z0-9]{36}\b",
+        "GitHub refresh token",
+    ),
+    (
+        r"\bglpat-[A-Za-z0-9_-]{20}\b",
+        "GitLab Personal Access Token",
+    ),
+    (
+        r"\bsk_live_[0-9a-zA-Z]{24,}\b",
+        "Stripe live secret key",
+    ),
+    (
+        r"\brk_live_[0-9a-zA-Z]{24,}\b",
+        "Stripe restricted live key",
+    ),
+    (
+        r"\bsk_test_[0-9a-zA-Z]{24,}\b",
+        "Stripe test secret key",
+    ),
+    (
+        r"\bAIza[0-9A-Za-z_-]{35}\b",
+        "Google API key",
+    ),
+    (
+        r"\bya29\.[0-9A-Za-z_-]{20,}\b",
+        "Google OAuth access token",
+    ),
+    (
+        r"\bAC[a-f0-9]{32}\b",
+        "Twilio Account SID",
+    ),
+    (
+        r"\bSK[a-f0-9]{32}\b",
+        "Twilio API SID",
+    ),
+    (
+        r"\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b",
+        "SendGrid API key",
+    ),
+    (
+        r"\bkey-[a-f0-9]{32}\b",
+        "Mailgun API key",
+    ),
+    (
+        r"\bnpm_[A-Za-z0-9]{36}\b",
+        "npm access token",
+    ),
+    (
+        r"\bdop_v1_[a-f0-9]{64}\b",
+        "DigitalOcean Personal Access Token",
+    ),
+    (
+        r"\bsq0csp-[A-Za-z0-9_-]{43}\b",
+        "Square OAuth secret",
+    ),
+    (
+        r"\bsq0atp-[A-Za-z0-9_-]{22}\b",
+        "Square access token",
+    ),
+    (
+        r"\baccess_token\$production\$[a-z0-9]{16}\$[a-f0-9]{32}\b",
+        "Braintree production access token",
+    ),
+    (
+        r"\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\b",
+        "Postman API key",
+    ),
+    (
+        r"\bxapp-[0-9]-[A-Z0-9]+-[0-9]+-[a-f0-9]+\b",
+        "Slack app-level token",
+    ),
+    (
+        r"\bshpat_[a-fA-F0-9]{32}\b",
+        "Shopify access token",
+    ),
+    (
+        r"\bshpss_[a-fA-F0-9]{32}\b",
+        "Shopify shared secret",
+    ),
+    (
+        r"\bshpca_[a-fA-F0-9]{32}\b",
+        "Shopify custom app token",
+    ),
+    (
+        r"\bshppa_[a-fA-F0-9]{32}\b",
+        "Shopify private app token",
+    ),
+    (
+        r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
+        "JSON Web Token (JWT)",
+    ),
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+        "private key block",
+    ),
+    (
+        r"(?i)(?:mysql|postgres|postgresql|mongodb(?:\+srv)?|redis|amqp|amqps)://[^:\s/]+:[^@\s]+@[^/\s]+",
+        "database connection string with embedded credentials",
     ),
 ];
 
