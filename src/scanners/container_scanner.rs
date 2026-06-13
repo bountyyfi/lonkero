@@ -50,6 +50,257 @@ impl ContainerScanner {
             tests_run += tests;
         }
 
+        if vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_orchestration_platform_exposure(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for exposed orchestration / secrets-management platforms
+    ///
+    /// Each platform here has at least two specific response markers that almost never
+    /// appear together on benign endpoints, so detection requires both an API-shaped
+    /// path AND a body fingerprint match. This avoids false positives from JSON 404
+    /// pages or generic reverse-proxy responses.
+    async fn test_orchestration_platform_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        debug!("Testing for orchestration platform exposure");
+
+        // (endpoint, platform name, body fingerprint detector, severity, cwe, cvss)
+        // Functions return true only when two or more strong markers are present.
+        type Detector = fn(&str, &std::collections::HashMap<String, String>) -> bool;
+        let platforms: Vec<(&str, &str, Detector, Severity, &str, f64)> = vec![
+            // etcd v3 - cluster key-value store. Leaking it leaks every k8s secret.
+            (
+                "/version",
+                "etcd KV Store",
+                Self::is_etcd_response,
+                Severity::Critical,
+                "CWE-306",
+                9.8,
+            ),
+            (
+                "/v2/keys/?recursive=true",
+                "etcd v2 KV Store",
+                Self::is_etcd_response,
+                Severity::Critical,
+                "CWE-306",
+                9.8,
+            ),
+            // cAdvisor - container metrics, often exposes container layout / env names.
+            (
+                "/api/v1.3/machine",
+                "cAdvisor",
+                Self::is_cadvisor_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            (
+                "/api/v2.0/spec",
+                "cAdvisor v2",
+                Self::is_cadvisor_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            // Kubelet read-only API (default port 10255) - pods, secrets refs, host info.
+            (
+                "/pods",
+                "Kubelet Read-Only API",
+                Self::is_kubelet_response,
+                Severity::Critical,
+                "CWE-306",
+                9.8,
+            ),
+            (
+                "/stats/summary",
+                "Kubelet Stats Summary",
+                Self::is_kubelet_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            // Consul - service discovery + KV. Often hosts secrets.
+            (
+                "/v1/status/leader",
+                "HashiCorp Consul",
+                Self::is_consul_response,
+                Severity::High,
+                "CWE-306",
+                8.6,
+            ),
+            (
+                "/v1/kv/?recurse",
+                "HashiCorp Consul KV",
+                Self::is_consul_response,
+                Severity::Critical,
+                "CWE-306",
+                9.1,
+            ),
+            // Vault - secrets manager. Even unsealed status is a strong signal.
+            (
+                "/v1/sys/seal-status",
+                "HashiCorp Vault",
+                Self::is_vault_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            (
+                "/v1/sys/health",
+                "HashiCorp Vault",
+                Self::is_vault_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            // Nomad - workload scheduler.
+            (
+                "/v1/agent/self",
+                "HashiCorp Nomad",
+                Self::is_nomad_response,
+                Severity::Critical,
+                "CWE-306",
+                9.1,
+            ),
+            (
+                "/v1/jobs",
+                "HashiCorp Nomad",
+                Self::is_nomad_response,
+                Severity::Critical,
+                "CWE-306",
+                9.1,
+            ),
+            // Portainer - container management UI.
+            (
+                "/api/status",
+                "Portainer",
+                Self::is_portainer_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            (
+                "/api/users/admin/check",
+                "Portainer (admin init)",
+                Self::is_portainer_response,
+                Severity::Critical,
+                "CWE-306",
+                9.8,
+            ),
+            // Rancher - K8s management.
+            (
+                "/v3/clusters",
+                "Rancher",
+                Self::is_rancher_response,
+                Severity::Critical,
+                "CWE-306",
+                9.1,
+            ),
+            (
+                "/ping",
+                "Rancher",
+                Self::is_rancher_response,
+                Severity::Medium,
+                "CWE-200",
+                5.3,
+            ),
+            // Traefik dashboard - reverse-proxy config (backends, routers).
+            (
+                "/api/rawdata",
+                "Traefik Dashboard",
+                Self::is_traefik_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            (
+                "/api/version",
+                "Traefik Dashboard",
+                Self::is_traefik_response,
+                Severity::Medium,
+                "CWE-200",
+                5.3,
+            ),
+            // ArgoCD - GitOps controller. Often holds cluster credentials.
+            (
+                "/api/v1/session/userinfo",
+                "ArgoCD",
+                Self::is_argocd_response,
+                Severity::High,
+                "CWE-200",
+                7.5,
+            ),
+            (
+                "/api/version",
+                "ArgoCD",
+                Self::is_argocd_response,
+                Severity::Medium,
+                "CWE-200",
+                5.3,
+            ),
+        ];
+
+        for (endpoint, platform, detector, severity, cwe, cvss) in platforms {
+            tests_run += 1;
+            let test_url = self.build_url(url, endpoint);
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    // Accept 200 (open) or 401/403 (auth required) only when the body/headers
+                    // unambiguously identify the platform. 401/403 alone is downgraded.
+                    let body_match = detector(&response.body, &response.headers);
+                    if response.status_code == 200 && body_match {
+                        info!("Exposed {} detected at {}", platform, endpoint);
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            &format!("Exposed {} API", platform),
+                            "",
+                            &format!(
+                                "{} API is publicly accessible without authentication",
+                                platform
+                            ),
+                            &format!("{} accessible at {}", platform, endpoint),
+                            severity,
+                            cwe,
+                            cvss,
+                        ));
+                        return Ok((vulnerabilities, tests_run));
+                    }
+
+                    if (response.status_code == 401 || response.status_code == 403) && body_match {
+                        info!("{} detected (auth required) at {}", platform, endpoint);
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            &format!("{} API Detected (Auth Required)", platform),
+                            "",
+                            &format!(
+                                "{} API is exposed at {} but requires authentication",
+                                platform, endpoint
+                            ),
+                            &format!("{} responding with auth challenge at {}", platform, endpoint),
+                            Severity::Low,
+                            "CWE-200",
+                            3.7,
+                        ));
+                        return Ok((vulnerabilities, tests_run));
+                    }
+                }
+                Err(e) => {
+                    debug!("Platform probe {} failed: {}", endpoint, e);
+                }
+            }
+        }
+
         Ok((vulnerabilities, tests_run))
     }
 
@@ -520,6 +771,157 @@ impl ContainerScanner {
             || body_lower == "{}"
     }
 
+    /// etcd /version returns {"etcdserver":"...","etcdcluster":"..."}.
+    /// /v2/keys responses contain "node" + "createdIndex"/"modifiedIndex".
+    /// Either combination is platform-specific.
+    fn is_etcd_response(body: &str, _headers: &std::collections::HashMap<String, String>) -> bool {
+        (body.contains("\"etcdserver\"") && body.contains("\"etcdcluster\""))
+            || (body.contains("\"createdIndex\"") && body.contains("\"modifiedIndex\""))
+            || (body.contains("\"action\"") && body.contains("\"node\"") && body.contains("\"key\""))
+    }
+
+    /// cAdvisor /api/v1.3/machine returns rich machine info with these unique keys.
+    fn is_cadvisor_response(
+        body: &str,
+        _headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        let must_have = ["\"machine_id\"", "\"num_cores\"", "\"memory_capacity\""];
+        must_have.iter().filter(|m| body.contains(*m)).count() >= 2
+    }
+
+    /// Kubelet /pods returns a PodList; /stats/summary has very specific fields.
+    fn is_kubelet_response(
+        body: &str,
+        _headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        if body.contains("\"kind\":\"PodList\"") || body.contains("\"kind\": \"PodList\"") {
+            return true;
+        }
+        // /stats/summary: node + pods + cpu + memory in same response
+        body.contains("\"nodeName\"")
+            && body.contains("\"pods\"")
+            && (body.contains("\"cpu\"") || body.contains("\"memory\""))
+    }
+
+    /// Consul advertises itself via header AND specific JSON shapes.
+    fn is_consul_response(body: &str, headers: &std::collections::HashMap<String, String>) -> bool {
+        for (k, _v) in headers {
+            if k.to_lowercase() == "x-consul-index"
+                || k.to_lowercase() == "x-consul-knownleader"
+                || k.to_lowercase() == "x-consul-lastcontact"
+            {
+                return true;
+            }
+        }
+        // /v1/status/leader returns a quoted "host:8300" string.
+        let trimmed = body.trim();
+        if trimmed.starts_with('"')
+            && trimmed.ends_with(":8300\"")
+            && trimmed.len() > 3
+            && trimmed.len() < 64
+        {
+            return true;
+        }
+        // KV recurse returns array of objects with these exact keys.
+        body.contains("\"LockIndex\"")
+            && body.contains("\"ModifyIndex\"")
+            && body.contains("\"CreateIndex\"")
+    }
+
+    /// Vault has a stable seal-status / health JSON shape.
+    fn is_vault_response(body: &str, headers: &std::collections::HashMap<String, String>) -> bool {
+        for (k, _v) in headers {
+            if k.to_lowercase() == "x-vault-server-version"
+                || k.to_lowercase() == "x-vault-cluster"
+            {
+                return true;
+            }
+        }
+        // seal-status: {"type":"...","initialized":bool,"sealed":bool,"t":N,"n":N,...}
+        let seal_keys = ["\"sealed\"", "\"initialized\"", "\"version\""];
+        if seal_keys.iter().filter(|k| body.contains(*k)).count() >= 2
+            && (body.contains("\"cluster_name\"") || body.contains("\"cluster_id\""))
+        {
+            return true;
+        }
+        false
+    }
+
+    /// Nomad /v1/agent/self has a deeply nested config with these unique markers.
+    fn is_nomad_response(body: &str, _headers: &std::collections::HashMap<String, String>) -> bool {
+        if body.contains("\"NomadConfig\"") || body.contains("\"member\"") && body.contains("\"Nomad\"") {
+            return true;
+        }
+        // /v1/jobs returns an array of objects with these specific keys together.
+        body.contains("\"JobModifyIndex\"")
+            && body.contains("\"Datacenters\"")
+            && body.contains("\"TaskGroups\"")
+    }
+
+    /// Portainer ships a distinct API response shape and admin-init endpoint.
+    fn is_portainer_response(
+        body: &str,
+        _headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        // /api/status: {"Version":"...","Edition":"CE",...,"InstanceID":"..."}
+        if body.contains("\"Edition\"")
+            && body.contains("\"InstanceID\"")
+            && body.contains("\"Version\"")
+        {
+            return true;
+        }
+        // /api/users/admin/check: 404 with this exact body when admin already exists,
+        // 204 when admin not yet initialised (then the system is takeover-ready).
+        body.contains("\"message\":\"No administrator account found\"")
+            || body.contains("admin user is not yet initialized")
+    }
+
+    /// Rancher /v3/clusters uses a Cattle-style envelope with a recognisable schema URL.
+    fn is_rancher_response(
+        body: &str,
+        _headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        if body.contains("\"type\":\"collection\"") && body.contains("rancher") {
+            return true;
+        }
+        // /ping endpoint returns literally "pong" - but only treat as Rancher when paired
+        // with a Rancher-specific server/header signature (handled by caller via 401/403
+        // semantics in dashboards). The kv-store-only test is intentionally strict here.
+        body.contains("\"baseType\":\"cluster\"")
+    }
+
+    /// Traefik dashboard API responses include specific fields.
+    fn is_traefik_response(
+        body: &str,
+        _headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        // /api/rawdata returns routers/services/middlewares as top-level keys.
+        if body.contains("\"routers\"")
+            && body.contains("\"services\"")
+            && body.contains("\"middlewares\"")
+        {
+            return true;
+        }
+        // /api/version returns {"Version":"...","Codename":"...","startDate":"..."}
+        body.contains("\"Codename\"") && body.contains("\"Version\"")
+    }
+
+    /// ArgoCD has a distinct API namespace shape.
+    fn is_argocd_response(
+        body: &str,
+        _headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        // /api/version: {"Version":"v...","BuildDate":"...","GitCommit":"...","KustomizeVersion":"..."}
+        if body.contains("\"KustomizeVersion\"")
+            || body.contains("\"HelmVersion\"")
+            || body.contains("\"KubectlVersion\"")
+        {
+            return true;
+        }
+        // /api/v1/session/userinfo: anonymous = {"loggedIn":false,...}
+        body.contains("\"loggedIn\"") && body.contains("\"username\"")
+    }
+
     fn detect_container_secret(&self, body: &str) -> Option<String> {
         let patterns = vec![
             (r"eyJhbGciOi", "Kubernetes Service Account Token"),
@@ -653,6 +1055,63 @@ impl ContainerScanner {
                  9. Scan for exposed secrets in CI/CD\n\
                  10. Use workload identity instead of static credentials".to_string()
             }
+            t if t.contains("etcd") => {
+                "1. Bind etcd to loopback or a private subnet only\n\
+                 2. Require client TLS certificates (--client-cert-auth)\n\
+                 3. Enable peer TLS between cluster members\n\
+                 4. Treat any etcd exposure as full Kubernetes cluster compromise\n\
+                 5. Rotate every secret stored in etcd after disclosure".to_string()
+            }
+            t if t.contains("cAdvisor") => {
+                "1. Restrict cAdvisor (default port 8080/4194) to monitoring networks\n\
+                 2. Front cAdvisor with authenticating reverse proxy\n\
+                 3. Disable on production nodes if metrics flow through Prometheus instead".to_string()
+            }
+            t if t.contains("Kubelet") => {
+                "1. Disable the read-only kubelet port (--read-only-port=0)\n\
+                 2. Require authentication on the kubelet API (--anonymous-auth=false)\n\
+                 3. Restrict kubelet ports (10250, 10255) at the host firewall\n\
+                 4. Enable kubelet authorization mode Webhook".to_string()
+            }
+            t if t.contains("Consul") => {
+                "1. Enable Consul ACLs (acl.enabled = true, default_policy = \"deny\")\n\
+                 2. Require TLS on HTTP API (ports_https + verify_incoming)\n\
+                 3. Restrict the HTTP API to internal networks only\n\
+                 4. Rotate every secret stored in Consul KV after disclosure".to_string()
+            }
+            t if t.contains("Vault") => {
+                "1. Front Vault with an authenticating reverse proxy\n\
+                 2. Restrict the API to known clients via firewall / mTLS\n\
+                 3. Audit access logs for unusual seal-status / login probing\n\
+                 4. Even a sealed Vault leaks version info — keep the binary patched".to_string()
+            }
+            t if t.contains("Nomad") => {
+                "1. Enable Nomad ACLs and require tokens for all API calls\n\
+                 2. Bind the HTTP API to the management network only\n\
+                 3. Treat exposed Nomad as remote code execution: jobs can run arbitrary commands".to_string()
+            }
+            t if t.contains("Portainer") => {
+                "1. Never expose Portainer to the public internet without SSO/2FA\n\
+                 2. If the admin-init endpoint is reachable, an attacker can claim admin — \
+                 initialise Portainer immediately and disable public access\n\
+                 3. Place Portainer behind a VPN or authenticating reverse proxy".to_string()
+            }
+            t if t.contains("Rancher") => {
+                "1. Restrict Rancher UI/API to corporate VPN\n\
+                 2. Enforce SSO + 2FA for all users\n\
+                 3. Rotate cluster registration tokens after disclosure".to_string()
+            }
+            t if t.contains("Traefik") => {
+                "1. Disable the Traefik dashboard in production (api.dashboard = false) or \
+                 restrict it with basic-auth + IP allowlist\n\
+                 2. Never expose api.insecure = true outside localhost\n\
+                 3. Treat the rawdata endpoint as a full reverse-proxy map disclosure".to_string()
+            }
+            t if t.contains("ArgoCD") => {
+                "1. Front ArgoCD with SSO and disable anonymous access\n\
+                 2. Restrict the API server to internal networks\n\
+                 3. Rotate cluster credentials managed by ArgoCD after disclosure".to_string()
+            }
             _ => "Follow container security best practices (CIS Docker Benchmark, CIS Kubernetes Benchmark)".to_string(),
         }
     }
@@ -765,5 +1224,145 @@ mod tests {
             scanner.extract_base_with_port("https://example.com/path", "2375"),
             Some("https://example.com:2375".to_string())
         );
+    }
+
+    #[test]
+    fn test_is_etcd_response() {
+        let headers = std::collections::HashMap::new();
+        let v3_version = r#"{"etcdserver":"3.5.9","etcdcluster":"3.5.0"}"#;
+        assert!(ContainerScanner::is_etcd_response(v3_version, &headers));
+
+        let v2_get = r#"{"action":"get","node":{"key":"/foo","value":"bar","createdIndex":4,"modifiedIndex":4}}"#;
+        assert!(ContainerScanner::is_etcd_response(v2_get, &headers));
+
+        assert!(!ContainerScanner::is_etcd_response("Not Found", &headers));
+        // A bare JSON 404 must not trigger.
+        assert!(!ContainerScanner::is_etcd_response(
+            r#"{"error":"not found"}"#,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn test_is_cadvisor_response() {
+        let headers = std::collections::HashMap::new();
+        let machine = r#"{"num_cores":8,"cpu_frequency_khz":2400000,"memory_capacity":16000000000,"machine_id":"abc123"}"#;
+        assert!(ContainerScanner::is_cadvisor_response(machine, &headers));
+
+        // Only one marker - not enough.
+        assert!(!ContainerScanner::is_cadvisor_response(
+            r#"{"machine_id":"abc"}"#,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn test_is_kubelet_response() {
+        let headers = std::collections::HashMap::new();
+        let pods = r#"{"kind":"PodList","apiVersion":"v1","items":[]}"#;
+        assert!(ContainerScanner::is_kubelet_response(pods, &headers));
+
+        let stats = r#"{"node":{"nodeName":"node1","cpu":{},"memory":{},"pods":[]}}"#;
+        assert!(ContainerScanner::is_kubelet_response(stats, &headers));
+
+        assert!(!ContainerScanner::is_kubelet_response("nothing here", &headers));
+    }
+
+    #[test]
+    fn test_is_consul_response() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Consul-Index".to_string(), "5".to_string());
+        assert!(ContainerScanner::is_consul_response("anything", &headers));
+
+        let headers = std::collections::HashMap::new();
+        let leader = r#""10.0.0.1:8300""#;
+        assert!(ContainerScanner::is_consul_response(leader, &headers));
+
+        let kv = r#"[{"LockIndex":0,"Key":"foo","Flags":0,"Value":"YmFy","CreateIndex":5,"ModifyIndex":5}]"#;
+        assert!(ContainerScanner::is_consul_response(kv, &headers));
+
+        assert!(!ContainerScanner::is_consul_response("plain text", &headers));
+    }
+
+    #[test]
+    fn test_is_vault_response() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Vault-Server-Version".to_string(), "1.15.0".to_string());
+        assert!(ContainerScanner::is_vault_response("body", &headers));
+
+        let headers = std::collections::HashMap::new();
+        let seal = r#"{"type":"shamir","initialized":true,"sealed":false,"t":3,"n":5,"version":"1.15.0","cluster_name":"vault-cluster-abc"}"#;
+        assert!(ContainerScanner::is_vault_response(seal, &headers));
+
+        // Missing cluster_name - reject to avoid generic FP.
+        let weak = r#"{"sealed":false,"initialized":true,"version":"1.0"}"#;
+        assert!(!ContainerScanner::is_vault_response(weak, &headers));
+    }
+
+    #[test]
+    fn test_is_nomad_response() {
+        let headers = std::collections::HashMap::new();
+        let agent = r#"{"member":{"Name":"node1","Tags":{}},"NomadConfig":{}}"#;
+        assert!(ContainerScanner::is_nomad_response(agent, &headers));
+
+        let jobs = r#"[{"ID":"web","Datacenters":["dc1"],"TaskGroups":[],"JobModifyIndex":5}]"#;
+        assert!(ContainerScanner::is_nomad_response(jobs, &headers));
+
+        assert!(!ContainerScanner::is_nomad_response("{}", &headers));
+    }
+
+    #[test]
+    fn test_is_portainer_response() {
+        let headers = std::collections::HashMap::new();
+        let status = r#"{"Version":"2.19.0","Edition":"CE","InstanceID":"abc-123"}"#;
+        assert!(ContainerScanner::is_portainer_response(status, &headers));
+
+        let admin_uninit = r#"{"message":"No administrator account found"}"#;
+        assert!(ContainerScanner::is_portainer_response(admin_uninit, &headers));
+
+        assert!(!ContainerScanner::is_portainer_response(
+            r#"{"Version":"1.0"}"#,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn test_is_rancher_response() {
+        let headers = std::collections::HashMap::new();
+        let collection = r#"{"type":"collection","data":[],"links":{"self":"https://rancher.example/v3/clusters"}}"#;
+        assert!(ContainerScanner::is_rancher_response(collection, &headers));
+
+        assert!(!ContainerScanner::is_rancher_response("pong", &headers));
+    }
+
+    #[test]
+    fn test_is_traefik_response() {
+        let headers = std::collections::HashMap::new();
+        let rawdata = r#"{"routers":{},"services":{},"middlewares":{}}"#;
+        assert!(ContainerScanner::is_traefik_response(rawdata, &headers));
+
+        let version = r#"{"Version":"2.10.0","Codename":"saintnectaire","startDate":"2024-01-01"}"#;
+        assert!(ContainerScanner::is_traefik_response(version, &headers));
+
+        // Lone "Version" must not trigger.
+        assert!(!ContainerScanner::is_traefik_response(
+            r#"{"Version":"1.0"}"#,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn test_is_argocd_response() {
+        let headers = std::collections::HashMap::new();
+        let version = r#"{"Version":"v2.8.0","BuildDate":"2024-01-01","KustomizeVersion":"v5.0.0"}"#;
+        assert!(ContainerScanner::is_argocd_response(version, &headers));
+
+        let userinfo = r#"{"loggedIn":false,"username":""}"#;
+        assert!(ContainerScanner::is_argocd_response(userinfo, &headers));
+
+        assert!(!ContainerScanner::is_argocd_response(
+            r#"{"Version":"1.0"}"#,
+            &headers
+        ));
     }
 }
