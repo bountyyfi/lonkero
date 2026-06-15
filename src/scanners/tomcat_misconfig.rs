@@ -283,7 +283,268 @@ impl TomcatMisconfigScanner {
             }
         }
 
-        // Test 5: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
+        // Test 5: Sensitive Tomcat configuration files / artifacts.
+        //
+        // Tomcat ships a handful of files that should never be web-reachable but
+        // routinely are when ROOT.war is mis-deployed, the work/ directory is
+        // mounted under the docroot, or a reverse proxy passes everything to
+        // /catalina-base/conf/. Each entry below requires a structural marker
+        // unique to that file so a 200 with random JSON cannot trigger it.
+        //
+        // (path, label, severity, body_markers — at least one must match)
+        let sensitive_files: &[(&str, &str, Severity, f32, &[&str])] = &[
+            // tomcat-users.xml — contains plaintext / hashed manager creds.
+            (
+                "/tomcat-users.xml",
+                "Tomcat Users Configuration (credentials)",
+                Severity::Critical,
+                9.8,
+                &["<tomcat-users", "<user username=", "<role rolename="],
+            ),
+            (
+                "/conf/tomcat-users.xml",
+                "Tomcat Users Configuration (credentials)",
+                Severity::Critical,
+                9.8,
+                &["<tomcat-users", "<user username=", "<role rolename="],
+            ),
+            (
+                "/META-INF/tomcat-users.xml",
+                "Tomcat Users Configuration (credentials)",
+                Severity::Critical,
+                9.8,
+                &["<tomcat-users", "<user username="],
+            ),
+            // server.xml — full connector / Realm config including DB JDBC creds.
+            (
+                "/server.xml",
+                "Tomcat server.xml Exposure",
+                Severity::Critical,
+                9.1,
+                &["<Server port=", "<Service name=", "<Engine name=\"Catalina\""],
+            ),
+            (
+                "/conf/server.xml",
+                "Tomcat server.xml Exposure",
+                Severity::Critical,
+                9.1,
+                &["<Server port=", "<Service name=", "<Engine name=\"Catalina\""],
+            ),
+            // context.xml — often holds JDBC Resource definitions with creds.
+            (
+                "/conf/context.xml",
+                "Tomcat context.xml Exposure",
+                Severity::High,
+                7.5,
+                &["<Context", "<Resource", "javax.sql.DataSource"],
+            ),
+            (
+                "/META-INF/context.xml",
+                "Tomcat META-INF/context.xml Exposure",
+                Severity::High,
+                7.5,
+                &["<Context", "<Resource", "javax.sql.DataSource"],
+            ),
+            // web.xml — leaks servlet routes, security constraints, filter chain.
+            (
+                "/WEB-INF/web.xml",
+                "Tomcat WEB-INF/web.xml Exposure",
+                Severity::High,
+                7.5,
+                &[
+                    "<web-app",
+                    "<servlet-name>",
+                    "<servlet-mapping>",
+                    "<security-constraint>",
+                ],
+            ),
+            (
+                "/conf/web.xml",
+                "Tomcat conf/web.xml Exposure",
+                Severity::Medium,
+                5.3,
+                &["<web-app", "<servlet-name>"],
+            ),
+            // catalina.policy — full SecurityManager grants; reveals app paths.
+            (
+                "/conf/catalina.policy",
+                "Tomcat catalina.policy Exposure",
+                Severity::Medium,
+                5.3,
+                &["grant codeBase", "permission java.", "catalina.home"],
+            ),
+            // catalina.properties — JVM property + shared loader paths.
+            (
+                "/conf/catalina.properties",
+                "Tomcat catalina.properties Exposure",
+                Severity::Medium,
+                5.3,
+                &[
+                    "common.loader=",
+                    "shared.loader=",
+                    "tomcat.util.scan.StandardJarScanFilter",
+                ],
+            ),
+            // logging.properties — handler classpaths, log file locations.
+            (
+                "/conf/logging.properties",
+                "Tomcat logging.properties Exposure",
+                Severity::Low,
+                3.7,
+                &[
+                    "java.util.logging",
+                    "org.apache.juli.AsyncFileHandler",
+                    "1catalina.org.apache.juli",
+                ],
+            ),
+            // jmxremote — IF reachable, full JMX over HTTP/RMI is critical.
+            (
+                "/conf/jmxremote.password",
+                "Tomcat JMX Remote Password File",
+                Severity::Critical,
+                9.8,
+                &["monitorRole", "controlRole"],
+            ),
+            (
+                "/conf/jmxremote.access",
+                "Tomcat JMX Remote Access File",
+                Severity::High,
+                7.5,
+                &["monitorRole", "controlRole", "readonly", "readwrite"],
+            ),
+            // setenv.sh / setenv.bat — JVM args, often containing -D secrets.
+            (
+                "/bin/setenv.sh",
+                "Tomcat setenv.sh Exposure",
+                Severity::High,
+                7.5,
+                &["CATALINA_OPTS", "JAVA_OPTS", "export "],
+            ),
+            (
+                "/bin/setenv.bat",
+                "Tomcat setenv.bat Exposure",
+                Severity::High,
+                7.5,
+                &["CATALINA_OPTS", "JAVA_OPTS", "set "],
+            ),
+            // Status servlet — reveals JVM internals, thread dumps, sessions.
+            (
+                "/manager/status",
+                "Tomcat Manager Status Servlet",
+                Severity::High,
+                7.5,
+                &[
+                    "Server Status",
+                    "JVM",
+                    "Max threads:",
+                    "Manager Status",
+                ],
+            ),
+            (
+                "/manager/status?XML=true",
+                "Tomcat Manager Status XML",
+                Severity::High,
+                7.5,
+                &["<status>", "<jvm>", "<connector ", "<memory "],
+            ),
+            (
+                "/manager/jmxproxy/?qry=*:*",
+                "Tomcat JMX Proxy Servlet (unauthenticated)",
+                Severity::Critical,
+                9.8,
+                &[
+                    "Catalina:type=Server",
+                    "Tomcat:type=",
+                    "java.lang:type=",
+                ],
+            ),
+            // CGI servlet examples — Tomcat ships a test cgi-bin that's RCE-y.
+            (
+                "/cgi-bin/test-cgi",
+                "Tomcat CGI Test Script Exposed",
+                Severity::High,
+                7.5,
+                &["CGI/1.1", "SERVER_SOFTWARE", "Apache Tomcat"],
+            ),
+            // Common WAR backup leaks.
+            (
+                "/ROOT.war",
+                "Tomcat ROOT.war Backup Exposure",
+                Severity::Critical,
+                9.1,
+                &["PK\x03\x04"],
+            ),
+            (
+                "/manager.war",
+                "Tomcat manager.war Exposure",
+                Severity::Critical,
+                9.1,
+                &["PK\x03\x04"],
+            ),
+            // Work directory — JSP compilation artefacts (source-level leak).
+            (
+                "/work/Catalina/localhost/",
+                "Tomcat Work Directory Listing",
+                Severity::Medium,
+                5.3,
+                &["Directory: /work", "Index of /work", "_jsp.java", "_jsp.class"],
+            ),
+            // ServerInfo properties — exact build / OS / JVM strings.
+            (
+                "/org/apache/catalina/util/ServerInfo.properties",
+                "Tomcat ServerInfo Properties Disclosed",
+                Severity::Low,
+                3.7,
+                &["server.info=", "server.number=", "server.built="],
+            ),
+        ];
+
+        for (path, label, severity, cvss, markers) in sensitive_files {
+            tests_run += 1;
+            let probe_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            let Ok(response) = self.http_client.get(&probe_url).await else {
+                continue;
+            };
+            if response.status_code != 200 {
+                continue;
+            }
+            // Trim & cap to keep marker search cheap.
+            let body = response.body.as_str();
+            if body.is_empty() {
+                continue;
+            }
+            // Require at least one structural marker — this is what keeps the
+            // false-positive rate at zero for friendly 200-on-everything servers.
+            let hit_marker = markers.iter().find(|m| body.contains(**m));
+            let Some(marker) = hit_marker else { continue };
+
+            info!(
+                "Sensitive Tomcat resource exposed at {} (marker: {:?})",
+                probe_url, marker
+            );
+            vulnerabilities.push(self.create_vulnerability(
+                &probe_url,
+                "TOMCAT_SENSITIVE_RESOURCE",
+                &format!("{} accessible at {}", label, path),
+                &format!(
+                    "Path: {}\nStatus: 200\nMatched marker: {:?}\nSize: {} bytes",
+                    path,
+                    marker,
+                    body.len()
+                ),
+                severity.clone(),
+                Confidence::High,
+                *cvss,
+                "1. Block access to Tomcat internal directories at the reverse proxy / WAF.\n\
+                 2. Remove backup WARs and stray config files from the docroot.\n\
+                 3. Restrict manager/jmxproxy with RemoteAddrValve to internal IPs only.\n\
+                 4. Ensure conf/ and bin/ are outside CATALINA_BASE/webapps.\n\
+                 5. Rotate any credentials / DB strings that were exposed.",
+            ));
+        }
+
+        // Test 6: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
         tests_run += 1;
         // This is a network-level check, we can only detect via headers or info disclosure
         match self.http_client.get(url).await {

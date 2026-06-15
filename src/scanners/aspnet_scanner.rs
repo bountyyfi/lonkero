@@ -814,8 +814,55 @@ impl AspNetScanner {
 
         let base = url.trim_end_matches('/');
 
+        // Paths to probe for sensitive ASP.NET / IIS / .NET Core files.
+        //
+        // The structural-marker check further down filters out generic 200 pages,
+        // so this list can stay broad without inflating false positives.
         let config_paths = [
+            // IIS / web.config + transforms
             ("/web.config", "IIS Configuration", Severity::Critical),
+            (
+                "/Web.config",
+                "IIS Configuration (case variant)",
+                Severity::Critical,
+            ),
+            (
+                "/web.config.bak",
+                "IIS Configuration Backup",
+                Severity::Critical,
+            ),
+            (
+                "/web.config.old",
+                "IIS Configuration Backup",
+                Severity::Critical,
+            ),
+            (
+                "/web.config.orig",
+                "IIS Configuration Backup",
+                Severity::Critical,
+            ),
+            (
+                "/web.config.txt",
+                "IIS Configuration as Text",
+                Severity::Critical,
+            ),
+            (
+                "/web.config.save",
+                "IIS Configuration Backup",
+                Severity::Critical,
+            ),
+            ("/web.config~", "IIS Configuration Backup", Severity::Critical),
+            (
+                "/web.Debug.config",
+                "IIS Debug Transform",
+                Severity::High,
+            ),
+            (
+                "/web.Release.config",
+                "IIS Release Transform",
+                Severity::High,
+            ),
+            // ASP.NET Core appsettings + environment transforms
             ("/appsettings.json", "App Settings", Severity::Critical),
             (
                 "/appsettings.Development.json",
@@ -828,7 +875,58 @@ impl AspNetScanner {
                 Severity::Critical,
             ),
             (
+                "/appsettings.Staging.json",
+                "Staging Settings",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.Local.json",
+                "Local Settings",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.Test.json",
+                "Test Settings",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.Docker.json",
+                "Docker Settings",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.Azure.json",
+                "Azure Environment Settings",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.json.bak",
+                "App Settings Backup",
+                Severity::Critical,
+            ),
+            (
+                "/appsettings.json.old",
+                "App Settings Backup",
+                Severity::Critical,
+            ),
+            (
+                "/secrets.json",
+                "ASP.NET Core User Secrets",
+                Severity::Critical,
+            ),
+            (
+                "/hostsettings.json",
+                "ASP.NET Core Host Settings",
+                Severity::High,
+            ),
+            // Connection strings + IIS host config
+            (
                 "/connectionstrings.config",
+                "Connection Strings",
+                Severity::Critical,
+            ),
+            (
+                "/ConnectionStrings.config",
                 "Connection Strings",
                 Severity::Critical,
             ),
@@ -837,18 +935,69 @@ impl AspNetScanner {
                 "IIS App Host Config",
                 Severity::High,
             ),
+            ("/iisexpress.config", "IIS Express Config", Severity::High),
+            // Build & project metadata that leaks dependency tree / source paths
             ("/bin/", "Binary Directory", Severity::Medium),
             ("/obj/", "Build Objects", Severity::Low),
             ("/.vs/", "Visual Studio Directory", Severity::Medium),
             ("/.git/config", "Git Configuration", Severity::High),
+            (
+                "/.gitlab-ci.yml",
+                "GitLab CI Configuration",
+                Severity::Medium,
+            ),
+            ("/.dockerignore", "Docker Ignore File", Severity::Low),
+            ("/Dockerfile", "Dockerfile", Severity::Medium),
             ("/packages.config", "NuGet Packages", Severity::Low),
             ("/nuget.config", "NuGet Configuration", Severity::Medium),
+            ("/NuGet.config", "NuGet Configuration", Severity::Medium),
             ("/launchSettings.json", "Launch Settings", Severity::Medium),
             (
                 "/Properties/launchSettings.json",
                 "Launch Settings",
                 Severity::Medium,
             ),
+            (
+                "/Properties/PublishProfiles/",
+                "Publish Profiles",
+                Severity::High,
+            ),
+            // Project files — leak full source tree + referenced internal pkgs.
+            ("/global.json", "Global SDK Pin", Severity::Low),
+            ("/global.asax", "Global.asax", Severity::Medium),
+            ("/Global.asax", "Global.asax", Severity::Medium),
+            (
+                "/Global.asax.cs",
+                "Global.asax Code-Behind",
+                Severity::Critical,
+            ),
+            (
+                "/Global.asax.vb",
+                "Global.asax Code-Behind",
+                Severity::Critical,
+            ),
+            // .NET Core deployment manifest + runtime metadata
+            (
+                "/runtimeconfig.json",
+                ".NET Runtime Config",
+                Severity::Medium,
+            ),
+            (
+                "/deps.json",
+                ".NET Dependencies Manifest",
+                Severity::Medium,
+            ),
+            // PDB / debug symbols — full source mapping for reverse engineering.
+            ("/app.pdb", "Debug Symbol File", Severity::High),
+            ("/web.pdb", "Debug Symbol File", Severity::High),
+            // Machine.config / root .NET configs
+            (
+                "/machine.config",
+                "Machine.config (root .NET Framework Config)",
+                Severity::Critical,
+            ),
+            // Visual Studio solution / project descriptors
+            ("/Properties/AssemblyInfo.cs", "AssemblyInfo Source", Severity::High),
         ];
 
         for (path, name, severity) in config_paths {
@@ -878,12 +1027,56 @@ impl AspNetScanner {
 
                     let has_sensitive = sensitive_patterns.iter().any(|p| resp.body.contains(p));
 
-                    // Also verify it's actually an ASP.NET config file, not a generic page
-                    let is_config_file = resp.body.contains("<configuration")
+                    // Verify it's the *expected* file type, not a generic 200 page.
+                    // Each marker is specific enough that random landing pages
+                    // cannot match it. We keep the check pessimistic — if no
+                    // marker hits we skip rather than report a false positive.
+                    let body_trim = resp.body.trim_start();
+                    let is_xml_config = resp.body.contains("<configuration")
                         || resp.body.contains("<appSettings")
                         || resp.body.contains("<connectionStrings")
-                        || (resp.body.trim().starts_with('{') && resp.body.contains("\"ConnectionStrings\""))
-                        || resp.body.contains("<?xml");
+                        || resp.body.contains("<system.web")
+                        || resp.body.contains("<system.webServer");
+                    let is_json_config = body_trim.starts_with('{')
+                        && (resp.body.contains("\"ConnectionStrings\"")
+                            || resp.body.contains("\"Logging\"")
+                            || resp.body.contains("\"AllowedHosts\"")
+                            || resp.body.contains("\"profiles\"")
+                            || resp.body.contains("\"iisSettings\"")
+                            || resp.body.contains("\"runtimeOptions\"")
+                            || resp.body.contains("\"runtimeTarget\"")
+                            || resp.body.contains("\"libraries\""));
+                    let is_csharp_source = resp.body.contains("namespace ")
+                        && (resp.body.contains("using System")
+                            || resp.body.contains("[assembly:")
+                            || resp.body.contains("public class "));
+                    let is_dockerfile = path.ends_with("Dockerfile")
+                        && (resp.body.contains("FROM ") || resp.body.contains("ENTRYPOINT"));
+                    let is_global_asax = resp.body.contains("<%@ Application")
+                        || resp.body.contains("Application_Start");
+                    let is_pdb = path.ends_with(".pdb")
+                        && (resp.body.starts_with("Microsoft C/C++ MSF")
+                            || resp.body.starts_with("BSJB"));
+                    let is_git_config = path.ends_with(".git/config")
+                        && resp.body.contains("[core]")
+                        && resp.body.contains("repositoryformatversion");
+                    let is_gitlab_ci = path.ends_with(".gitlab-ci.yml")
+                        && (resp.body.contains("stages:")
+                            || resp.body.contains("script:")
+                            || resp.body.contains("image:"));
+                    let is_publish_profile = path.contains("PublishProfiles")
+                        && (resp.body.contains("<PublishProfile")
+                            || resp.body.contains("<WebPublishMethod>"));
+                    let is_config_file = is_xml_config
+                        || is_json_config
+                        || is_csharp_source
+                        || is_dockerfile
+                        || is_global_asax
+                        || is_pdb
+                        || is_git_config
+                        || is_gitlab_ci
+                        || is_publish_profile
+                        || (resp.body.contains("<?xml") && resp.body.contains("<configuration"));
 
                     // Only report if it has sensitive content OR is actually a config file
                     if !has_sensitive && !is_config_file {
