@@ -118,9 +118,17 @@ impl TomcatMisconfigScanner {
             "/manager/html",
             "/manager/status",
             "/manager/text",
+            "/manager/text/list",
+            "/manager/jmxproxy",
+            "/manager/jmxproxy/?qry=java.lang:type=Memory",
             "/host-manager/html",
+            "/host-manager/text",
             "/admin/",
             "/tomcat-admin/",
+            // Case-variant bypass attempts (Tomcat is case-sensitive on Linux,
+            // but reverse proxies sometimes normalize paths and let these through)
+            "/Manager/Html",
+            "/manager;name=test/html",
         ];
 
         for path in &manager_paths {
@@ -180,6 +188,17 @@ impl TomcatMisconfigScanner {
             "/examples/jsp/",
             "/examples/servlets/",
             "/examples/websocket/",
+            // Specifically exploitable servlets: SessionExample is a classic
+            // open redirect / session-fixation primitive, and the snoop/sample
+            // servlets leak headers and cookies of the requester.
+            "/examples/servlets/servlet/SessionExample",
+            "/examples/servlets/servlet/CookieExample",
+            "/examples/servlets/servlet/RequestInfoExample",
+            "/examples/servlets/servlet/RequestParamExample",
+            "/examples/servlets/servlet/RequestHeaderExample",
+            "/examples/jsp/snp/snoop.jsp",
+            "/examples/jsp/cal/login.jsp",
+            "/examples/jsp/security/protected/login.jsp",
             "/docs/",
             "/tomcat-docs/",
         ];
@@ -231,7 +250,16 @@ impl TomcatMisconfigScanner {
 
         // Test 4: Version Detection via Error Pages
         tests_run += 1;
-        let version_paths = vec!["/nonexistent_path_12345", "/WEB-INF/", "/META-INF/"];
+        let version_paths = vec![
+            "/nonexistent_path_12345",
+            "/WEB-INF/",
+            "/META-INF/",
+            "/WEB-INF/web.xml",
+            "/WEB-INF/classes/application.properties",
+            "/WEB-INF/classes/application.yml",
+            "/META-INF/MANIFEST.MF",
+            "/META-INF/context.xml",
+        ];
 
         for path in &version_paths {
             tests_run += 1;
@@ -280,6 +308,138 @@ impl TomcatMisconfigScanner {
                 Err(e) => {
                     debug!("Version check failed for {}: {}", version_url, e);
                 }
+            }
+        }
+
+        // Test 5b: Direct WEB-INF / META-INF disclosure
+        // A correctly-configured Tomcat MUST return 404 for any /WEB-INF/* path.
+        // Serving these files as 200 with the expected XML/manifest signature
+        // means a reverse proxy or alias is bypassing the WEB-INF protection -
+        // this is a critical info disclosure (web.xml typically lists every
+        // servlet mapping, security constraint, and sometimes JDBC creds).
+        tests_run += 1;
+        let webinf_targets: &[(&str, &str, &str)] = &[
+            (
+                "/WEB-INF/web.xml",
+                "<web-app",
+                "web.xml reveals servlet mappings, filter chains, and security constraints",
+            ),
+            (
+                "/WEB-INF/classes/application.properties",
+                "spring.",
+                "application.properties leaks Spring datasource URLs, credentials, and JWT secrets",
+            ),
+            (
+                "/WEB-INF/classes/application.yml",
+                "spring:",
+                "application.yml leaks Spring config including datasource credentials",
+            ),
+            (
+                "/META-INF/MANIFEST.MF",
+                "Manifest-Version:",
+                "MANIFEST.MF leaks build metadata and dependency versions",
+            ),
+            (
+                "/META-INF/context.xml",
+                "<Context",
+                "context.xml may include JNDI Resource elements with database credentials",
+            ),
+        ];
+
+        for (path, signature, why) in webinf_targets {
+            tests_run += 1;
+            let leak_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&leak_url).await {
+                Ok(response) => {
+                    if response.status_code == 200 && response.body.contains(signature) {
+                        // Extra guard: a SPA shell returning 200 may contain a literal
+                        // "<web-app" only if it's actually XML/properties content,
+                        // so require the right content-type or the absence of <html>.
+                        let body_lower = response.body.to_lowercase();
+                        let looks_like_html = body_lower.contains("<!doctype html")
+                            || body_lower.contains("<html");
+                        if !looks_like_html {
+                            info!("Tomcat WEB-INF/META-INF leak at {}", leak_url);
+                            vulnerabilities.push(self.create_vulnerability(
+                                &leak_url,
+                                "TOMCAT_WEBINF_DISCLOSURE",
+                                &format!(
+                                    "Tomcat WEB-INF/META-INF Internal File Disclosure: {}",
+                                    path
+                                ),
+                                &format!(
+                                    "Internal Tomcat file served with status 200.\n\
+                                     Path: {}\nSignature matched: {}\nImpact: {}",
+                                    path, signature, why
+                                ),
+                                Severity::High,
+                                Confidence::High,
+                                7.5,
+                                "1. Ensure the upstream proxy never forwards /WEB-INF or /META-INF requests\n\
+                                 2. In Tomcat, /WEB-INF and /META-INF are protected by default - if a 200 is returned\n\
+                                    it is being served by something other than Tomcat (e.g. nginx static alias or CDN cache)\n\
+                                 3. Remove any aliases or rewrite rules that expose WEB-INF/META-INF\n\
+                                 4. Rotate any credentials that may have been disclosed in the leaked file\n\
+                                 5. Audit historical access logs for downloads of these paths",
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("WEB-INF check failed for {}: {}", leak_url, e);
+                }
+            }
+        }
+
+        // Test 5c: Tomcat CVE-2025-24813 partial-PUT detection (passive)
+        // CVE-2025-24813 lets an attacker with HTTP PUT enabled deserialize
+        // arbitrary content via partial-PUT. We do NOT issue a PUT here (that
+        // would be intrusive); we only flag if the server advertises PUT in
+        // an Allow header on a known-safe OPTIONS request to root.
+        tests_run += 1;
+        match self.http_client.request_with_method("OPTIONS", url).await {
+            Ok(response) => {
+                let allow = response
+                    .headers
+                    .get("allow")
+                    .or_else(|| response.headers.get("Allow"))
+                    .cloned()
+                    .unwrap_or_default();
+                let allow_upper = allow.to_uppercase();
+                let server = response
+                    .headers
+                    .get("server")
+                    .or_else(|| response.headers.get("Server"))
+                    .cloned()
+                    .unwrap_or_default();
+                if (allow_upper.contains("PUT") || allow_upper.contains("DELETE"))
+                    && server.to_lowercase().contains("tomcat")
+                {
+                    vulnerabilities.push(self.create_vulnerability(
+                        url,
+                        "TOMCAT_DANGEROUS_METHODS",
+                        "Tomcat advertises PUT/DELETE - potential CVE-2025-24813 / arbitrary upload exposure",
+                        &format!(
+                            "OPTIONS response Allow: {}\nServer: {}\n\
+                             PUT/DELETE on Tomcat with the Default servlet's readonly=false is the\n\
+                             prerequisite for CVE-2025-24813 (partial-PUT deserialization) and for\n\
+                             arbitrary file upload to the docBase.",
+                            allow, server
+                        ),
+                        Severity::High,
+                        Confidence::Medium,
+                        7.5,
+                        "1. Ensure the DefaultServlet readonly init-param is left at the default (true)\n\
+                         2. Strip PUT/DELETE at the reverse proxy if the application does not require them\n\
+                         3. Upgrade to a Tomcat release that addresses CVE-2025-24813 (>= 9.0.99, 10.1.35, 11.0.3)\n\
+                         4. Disable file-based session persistence on the affected context if not needed\n\
+                         5. Monitor the access log for partial-PUT requests with Content-Range headers",
+                    ));
+                }
+            }
+            Err(e) => {
+                debug!("OPTIONS probe failed: {}", e);
             }
         }
 

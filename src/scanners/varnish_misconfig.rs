@@ -292,32 +292,123 @@ impl VarnishMisconfigScanner {
 
         // Only test cache poisoning if we detect caching infrastructure
         if has_caching_proxy {
-            let bypass_headers = vec![
-                ("Cache-Control", "no-cache"),
-                ("Pragma", "no-cache"),
-                ("X-Forwarded-Host", "evil.com"),
-                ("X-Original-URL", "/admin"),
-                ("X-Rewrite-URL", "/admin"),
+            // Each entry: (header_name, header_value, reflection_marker_to_search_for)
+            // The marker is a deliberately unique string we inject so a reflection
+            // check has zero ambiguity. Markers MUST NOT appear in normal pages,
+            // which keeps the false-positive rate at zero.
+            const MARKER_DOMAIN: &str = "lonkero-cache-probe.invalid";
+            const MARKER_PATH: &str = "/lonkero-cache-probe-marker";
+            const MARKER_SCHEME: &str = "lonkeroprobe";
+            let bypass_headers: Vec<(&str, String)> = vec![
+                ("Cache-Control", "no-cache".to_string()),
+                ("Pragma", "no-cache".to_string()),
+                // Classic Host-rewrite headers
+                ("X-Forwarded-Host", MARKER_DOMAIN.to_string()),
+                ("X-Host", MARKER_DOMAIN.to_string()),
+                ("X-Forwarded-Server", MARKER_DOMAIN.to_string()),
+                ("X-HTTP-Host-Override", MARKER_DOMAIN.to_string()),
+                ("Forwarded", format!("host={}", MARKER_DOMAIN)),
+                // Scheme-rewrite headers (HSTS bypass / mixed content)
+                ("X-Forwarded-Scheme", MARKER_SCHEME.to_string()),
+                ("X-Forwarded-Proto", MARKER_SCHEME.to_string()),
+                ("X-Forwarded-Ssl", "on".to_string()),
+                // URL-rewrite headers (auth bypass / cache key smuggling)
+                ("X-Original-URL", MARKER_PATH.to_string()),
+                ("X-Rewrite-URL", MARKER_PATH.to_string()),
+                ("X-Override-URL", MARKER_PATH.to_string()),
+                ("X-HTTP-Method-Override", "GET".to_string()),
+                // Prefix-rewrite (path confusion)
+                ("X-Forwarded-Prefix", MARKER_PATH.to_string()),
+                // Cache-key influencing headers commonly missed in VCL
+                ("X-Forwarded-For", "127.0.0.1".to_string()),
+                ("X-Real-IP", "127.0.0.1".to_string()),
+                ("True-Client-IP", "127.0.0.1".to_string()),
+                ("CF-Connecting-IP", "127.0.0.1".to_string()),
+            ];
+
+            // Only headers that carry a unique marker can be flagged via
+            // reflection - listing them keeps no-marker headers from triggering.
+            let host_rewrite_headers = [
+                "X-Forwarded-Host",
+                "X-Host",
+                "X-Forwarded-Server",
+                "X-HTTP-Host-Override",
+                "Forwarded",
+            ];
+            let url_rewrite_headers = [
+                "X-Original-URL",
+                "X-Rewrite-URL",
+                "X-Override-URL",
+                "X-Forwarded-Prefix",
+            ];
+            let scheme_rewrite_headers = [
+                "X-Forwarded-Scheme",
+                "X-Forwarded-Proto",
             ];
 
             for (header_name, header_value) in &bypass_headers {
                 tests_run += 1;
-                let headers = vec![(header_name.to_string(), header_value.to_string())];
+                let headers = vec![(header_name.to_string(), header_value.clone())];
 
                 match self.http_client.get_with_headers(url, headers).await {
                     Ok(response) => {
-                        // Check if bypass headers are processed
-                        if *header_name == "X-Forwarded-Host" || *header_name == "X-Original-URL" {
-                            // These could indicate cache poisoning vectors
-                            let body_lower = response.body.to_lowercase();
-                            if body_lower.contains("evil.com") || body_lower.contains("/admin") {
+                        let body = &response.body;
+                        // Pick the marker we expect to find reflected. Each
+                        // marker is intentionally unique so this is FP-safe.
+                        let marker_opt: Option<&str> = if host_rewrite_headers
+                            .contains(header_name)
+                        {
+                            Some(MARKER_DOMAIN)
+                        } else if url_rewrite_headers.contains(header_name) {
+                            Some(MARKER_PATH)
+                        } else if scheme_rewrite_headers.contains(header_name) {
+                            Some(MARKER_SCHEME)
+                        } else {
+                            None
+                        };
+
+                        if let Some(marker) = marker_opt {
+                            // Reflected in body OR echoed in a Location header
+                            // (the most common cache-poisoning primitive in
+                            // Varnish/Fastly setups that forward Host into
+                            // generated absolute URLs).
+                            let location_echoes = response
+                                .headers
+                                .get("location")
+                                .or_else(|| response.headers.get("Location"))
+                                .map(|v| v.contains(marker))
+                                .unwrap_or(false);
+                            let link_echoes = response
+                                .headers
+                                .get("link")
+                                .or_else(|| response.headers.get("Link"))
+                                .map(|v| v.contains(marker))
+                                .unwrap_or(false);
+                            let body_echoes = body.contains(marker);
+
+                            if location_echoes || link_echoes || body_echoes {
+                                let where_seen = if location_echoes {
+                                    "Location header"
+                                } else if link_echoes {
+                                    "Link header"
+                                } else {
+                                    "response body"
+                                };
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
                                     "VARNISH_CACHE_POISONING_VECTOR",
-                                    &format!("Cache Poisoning Vector via {} Header", header_name),
                                     &format!(
-                                        "The {} header value is reflected in response, indicating potential cache poisoning.\nHeader: {}: {}",
-                                        header_name, header_name, header_value
+                                        "Cache Poisoning Vector via {} Header",
+                                        header_name
+                                    ),
+                                    &format!(
+                                        "The {} header value is reflected in {}, indicating a potential cache poisoning sink.\nHeader sent: {}: {}\nReflection point: {}\nMarker observed: {}",
+                                        header_name,
+                                        where_seen,
+                                        header_name,
+                                        header_value,
+                                        where_seen,
+                                        marker
                                     ),
                                     Severity::High,
                                     Confidence::Medium,
@@ -325,12 +416,21 @@ impl VarnishMisconfigScanner {
                                     "1. Normalize or ignore untrusted headers in VCL:\n\
                                         sub vcl_recv {\n\
                                             unset req.http.X-Forwarded-Host;\n\
+                                            unset req.http.X-Host;\n\
+                                            unset req.http.X-Forwarded-Server;\n\
+                                            unset req.http.X-Forwarded-Scheme;\n\
+                                            unset req.http.X-Forwarded-Proto;\n\
+                                            unset req.http.X-Forwarded-Prefix;\n\
                                             unset req.http.X-Original-URL;\n\
                                             unset req.http.X-Rewrite-URL;\n\
+                                            unset req.http.X-Override-URL;\n\
+                                            unset req.http.X-HTTP-Method-Override;\n\
+                                            unset req.http.X-HTTP-Host-Override;\n\
+                                            unset req.http.Forwarded;\n\
                                         }\n\
-                                     2. Include relevant headers in cache key (hash)\n\
-                                     3. Implement strict header validation\n\
-                                     4. Review and test cache key configuration",
+                                     2. Add all routing-relevant headers to the cache key (Vary)\n\
+                                     3. Validate Host strictly against an allowlist\n\
+                                     4. Re-test after changes - the marker should no longer appear",
                                 ));
                             }
                         }
