@@ -399,6 +399,253 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Webflow — the proxy-ssl host serves a generic 404 when the custom domain
+    // isn't bound, and the signature string is unique enough to reliably confirm.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".proxy-ssl.webflow.com", ".proxy.webflow.com", "proxy-ssl.webflow.com"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the custom domain in Webflow project settings.",
+    },
+    // Strikingly — the `s.strikinglydns.com` edge serves a fixed 404 body when
+    // no Strikingly site is bound to the alias.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com", "strikinglydns.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND",
+            "But if you're looking to build your own website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the matching custom domain in Strikingly.",
+    },
+    // Anima — public design hosting where unconfigured aliases display a
+    // claimable-site message.
+    ServiceFingerprint {
+        name: "Anima",
+        cname_patterns: &[".animaapp.io"],
+        http_signatures: &[
+            "If this is your website and you've just created it",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the custom domain in your Anima project.",
+    },
+    // HelpJuice — knowledge-base SaaS where an unclaimed alias serves a
+    // very specific not-found body.
+    ServiceFingerprint {
+        name: "HelpJuice",
+        cname_patterns: &[".helpjuice.com"],
+        http_signatures: &[
+            "We could not find what you're looking for.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the custom domain in HelpJuice settings.",
+    },
+    // Unbounce — landing-page builder; unbound aliases serve the
+    // `unbouncepages.com` not-found marker.
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server.",
+            "Domain not found",
+        ],
+        header_patterns: &[("server", "nginx")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the custom domain in Unbounce.",
+    },
+    // ngrok — tunnel provider; deactivated tunnels return a fixed
+    // marker. Tunnels can be re-registered with a known reserved name.
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok.app", ".ngrok-free.app"],
+        http_signatures: &[
+            "Tunnel not found",
+            "ERR_NGROK_3200",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or re-establish the reserved ngrok tunnel.",
+    },
+    // Render — PaaS where unbound custom domains on `*.onrender.com`
+    // serve the static `Not Found` template.
+    ServiceFingerprint {
+        name: "Render",
+        cname_patterns: &[".onrender.com"],
+        http_signatures: &[
+            "Not Found",
+        ],
+        header_patterns: &[("x-render-origin-server", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the domain to a Render service.",
+    },
+    // Wishpond — landing pages on `wishpond.com`; unclaimed aliases
+    // 302 to a campaign 404 marker.
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign=true",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the matching custom domain in Wishpond.",
+    },
+    // LaunchRock — pre-launch SaaS; unclaimed sites serve a generic
+    // marker that is very specific to LaunchRock's 404 template.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or re-create the LaunchRock page with the custom domain.",
+    },
+    // Smartling — translation/localization SaaS; misconfigured aliases
+    // return the static `Domain is not configured` body.
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &[".smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the domain in Smartling's project settings.",
+    },
+    // Helprace — customer-support portal; the unclaimed-portal
+    // body string is exact and unique to Helprace.
+    ServiceFingerprint {
+        name: "Helprace",
+        cname_patterns: &[".helprace.com"],
+        http_signatures: &[
+            "The page you were looking for doesn't exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the custom domain in Helprace settings.",
+    },
+    // Readme.io — API documentation hosting; unclaimed slugs serve
+    // a specific 404 line.
+    ServiceFingerprint {
+        name: "Readme.io",
+        cname_patterns: &[".readme.io", ".readmessl.com"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the project in Readme.io.",
+    },
+    // Tilda Publishing — alternate `tildapublishing.com` CNAME with
+    // its own dedicated 404 signature.
+    ServiceFingerprint {
+        name: "Tilda Publishing",
+        cname_patterns: &[".tildapublishing.com"],
+        http_signatures: &[
+            "Please renew your subscription",
+            "Domain has been assigned",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or re-attach the domain in Tilda.",
+    },
+    // Azure Front Door / CDN — high-impact takeover; the
+    // `Our services aren't available right now` body is the canonical
+    // marker that the AFD profile is gone.
+    ServiceFingerprint {
+        name: "Azure Front Door",
+        cname_patterns: &[".azurefd.net", ".azureedge.net"],
+        http_signatures: &[
+            "Our services aren't available right now",
+            "We're working to restore all services as soon as possible",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::Critical,
+        cvss: 9.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or recreate the Front Door / CDN profile with the matching endpoint name.",
+    },
+    // Worksites.net — marketing site builder with a fixed
+    // `Hello! Sorry, but the website you're looking for` 404 body.
+    ServiceFingerprint {
+        name: "Worksites.net",
+        cname_patterns: &[".worksites.net"],
+        http_signatures: &[
+            "Hello! Sorry, but the website you're looking for",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the custom domain on Worksites.",
+    },
+    // Acquia — Drupal-as-a-service; misrouted aliases serve
+    // the platform's distinctive `Web Site Not Found` template.
+    ServiceFingerprint {
+        name: "Acquia",
+        cname_patterns: &[".acquia-sites.com"],
+        http_signatures: &[
+            "Web Site Not Found",
+            "If you are the owner of this web site, you have not published your web site yet",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the domain inside Acquia Cloud.",
+    },
 ];
 
 /// DNS resolution result for a subdomain

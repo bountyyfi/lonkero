@@ -49,41 +49,183 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Each candidate is fetched and run through `parse_openapi_spec`, which only
+/// accepts content with a valid `swagger`/`openapi` version field and a
+/// matching `paths` map. That means a 200 with arbitrary JSON (e.g. a SPA
+/// catch-all) will not be reported, so adding speculative paths only costs
+/// extra requests rather than producing false positives.
 const OPENAPI_PATHS: &[&str] = &[
+    // Top-level conventions
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api/swagger.json",
+    "/api/swagger.yaml",
+    "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/docs/swagger.json",
+    "/api/docs/openapi.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/swagger",
+    // Versioned spec roots
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/v1/swagger.yaml",
+    "/swagger/v2/swagger.yaml",
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
-    "/api/swagger.json",
-    "/api/openapi.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    // Spring / springdoc / springfox defaults
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/openapi/v3/api-docs",
+    "/openapi/v3/api-docs.yaml",
+    "/openapi/v3/api-docs/swagger-config",
+    // Quarkus / SmallRye
+    "/q/openapi",
+    "/q/openapi.json",
+    "/q/openapi.yaml",
+    "/openapi/openapi.json",
+    // Drupal / Laravel / Symfony common roots
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
+    "/docs/openapi.yaml",
+    "/docs/api.json",
+    "/docs/api-spec.json",
+    "/docs/spec.json",
+    "/docs.json",
+    "/spec.json",
+    "/spec.yaml",
+    "/api.json",
+    "/api-spec",
+    "/api-spec.json",
+    "/api-spec.yaml",
+    // .well-known well-knowns
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    "/.well-known/openapi",
+    "/.well-known/api-catalog",
+    "/.well-known/api-catalog.json",
+    // Tooling / introspection roots
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    "/swagger-config",
+    "/openapi/swagger-config",
+    // Misc conventions
+    "/static/openapi.json",
+    "/static/openapi.yaml",
+    "/static/swagger.json",
+    "/assets/openapi.json",
+    "/assets/swagger.json",
+    "/public/openapi.json",
+    "/public/swagger.json",
+    // Trailing slash variants reverse proxies sometimes require
+    "/api-docs/",
+    "/api/docs/",
+    "/openapi/",
+    "/openapi.json/",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API documentation viewer paths.
+///
+/// Findings here require the response body to contain UI-specific markers
+/// (handled inside `check_swagger_ui_exposure`), so adding paths broadens
+/// discovery without introducing false positives from generic 200 shells.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI defaults
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui",
     "/swagger/",
+    "/swagger",
+    "/swagger/index.html",
+    "/swagger/ui/",
+    "/swagger/ui/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/swagger/",
+    "/api/swagger",
+    "/api/swagger/index.html",
+    // springdoc / springfox
+    "/swagger-ui/index.html#/",
+    "/v3/swagger-ui.html",
+    "/v3/swagger-ui/index.html",
+    "/webjars/swagger-ui/",
+    "/webjars/swagger-ui/index.html",
+    // Common doc viewer roots
     "/docs/",
+    "/docs",
+    "/docs/index.html",
     "/api-docs/",
+    "/api-docs",
     "/api/docs",
+    "/api/docs/",
+    "/api/documentation",
+    "/api/documentation/",
+    "/documentation",
+    "/documentation/",
+    "/reference",
+    "/reference/",
+    "/api/reference",
+    "/api/reference/",
+    // Redoc deployments
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/api/redoc/",
+    "/docs/redoc",
+    "/docs/redoc/",
+    // RapiDoc / Elements / Scalar / Stoplight viewers
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/scalar",
+    "/scalar/",
+    "/api/scalar",
+    "/elements",
+    "/elements/",
+    "/stoplight",
+    "/stoplight/",
+    // Quarkus / Drupal / DRF common defaults
+    "/q/swagger-ui",
+    "/q/swagger-ui/",
+    "/openapi/ui",
+    "/openapi/ui/",
+    "/schema/swagger-ui/",
+    "/schema/redoc/",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

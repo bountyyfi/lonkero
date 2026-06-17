@@ -113,14 +113,39 @@ impl TomcatMisconfigScanner {
         }
 
         // Test 2: Tomcat Manager Interface Exposure
+        //
+        // All matches are gated by Tomcat-specific body markers (or a 401 with
+        // `tomcat` in the body), so expanding the path list grows discovery
+        // without widening false positives.
         tests_run += 1;
         let manager_paths = vec![
+            // Manager webapp
             "/manager/html",
+            "/manager/html/",
             "/manager/status",
+            "/manager/status/all",
             "/manager/text",
+            "/manager/text/list",
+            "/manager/jmxproxy",
+            "/manager/jmxproxy/",
+            "/manager/jmxproxy/?qry=Catalina%3Atype%3DServer",
+            // Host-manager webapp
             "/host-manager/html",
-            "/admin/",
+            "/host-manager/html/",
+            "/host-manager/text",
+            "/host-manager/text/list",
+            // Reverse-proxy / context-rooted Tomcat manager mounts
+            "/tomcat/manager/html",
+            "/tomcat-manager/",
+            "/tomcat-manager/html",
             "/tomcat-admin/",
+            "/admin/",
+            // PSI-Probe (most common Tomcat monitoring add-on; same manager
+            // role required, also high-impact if exposed)
+            "/probe/",
+            "/probe/index.htm",
+            "/psi-probe/",
+            "/psi-probe/index.htm",
         ];
 
         for path in &manager_paths {
@@ -131,11 +156,18 @@ impl TomcatMisconfigScanner {
                 Ok(response) => {
                     let body_lower = response.body.to_lowercase();
 
-                    // Check for manager login page or accessible manager
-                    // Require Tomcat-specific content, not generic "401 unauthorized" text
+                    // Check for manager login page or accessible manager.
+                    // Each marker is a distinctive Tomcat / PSI-Probe string, not
+                    // a generic 401 body — so the additional probe paths above
+                    // don't widen the false-positive surface.
                     let is_manager = body_lower.contains("tomcat web application manager")
                         || body_lower.contains("tomcat virtual host manager")
                         || body_lower.contains("manager-gui")
+                        // PSI-Probe (the well-known Tomcat manager replacement)
+                        || body_lower.contains("psi probe")
+                        || body_lower.contains("psi-probe")
+                        || body_lower.contains("advanced manager and monitor for apache tomcat")
+                        || body_lower.contains("lambda probe")
                         || (response.status_code == 401 && body_lower.contains("tomcat"));
 
                     if is_manager {
