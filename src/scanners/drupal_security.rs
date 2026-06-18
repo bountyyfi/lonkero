@@ -780,16 +780,70 @@ impl DrupalSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
+        // Each probe is verified below by inspecting the body for
+        // `database` / `password` / `DB_` / `$databases` / `hash_salt`, so
+        // adding paths does not introduce new false positives — a non-Drupal
+        // server returning 200 for `/sites/.../settings.php` would still need
+        // to coincidentally include those exact substrings.
         let config_files = vec![
+            // -- Default site --
             "/sites/default/settings.php",
             "/sites/default/settings.php.bak",
             "/sites/default/settings.php.old",
             "/sites/default/settings.php~",
+            "/sites/default/settings.php.save",
+            "/sites/default/settings.php.swp",
+            "/sites/default/settings.php.swo",
+            "/sites/default/settings.php.orig",
+            "/sites/default/settings.php.txt",
+            "/sites/default/settings.php.dist",
+            "/sites/default/settings.php.example",
+            "/sites/default/settings.php.disabled",
             "/sites/default/settings.local.php",
+            "/sites/default/settings.local.php.bak",
+            "/sites/default/settings.production.php",
+            "/sites/default/settings.staging.php",
+            "/sites/default/settings.dev.php",
             "/sites/default/services.yml",
+            "/sites/default/services.yml.bak",
+            "/sites/default/development.services.yml",
             "/sites/default/default.settings.php",
+            "/sites/default/default.services.yml",
+            // -- Common multisite directory names --
+            "/sites/all/settings.php",
+            "/sites/all/default.settings.php",
+            "/sites/example.com/settings.php",
+            "/sites/example.sites.php",
+            "/sites/sites.php",
+            // -- Drush / config sync (often left writable) --
+            "/sites/default/files/config/sync/system.site.yml",
+            "/sites/default/files/config/sync/core.extension.yml",
+            "/sites/default/files/config_export/system.site.yml",
+            "/sites/default/files/.htaccess",
+            // -- Composer / Drush / repo leftovers in webroot --
+            "/composer.json",
+            "/composer.lock",
+            "/drush/drushrc.php",
+            "/drush/sites/self.site.yml",
+            "/drush/aliases.drushrc.php",
+            // -- Dotenv variants commonly shipped with Drupal projects --
             "/.env",
             "/.env.local",
+            "/.env.dev",
+            "/.env.development",
+            "/.env.staging",
+            "/.env.production",
+            "/.env.prod",
+            "/.env.example",
+            "/.env.sample",
+            "/.env.dist",
+            "/.env.backup",
+            "/.env.bak",
+            "/.env.save",
+            "/.env.old",
+            "/.env~",
+            "/.env.swp",
+            "/.env.swo",
         ];
 
         for file in config_files {
@@ -850,14 +904,74 @@ impl DrupalSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
+        // Each admin URL is gated below by an "Administration"/"admin-menu"/
+        // "system-admin"/"toolbar-menu" body check, so adding paths cannot
+        // produce new false positives on non-Drupal sites. The expanded list
+        // covers the most security-sensitive admin areas that, when reachable
+        // anonymously, indicate a misconfigured permission set or a
+        // compromised site.
         let admin_paths = vec![
+            // Top-level admin landing
             "/admin",
+            "/admin/",
+            "/admin/index.php",
+            // Configuration trees that expose tokens, keys and secrets
             "/admin/config",
+            "/admin/config/system/site-information",
+            "/admin/config/system/cron",
+            "/admin/config/system/maintenance",
+            "/admin/config/system/file-system",
+            "/admin/config/system/keys",
+            "/admin/config/system/key/list",
+            "/admin/config/services/oauth",
+            "/admin/config/services/aws-cloud",
+            "/admin/config/services/aws",
+            "/admin/config/development/configuration",
+            "/admin/config/development/configuration/single/export",
+            "/admin/config/development/configuration/sync",
+            "/admin/config/development/maintenance",
+            "/admin/config/development/performance",
+            "/admin/config/development/logging",
+            "/admin/config/development/devel",
+            "/admin/config/development/php",
+            "/admin/config/people/accounts",
+            // Structure / content type / view manipulation (auth bypass triggers)
             "/admin/structure",
+            "/admin/structure/types",
+            "/admin/structure/views",
+            "/admin/structure/menu",
+            "/admin/structure/block",
+            "/admin/structure/webform",
+            "/admin/structure/taxonomy",
+            // People — account enumeration + role management
             "/admin/people",
+            "/admin/people/create",
+            "/admin/people/permissions",
+            "/admin/people/roles",
+            // Modules / themes — code execution surface
             "/admin/modules",
+            "/admin/modules/list",
+            "/admin/modules/install",
+            "/admin/modules/uninstall",
+            "/admin/modules/update",
+            "/admin/appearance",
+            "/admin/appearance/install",
+            // Reports — version + log disclosure
+            "/admin/reports",
             "/admin/reports/status",
             "/admin/reports/dblog",
+            "/admin/reports/updates",
+            "/admin/reports/access-denied",
+            "/admin/reports/page-not-found",
+            "/admin/reports/fields",
+            "/admin/reports/php",
+            // Database update + tooling
+            "/admin/devel",
+            "/admin/devel/php",
+            "/admin/devel/menu",
+            "/admin/devel/state",
+            "/admin/devel/container/service",
+            "/admin/help",
         ];
 
         for path in admin_paths {
@@ -1251,12 +1365,76 @@ impl DrupalSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
+        // Each probe is gated below by the body containing actual SQL DDL/DML
+        // (`CREATE TABLE` / `INSERT INTO`) or an `Index of` directory listing,
+        // so adding paths cannot generate new false positives. The patterns
+        // below cover the dump filenames produced by:
+        //   • Backup and Migrate module (`backup_migrate/`)
+        //   • drush sql-dump (`*.sql`, `*.sql.gz`)
+        //   • Generic admin habits (dated dumps, host-prefixed dumps,
+        //     prod/staging copies left in /tmp or webroot)
         let backup_patterns = vec![
+            // -- Generic SQL dumps in webroot --
             "/backup.sql",
+            "/backup.sql.gz",
+            "/backup.sql.tar.gz",
+            "/backup.tar.gz",
+            "/backup.zip",
+            "/backup.7z",
             "/database.sql",
+            "/database.sql.gz",
+            "/db.sql",
+            "/db.sql.gz",
+            "/dump.sql",
+            "/dump.sql.gz",
+            "/dump.zip",
+            "/full_dump.sql",
+            "/sqldump.sql",
+            "/mysql.sql",
+            "/mysqldump.sql",
             "/drupal.sql",
+            "/drupal.sql.gz",
+            "/drupal.tar.gz",
+            "/drupal-backup.sql",
+            "/drupal-db.sql",
+            "/site.sql",
+            "/site-backup.sql",
+            "/old.sql",
+            "/old.zip",
+            // -- Common dated patterns from automated cron dumps --
+            "/backup-2024.sql",
+            "/backup-2025.sql",
+            "/backup-2026.sql",
+            "/backup_latest.sql",
+            "/latest.sql",
+            "/latest.sql.gz",
+            // -- Backup and Migrate module default paths --
+            "/sites/default/files/backup_migrate/",
+            "/sites/default/files/backup_migrate/manual/",
+            "/sites/default/files/backup_migrate/scheduled/",
+            "/sites/default/private/backup_migrate/",
+            // -- Files dir conventional locations --
             "/sites/default/files/backup.sql",
+            "/sites/default/files/backup.sql.gz",
             "/sites/default/files/backup/",
+            "/sites/default/files/backups/",
+            "/sites/default/files/db_backup/",
+            "/sites/default/files/sql/",
+            // -- Misnamed exports often left next to /sites --
+            "/sites/db.sql",
+            "/sites/backup.sql",
+            "/sites/dump.sql",
+            // -- TMP / private leftovers reachable via misconfigured alias --
+            "/tmp/backup.sql",
+            "/tmp/dump.sql",
+            "/private/backup.sql",
+            // -- Directory-only probes (relies on `Index of` gate) --
+            "/backups/",
+            "/backup/",
+            "/sql/",
+            "/dump/",
+            "/dumps/",
+            "/db/",
         ];
 
         for pattern in backup_patterns {

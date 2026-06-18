@@ -5682,6 +5682,706 @@ impl JsMinerScanner {
         }
 
         // ============================================
+        // ADDITIONAL VENDOR-PREFIXED TOKENS
+        // ============================================
+        // Each pattern below is anchored on a vendor-issued prefix or a
+        // structurally unique substring. Random JS minifier output cannot match
+        // them — so detection has the same false-positive floor as the AKIA /
+        // ghp_ checks above.
+
+        // AWS STS temporary access keys (Lambda exec roles, federated logins).
+        // Same 16-char body as AKIA but with the ASIA prefix issued by STS.
+        if let Some(findings) =
+            self.scan_pattern(content, r"ASIA[0-9A-Z]{16}", "AWS STS Temporary Key")
+        {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "AWS STS Temporary Access Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Temporary STS credentials still grant role permissions until expiry. Revoke the session and rotate the underlying role's assume-role policy.",
+                ));
+            }
+        }
+
+        // GCP service account JSON — the exact `"type":"service_account"` field
+        // is unique to GCP key files; no legitimate JS bundle ships it.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#""type"\s*:\s*"service_account""#,
+            "GCP Service Account JSON",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GCP Service Account JSON Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "A GCP service account key file is embedded in client code. Disable the key in IAM immediately and audit the project for unauthorized resource access.",
+                ));
+            }
+        }
+
+        // Azure Storage connection string with embedded AccountKey
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{86,90}",
+            "Azure Storage Connection String",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Azure Storage Account Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "The full Azure storage account key grants blob/queue/table access. Rotate via 'az storage account keys renew' and audit access logs.",
+                ));
+            }
+        }
+
+        // Azure Storage SAS token — structural anchors (sv=YYYY-MM-DD, sig=...).
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"sv=20[0-9]{2}-[0-9]{2}-[0-9]{2}&s[ir]=[A-Za-z0-9%]+&sig=[A-Za-z0-9%+/=]{20,}",
+            "Azure Storage SAS Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Azure Storage SAS Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke the SAS by rotating the signing key. Long-lived SAS tokens often grant blob read/write to an entire container.",
+                ));
+            }
+        }
+
+        // GitHub Personal Access Tokens — fixed prefixes, fixed body length.
+        for (re, name, label) in [
+            (r"ghp_[A-Za-z0-9]{36}", "GitHub PAT (classic)", "Critical"),
+            (r"gho_[A-Za-z0-9]{36}", "GitHub OAuth Access Token", "High"),
+            (r"ghs_[A-Za-z0-9]{36}", "GitHub App Server Token", "High"),
+            (r"ghu_[A-Za-z0-9]{36}", "GitHub App User Token", "High"),
+        ] {
+            if let Some(findings) = self.scan_pattern(content, re, name) {
+                let severity = if label == "Critical" {
+                    Severity::Critical
+                } else {
+                    Severity::High
+                };
+                for evidence in findings.into_iter().take(2) {
+                    self.add_unique_vuln(
+                        vulnerabilities,
+                        seen_evidence,
+                        self.create_vulnerability(
+                            &format!("{} Exposed", name),
+                            location,
+                            &evidence,
+                            severity.clone(),
+                            "CWE-312",
+                            "Revoke the token via github.com/settings/tokens and rotate any downstream credentials it deployed.",
+                        ),
+                    );
+                }
+            }
+        }
+
+        // GitHub fine-grained PAT — `github_pat_` prefix, 80+ chars of body.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"github_pat_[A-Za-z0-9_]{80,}",
+            "GitHub Fine-grained PAT",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GitHub Fine-grained PAT Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Fine-grained PATs are repo-scoped but still grant write/admin in scope. Revoke via github.com/settings/personal-access-tokens.",
+                ));
+            }
+        }
+
+        // GitLab PAT — `glpat-` prefix, 20-char body.
+        if let Some(findings) =
+            self.scan_pattern(content, r"glpat-[A-Za-z0-9_\-]{20}", "GitLab PAT")
+        {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GitLab Personal Access Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at gitlab.com/-/user_settings/personal_access_tokens. PATs grant API/repo access at the owner's privilege level.",
+                ));
+            }
+        }
+
+        // Bitbucket App Password (project's existing scanners may flag this
+        // generically — the prefix anchors it as a Bitbucket credential).
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"BBDC-[A-Za-z0-9+/=]{40,}",
+            "Bitbucket App Password",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Bitbucket App Password Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke the app password under Bitbucket → Personal settings → App passwords.",
+                ));
+            }
+        }
+
+        // Atlassian Cloud API tokens — `ATATT` is the Atlassian-issued prefix
+        // for Cloud API tokens (Jira / Confluence / Bitbucket Cloud).
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"ATATT[A-Za-z0-9_\-=]{20,}",
+            "Atlassian API Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Atlassian Cloud API Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at id.atlassian.com/manage-profile/security/api-tokens. Token has same scope as the issuing user.",
+                ));
+            }
+        }
+
+        // OpenAI legacy (`sk-` + 48 alphanumerics) and project keys (`sk-proj-`).
+        // Distinct from Stripe's `sk_live_` because Stripe uses `_` between
+        // `sk` and `live`; OpenAI uses `-`.
+        if let Some(findings) =
+            self.scan_pattern(content, r"sk-[A-Za-z0-9]{48}", "OpenAI API Key")
+        {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "OpenAI API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at platform.openai.com/api-keys. Compromised keys can incur unbounded usage charges before quota limits kick in.",
+                ));
+            }
+        }
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"sk-proj-[A-Za-z0-9_\-]{50,}",
+            "OpenAI Project Key",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "OpenAI Project API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at platform.openai.com/api-keys. Project-scoped keys still hit the project's billing quota.",
+                ));
+            }
+        }
+
+        // Anthropic API key — `sk-ant-` is vendor-issued and unique.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"sk-ant-[A-Za-z0-9_\-]{40,}",
+            "Anthropic API Key",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Anthropic API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at console.anthropic.com/settings/keys. Compromised keys can drain billing budget.",
+                ));
+            }
+        }
+
+        // Hugging Face token — `hf_` + 34 alphanumerics.
+        if let Some(findings) =
+            self.scan_pattern(content, r"hf_[A-Za-z0-9]{34}", "Hugging Face Token")
+        {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Hugging Face Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at huggingface.co/settings/tokens. Write tokens allow model/dataset tampering.",
+                ));
+            }
+        }
+
+        // HashiCorp Vault — service (`hvs.`) and batch (`hvb.`) tokens.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"hvs\.[A-Za-z0-9_\-]{90,100}",
+            "HashiCorp Vault Service Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "HashiCorp Vault Service Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke via 'vault token revoke <accessor>'. Vault tokens inherit policy access across all mounts.",
+                ));
+            }
+        }
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"hvb\.[A-Za-z0-9_\-]{138,212}",
+            "HashiCorp Vault Batch Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "HashiCorp Vault Batch Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Vault batch tokens cannot be revoked individually — rotate the issuing role's policies and reduce TTL.",
+                ));
+            }
+        }
+
+        // DigitalOcean — `dop_v1_` for PATs, `doo_v1_` for OAuth, `dor_v1_` for refresh.
+        for (re, name) in [
+            (r"dop_v1_[a-f0-9]{64}", "DigitalOcean PAT"),
+            (r"doo_v1_[a-f0-9]{64}", "DigitalOcean OAuth Token"),
+            (r"dor_v1_[a-f0-9]{64}", "DigitalOcean Refresh Token"),
+        ] {
+            if let Some(findings) = self.scan_pattern(content, re, name) {
+                for evidence in findings.into_iter().take(2) {
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        &format!("{} Exposed", name),
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke under DigitalOcean → API → Tokens. PATs grant Droplet/database/firewall control on the team.",
+                    ));
+                }
+            }
+        }
+
+        // npm publish token — `npm_` + 36 alphanumerics. Supply-chain risk.
+        if let Some(findings) =
+            self.scan_pattern(content, r"npm_[A-Za-z0-9]{36}", "npm Publish Token")
+        {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "npm Publish Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at npmjs.com/settings/<user>/tokens immediately. Compromised publish tokens enable supply-chain attacks against every package the owner can publish to.",
+                ));
+            }
+        }
+
+        // PyPI API token — `pypi-AgEIcHlwaS5vcmc` is the base64 of "pypi.org"
+        // plus a fixed PEP 458 header byte; impossible to match by accident.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}",
+            "PyPI API Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "PyPI API Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at pypi.org/manage/account/token/. Token grants publish rights to every project in scope.",
+                ));
+            }
+        }
+
+        // RubyGems API key — `rubygems_` prefix is the modern format.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"rubygems_[a-f0-9]{48}",
+            "RubyGems API Key",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "RubyGems API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke at rubygems.org/profile/api_keys. Push-scope keys enable supply-chain compromise of every gem the owner controls.",
+                ));
+            }
+        }
+
+        // SendGrid — `SG.` + 22-char id + `.` + 43-char signature. Two literal
+        // dots plus the `SG.` prefix make accidental matches impossible.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",
+            "SendGrid API Key",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "SendGrid API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at app.sendgrid.com/settings/api_keys. Compromised keys enable phishing-from-your-domain attacks.",
+                ));
+            }
+        }
+
+        // Mailgun API key — `key-` + 32 lowercase hex.
+        if let Some(findings) =
+            self.scan_pattern(content, r"key-[a-f0-9]{32}", "Mailgun API Key")
+        {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Mailgun API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at app.mailgun.com/app/account/security/api_keys. Attackers can send mail as your verified domains.",
+                ));
+            }
+        }
+
+        // Twilio API Key SID — `SK` + 32 lowercase hex. Account SID `AC` is
+        // public-ish, so we only flag the API Key SID which is a credential.
+        if let Some(findings) =
+            self.scan_pattern(content, r"\bSK[a-f0-9]{32}\b", "Twilio API Key SID")
+        {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Twilio API Key SID Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Delete the API Key in console.twilio.com → API Keys. Combined with the Account SID it grants the same access as the auth token.",
+                ));
+            }
+        }
+
+        // Slack webhook URL — exact host plus the structurally fixed
+        // T<workspace>/B<channel>/<secret> path.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"https://hooks\.slack\.com/services/T[A-Z0-9]{8,}/B[A-Z0-9]{8,}/[A-Za-z0-9]{20,}",
+            "Slack Webhook URL",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Slack Incoming Webhook URL Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-200",
+                    "Revoke and recreate the webhook at the source Slack app. Attackers can post arbitrary messages to the channel.",
+                ));
+            }
+        }
+
+        // Slack App-level token — `xapp-` prefix.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"xapp-[0-9]+-[A-Z0-9]+-[0-9]+-[a-f0-9]{64}",
+            "Slack App Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Slack App-level Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate the App-level token in the Slack app settings. Used for Socket Mode and websocket events.",
+                ));
+            }
+        }
+
+        // Sentry — service tokens (`sntrys_`) and user auth tokens (`sntryu_`).
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"sntrys_[A-Za-z0-9+/]{40,}",
+            "Sentry Service Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Sentry Service Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at sentry.io/settings/auth-tokens/. Service tokens can manage projects, release artifacts, and read all events.",
+                ));
+            }
+        }
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"sntryu_[A-Za-z0-9+/]{40,}",
+            "Sentry User Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Sentry User Auth Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at sentry.io/settings/account/api/auth-tokens/. Equivalent to the user's password for the API.",
+                ));
+            }
+        }
+
+        // New Relic — license keys are `NRAK-`, account API keys are `NRAA-`.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"NR(?:AK|AA|II|SP)-[A-Z0-9]{27}",
+            "New Relic API Key",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "New Relic API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate in one.newrelic.com → API Keys. Read-scope keys still expose telemetry that often includes URLs/parameters.",
+                ));
+            }
+        }
+
+        // Linear API key — `lin_api_` + 40 alphanumerics.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"lin_api_[A-Za-z0-9]{40}",
+            "Linear API Key",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Linear API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at linear.app/<workspace>/settings/api. Grants read/write to all issues and project data.",
+                ));
+            }
+        }
+
+        // Notion integration token — `ntn_` (modern) or `secret_` (legacy)
+        // exact 50-char body anchors the legacy pattern enough to avoid FPs.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"ntn_[A-Za-z0-9]{46}",
+            "Notion Integration Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Notion Integration Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at notion.so/my-integrations. Tokens grant read/write to every page shared with the integration.",
+                ));
+            }
+        }
+
+        // Cloudflare API token — fixed length and prefix pattern issued by CF.
+        // Anchored on the `(?i)cloudflare` context word to suppress matches in
+        // unrelated 40-char base64 strings.
+        if let Ok(cf_re) = Regex::new(r"\b[A-Za-z0-9_\-]{40}\b") {
+            let content_lower = content.to_lowercase();
+            if content_lower.contains("cloudflare") || content_lower.contains("cf-api-token") {
+                let mut count = 0;
+                for m in cf_re.find_iter(content) {
+                    if count >= 2 {
+                        break;
+                    }
+                    let evidence = m.as_str().to_string();
+                    // Skip obvious non-token strings (all lowercase = likely
+                    // identifier; all hex = likely UUID/hash).
+                    let has_upper = evidence.chars().any(|c| c.is_ascii_uppercase());
+                    let has_lower = evidence.chars().any(|c| c.is_ascii_lowercase());
+                    let has_digit = evidence.chars().any(|c| c.is_ascii_digit());
+                    if !(has_upper && has_lower && has_digit) {
+                        continue;
+                    }
+                    // Require the token to be within 200 chars of the keyword.
+                    let pos = m.start();
+                    let window_start = pos.saturating_sub(200);
+                    let window_end = (m.end() + 200).min(content.len());
+                    let window = content[window_start..window_end].to_lowercase();
+                    if !window.contains("cloudflare") && !window.contains("cf-api-token") {
+                        continue;
+                    }
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        "Cloudflare API Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke at dash.cloudflare.com/profile/api-tokens. Scoped tokens may still grant DNS, WAF, or Workers control.",
+                    ));
+                    count += 1;
+                }
+            }
+        }
+
+        // Algolia Admin API key — anchored on the `algolia` context word so
+        // 32-char hex strings don't all light up.
+        if let Ok(algolia_re) = Regex::new(r"\b[a-f0-9]{32}\b") {
+            let content_lower = content.to_lowercase();
+            if content_lower.contains("algolia") {
+                let mut count = 0;
+                for m in algolia_re.find_iter(content) {
+                    if count >= 2 {
+                        break;
+                    }
+                    let evidence = m.as_str().to_string();
+                    let pos = m.start();
+                    let window_start = pos.saturating_sub(120);
+                    let window_end = (m.end() + 120).min(content.len());
+                    let window = content[window_start..window_end].to_lowercase();
+                    // Only flag if it's near a clearly-admin Algolia reference.
+                    let is_admin_context = window.contains("algolia")
+                        && (window.contains("admin")
+                            || window.contains("adminkey")
+                            || window.contains("admin_api_key")
+                            || window.contains("write")
+                            || window.contains("apikey"));
+                    if !is_admin_context {
+                        continue;
+                    }
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        "Algolia Admin API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Admin keys grant unrestricted index write/delete. Rotate via dashboard.algolia.com → API Keys and switch the client to a Search-only key.",
+                    ));
+                    count += 1;
+                }
+            }
+        }
+
+        // Heroku API key — UUID format, flagged only with Heroku context to
+        // avoid matching every UUID in a bundle.
+        if let Ok(heroku_re) = Regex::new(
+            r"\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b",
+        ) {
+            let content_lower = content.to_lowercase();
+            if content_lower.contains("heroku") {
+                let mut count = 0;
+                for m in heroku_re.find_iter(content) {
+                    if count >= 2 {
+                        break;
+                    }
+                    let evidence = m.as_str().to_string();
+                    let pos = m.start();
+                    let window_start = pos.saturating_sub(150);
+                    let window_end = (m.end() + 150).min(content.len());
+                    let window = content[window_start..window_end].to_lowercase();
+                    if !window.contains("heroku") {
+                        continue;
+                    }
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        "Heroku API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke at dashboard.heroku.com/account → Authorizations. Compromised keys enable app deploys, config var reads, and database dyno commands.",
+                    ));
+                    count += 1;
+                }
+            }
+        }
+
+        // Datadog — API keys are 32 hex; app keys are 40 hex. Both require
+        // Datadog context to avoid false positives on generic hashes.
+        if content.to_lowercase().contains("datadog") || content.contains("DD_API_KEY")
+            || content.contains("DD_APP_KEY")
+        {
+            if let Ok(dd_re) = Regex::new(r"\b[a-f0-9]{32}\b") {
+                let mut count = 0;
+                for m in dd_re.find_iter(content) {
+                    if count >= 2 {
+                        break;
+                    }
+                    let evidence = m.as_str().to_string();
+                    let pos = m.start();
+                    let window_start = pos.saturating_sub(120);
+                    let window_end = (m.end() + 120).min(content.len());
+                    let window = content[window_start..window_end].to_lowercase();
+                    if !(window.contains("datadog")
+                        || window.contains("dd_api_key")
+                        || window.contains("dd-api-key"))
+                    {
+                        continue;
+                    }
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        "Datadog API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate at app.datadoghq.com/organization-settings/api-keys. API keys allow log/metric ingestion impersonation and quota exhaustion.",
+                    ));
+                    count += 1;
+                }
+            }
+        }
+
+        // GitLab Runner registration token — 20+ chars of `glrt-` prefix.
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"glrt-[A-Za-z0-9_\-]{20,}",
+            "GitLab Runner Token",
+        ) {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GitLab Runner Registration Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke at the runner/group/project's CI/CD settings. A registered rogue runner can execute arbitrary jobs and read CI variables.",
+                ));
+            }
+        }
+
+        // ============================================
         // FRAMEWORK SECRETS
         // ============================================
 

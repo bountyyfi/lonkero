@@ -408,14 +408,56 @@ impl DjangoSecurityScanner {
 
         let base = url.trim_end_matches('/');
 
-        // Common admin URLs
+        // Common admin URLs. Each is gated below by the body containing a
+        // Django-flavored marker (`Django`, `csrf` login marker,
+        // `administration`, `django-admin-login`), so a non-Django 200 cannot
+        // produce a false positive. The expanded list covers the most common
+        // custom admin path conventions seen on real Django deployments,
+        // including the Wagtail / Django REST Framework / Django CMS extras
+        // that frequently share a session with the core admin.
         let admin_paths = [
+            // Canonical paths
             "/admin/",
-            "/django-admin/",
-            "/administrator/",
+            "/admin",
             "/admin/login/",
+            "/admin/login",
+            "/admin/index/",
+            // Custom prefixes recommended by django-admin-honeypot users
+            "/django-admin/",
+            "/djadmin/",
+            "/dj-admin/",
+            "/administrator/",
+            "/administrator",
+            "/administration/",
+            "/secure-admin/",
+            "/internal-admin/",
+            "/staff-admin/",
             "/backend/",
+            "/backend/admin/",
             "/manage/",
+            "/manage/admin/",
+            "/management/",
+            "/control/",
+            "/controlpanel/",
+            "/cpanel/",
+            "/sysadmin/",
+            "/superuser/",
+            "/console/",
+            "/dashboard/admin/",
+            // Wagtail (built on Django, same session/csrf model)
+            "/cms/",
+            "/cms/login/",
+            "/wagtail/",
+            "/wagtail-admin/",
+            // Django REST Framework browsable API root (often exposes endpoints)
+            "/api-auth/login/",
+            "/api/login/",
+            // Django CMS structure (often co-deployed)
+            "/admin/cms/",
+            // Django Suite / Jet / Grappelli skinned admins
+            "/jet/",
+            "/grappelli/",
+            "/suit/",
         ];
 
         for path in &admin_paths {
@@ -578,17 +620,92 @@ impl DjangoSecurityScanner {
 
         let base = url.trim_end_matches('/');
 
-        // Files that might contain SECRET_KEY
+        // Files that might contain SECRET_KEY. Detection below requires the
+        // body to match `SECRET_KEY = "..."` / `DJANGO_SECRET_KEY = "..."` /
+        // `secret_key: "..."`, so a non-leaking 200 cannot create a finding.
+        // The expanded list reflects the project-skeleton conventions that
+        // django-admin-startproject, cookiecutter-django, django-environ, and
+        // common deployment guides actually use.
         let secret_files = [
+            // -- Canonical Django settings paths --
             "/settings.py",
+            "/settings.py.bak",
+            "/settings.py.old",
+            "/settings.py.save",
+            "/settings.py.swp",
+            "/settings.py~",
             "/config/settings.py",
+            "/config/settings/base.py",
+            "/config/settings/local.py",
+            "/config/settings/dev.py",
+            "/config/settings/development.py",
+            "/config/settings/production.py",
+            "/config/settings/prod.py",
+            "/config/settings/staging.py",
+            "/config/settings/test.py",
             "/myproject/settings.py",
+            "/project/settings.py",
+            "/app/settings.py",
+            "/apps/settings.py",
+            "/django_project/settings.py",
+            "/website/settings.py",
+            "/src/settings.py",
+            "/src/config/settings.py",
+            "/src/project/settings.py",
+            // Common alternate per-environment splits
+            "/settings/local.py",
+            "/settings/dev.py",
+            "/settings/development.py",
+            "/settings/production.py",
+            "/settings/staging.py",
+            "/settings/base.py",
+            "/local_settings.py",
+            "/dev_settings.py",
+            "/prod_settings.py",
+            "/development_settings.py",
+            "/production_settings.py",
+            // -- Cookiecutter-django / 12-factor dotenv conventions --
             "/.env",
             "/.env.local",
+            "/.env.dev",
+            "/.env.development",
+            "/.env.staging",
+            "/.env.production",
+            "/.env.prod",
+            "/.env.test",
+            "/.env.example",
+            "/.env.sample",
+            "/.env.dist",
+            "/.env.backup",
+            "/.env.bak",
+            "/.env.save",
+            "/.env.old",
+            "/.env~",
             "/config/.env",
+            "/config/settings/.env",
+            "/envs/.env",
+            "/.envs/.local/.django",
+            "/.envs/.production/.django",
+            // -- Hand-rolled secret stores --
             "/secret_key.txt",
+            "/secretkey.txt",
+            "/secret.txt",
             "/secrets.json",
+            "/secrets.yaml",
+            "/secrets.yml",
+            "/secrets.py",
+            "/secret_settings.py",
+            // -- Repo / CI leftovers that frequently leak secrets --
             "/.git/config",
+            "/.git/HEAD",
+            "/.git/credentials",
+            "/.gitlab-ci.yml",
+            "/docker-compose.yml",
+            "/docker-compose.override.yml",
+            "/Procfile",
+            // -- Pipenv / poetry environment files --
+            "/Pipfile",
+            "/pyproject.toml",
         ];
 
         for file in &secret_files {
