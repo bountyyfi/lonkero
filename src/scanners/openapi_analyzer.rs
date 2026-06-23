@@ -70,6 +70,59 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Spring Boot / springdoc default locations
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    // FastAPI defaults
+    "/openapi.yml",
+    "/api/openapi.yaml",
+    "/api/openapi.yml",
+    // NestJS / common namespacing
+    "/api-json",
+    "/api/api-json",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // Stoplight / Spotlight / Prism
+    "/spec.yaml",
+    "/spec.json",
+    "/api.yaml",
+    "/api.json",
+    "/spec/openapi.json",
+    "/spec/openapi.yaml",
+    // Common 'documentation' folders
+    "/documentation/openapi.json",
+    "/documentation/swagger.json",
+    "/documentation/api.json",
+    // Internal / admin variants
+    "/internal/openapi.json",
+    "/internal/api-docs",
+    "/admin/openapi.json",
+    "/private/openapi.json",
+    // Postman / Insomnia / Bruno collection exports - high-value, often committed
+    "/postman_collection.json",
+    "/postman/collection.json",
+    "/docs/postman_collection.json",
+    "/api/postman_collection.json",
+    "/insomnia.json",
+    "/insomnia_export.json",
+    "/bruno.json",
+    // RAML / API Blueprint (sometimes still around)
+    "/api.raml",
+    "/apiary.apib",
+    // AsyncAPI - increasingly common, same risk surface as OpenAPI
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/asyncapi/v2/api-docs",
+    // GraphQL adjacent (introspection JSON often dumped alongside REST specs)
+    "/graphql/schema.json",
+    "/graphql.schema.json",
+    "/schema.graphql",
+    "/schema.json",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +137,44 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // ReDoc / Stoplight / RapiPDF / Elements variants
+    "/redoc.html",
+    "/redoc/",
+    "/docs/redoc",
+    "/docs/redoc.html",
+    "/elements.html",
+    "/stoplight",
+    "/stoplight/",
+    "/scalar",
+    "/scalar/",
+    "/reference",
+    "/reference/",
+    // Spring / Springfox legacy
+    "/swagger-ui/index.html?configUrl=/v3/api-docs/swagger-config",
+    "/swagger-ui.html?urls.primaryName=default",
+    // FastAPI / Starlette defaults
+    "/docs",
+    "/redoc",
+    "/openapi/docs",
+    // NestJS default
+    "/api",
+    "/api/v1/docs",
+    // Common namespacing
+    "/api/v1/swagger-ui",
+    "/api/v2/swagger-ui",
+    "/api/v3/swagger-ui",
+    "/internal/docs",
+    "/internal/swagger",
+    "/admin/docs",
+    "/dev/docs",
+    "/staging/docs",
+    // GraphQL UIs - included here for one-stop discovery
+    "/graphiql",
+    "/graphql",
+    "/graphql/playground",
+    "/playground",
+    "/altair",
+    "/voyager",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -134,6 +225,52 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     (
         r"(?i)(?:dev|staging|test)[._-]",
         "non-production environment",
+    ),
+    // High-confidence cloud/AI keys with unique prefixes - very low FP risk
+    (r"\bghp_[A-Za-z0-9]{36}\b", "GitHub personal access token"),
+    (r"\bgho_[A-Za-z0-9]{36}\b", "GitHub OAuth access token"),
+    (r"\bghu_[A-Za-z0-9]{36}\b", "GitHub user access token"),
+    (r"\bghs_[A-Za-z0-9]{36}\b", "GitHub server-to-server token"),
+    (r"\bghr_[A-Za-z0-9]{36}\b", "GitHub refresh token"),
+    (r"\bgithub_pat_[A-Za-z0-9_]{82}\b", "GitHub fine-grained PAT"),
+    (r"\bglpat-[a-zA-Z0-9_-]{20}\b", "GitLab personal access token"),
+    (r"\bxoxb-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}\b", "Slack bot token"),
+    (r"\bxoxp-\d{10,13}-\d{10,13}-\d{10,13}-[a-f0-9]{32}\b", "Slack user token"),
+    (r"\bhf_[a-zA-Z]{34}\b", "HuggingFace token"),
+    (r"\bsk-ant-api[0-9]{2}-[a-zA-Z0-9_-]{40,}\b", "Anthropic API key"),
+    (r"\bsk-ant-admin01-[a-zA-Z0-9_-]{80,}\b", "Anthropic ADMIN API key"),
+    (r"\bsk-proj-[A-Za-z0-9_-]{80,}\b", "OpenAI project key"),
+    (r"\bsk-admin-[A-Za-z0-9_-]{40,}\b", "OpenAI admin key"),
+    (r"\bgsk_[a-zA-Z0-9]{52}\b", "Groq API key"),
+    (r"\bAIza[0-9A-Za-z_-]{35}\b", "Google API key"),
+    (r"\bAKIA[0-9A-Z]{16}\b", "AWS Access Key ID"),
+    (r"\bASIA[0-9A-Z]{16}\b", "AWS STS temporary access key"),
+    (r"\b(?:sk|pk)_(?:test|live)_[a-zA-Z0-9]{24,}\b", "Stripe / Clerk-style secret key"),
+    (r"\bshpat_[a-f0-9]{32}\b", "Shopify access token"),
+    (r"\bSG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}\b", "SendGrid API key"),
+    (r"\bsbp_[a-f0-9]{40}\b", "Supabase service key"),
+    (r"\bdop_v1_[a-f0-9]{64}\b", "DigitalOcean personal access token"),
+    (r"\bnpm_[a-zA-Z0-9]{36}\b", "npm classic token"),
+    (r"\bdckr_pat_[a-zA-Z0-9_-]{27}\b", "Docker Hub access token"),
+    (r"\btskey-(?:auth|api|client)-[A-Za-z0-9-]+-[A-Za-z0-9]{32,}\b", "Tailscale auth key"),
+    (r"\bhvs\.[a-zA-Z0-9_-]{24,}\b", "HashiCorp Vault token"),
+    (r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "JWT token"),
+    (r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----", "PEM private key block"),
+    (
+        r#"(?i)x-api-key\s*[:=]\s*["'][a-zA-Z0-9_-]{16,}["']"#,
+        "X-API-Key header value",
+    ),
+    (
+        r#"(?i)client[_-]?secret\s*[:=]\s*["'][a-zA-Z0-9_/+=-]{16,}["']"#,
+        "OAuth client_secret",
+    ),
+    (
+        r#"(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|rediss)://[^:\s]+:[^@\s]+@[^\s"'<>]+"#,
+        "Database connection string with credentials",
+    ),
+    (
+        r"(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[a-zA-Z0-9+/=]{88}",
+        "Azure Storage connection string",
     ),
 ];
 
