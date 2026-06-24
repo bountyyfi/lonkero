@@ -399,6 +399,487 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Webflow — body string is verbatim from the Webflow 404 shell and only ships
+    // when the requested host is not bound to a published Webflow site.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".webflow.io", "proxy-ssl.webflow.com"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+        ],
+        header_patterns: &[("server", "Webflow")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the hostname inside the target Webflow project's hosting settings.",
+    },
+    // Readme.io — leaks the structure of any registered API once claimed; the
+    // "Project doesnt exist" body has been stable for years.
+    ServiceFingerprint {
+        name: "Readme.io",
+        cname_patterns: &[".readme.io"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or register the project in Readme.io with the matching custom domain.",
+    },
+    // Strikingly — the all-caps marker is unique to the Strikingly empty-page shell.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".strikinglydns.com", ".s.strikinglydns.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND",
+            "But if you're looking to build your own website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the hostname to a Strikingly site.",
+    },
+    // Canny — feedback portals; takeover gives attacker write to a vendor's product backlog.
+    ServiceFingerprint {
+        name: "Canny",
+        cname_patterns: &["canny.io"],
+        http_signatures: &[
+            "Company Not Found",
+            "There is no such company. Did you enter the right URL?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the company subdomain in Canny.",
+    },
+    // Anima — design-handoff hosting; common for staging.
+    ServiceFingerprint {
+        name: "Anima",
+        cname_patterns: &[".animaapp.io"],
+        http_signatures: &[
+            "If this is your website and you've just created it",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the project on Anima.",
+    },
+    // Intercom Help Center — phishing-grade because the page sits under the vendor's
+    // support-portal namespace where users expect logins.
+    ServiceFingerprint {
+        name: "Intercom Help Center",
+        cname_patterns: &["custom.intercom.help"],
+        http_signatures: &[
+            "Uh oh. That page doesn't exist",
+            "This page is reserved for artistic dogs",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or bind the help center to a configured Intercom workspace.",
+    },
+    // Brightcove — video portal CMS. The exact code+class is unique to Brightcove's gallery 404.
+    ServiceFingerprint {
+        name: "Brightcove",
+        cname_patterns: &[".bcvp0rtal.com", ".brightcovegallery.com", ".gallery.video"],
+        http_signatures: &[
+            "<p class=\"bc-gallery-error-code\">Error Code: 404</p>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the gallery hostname in Brightcove.",
+    },
+    // LaunchRock — landing-page hosting.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the site in LaunchRock.",
+    },
+    // Tave — client portals for studios; phishing-grade due to client login expectation.
+    ServiceFingerprint {
+        name: "Tave",
+        cname_patterns: &["clientaccess.tave.com"],
+        http_signatures: &[
+            "<h1>Error 404: Page Not Found</h1>",
+        ],
+        header_patterns: &[("server", "tave-frontend")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the studio's client access subdomain in Tave.",
+    },
+    // UseResponse — customer support portals.
+    ServiceFingerprint {
+        name: "UseResponse",
+        cname_patterns: &[".useresponse.com"],
+        http_signatures: &[
+            "The page you were looking for doesn't exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or register the workspace in UseResponse.",
+    },
+    // WP Engine — managed WordPress hosting; valuable because the host inherits SSO context.
+    ServiceFingerprint {
+        name: "WP Engine",
+        cname_patterns: &[".wpengine.com"],
+        http_signatures: &[
+            "The site you were looking for couldn't be found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the hostname to a live WP Engine install.",
+    },
+    // Wishpond — landing pages / campaigns. Body URL is a unique 404 marker.
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign=true",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the campaign domain inside Wishpond.",
+    },
+    // Worksites.net
+    ServiceFingerprint {
+        name: "Worksites",
+        cname_patterns: &[".worksites.net"],
+        http_signatures: &[
+            "Hello! Sorry, but we couldn't find any page",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the site on Worksites.",
+    },
+    // JetBrains InCloud YouTrack — issue trackers contain bug reports, internal usernames.
+    ServiceFingerprint {
+        name: "JetBrains YouTrack InCloud",
+        cname_patterns: &[".myjetbrains.com"],
+        http_signatures: &[
+            "is not a registered InCloud YouTrack",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or recreate the InCloud YouTrack instance with the matching name.",
+    },
+    // Smartling — translation memory and content; access exposes upcoming product copy.
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &[".smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or configure the host in Smartling.",
+    },
+    // Aha! — roadmaps; takeover leaks/forges product strategy pages.
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &[".aha.io"],
+        http_signatures: &[
+            "There is no portal here ... sending you back to Aha!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the portal to an Aha! workspace.",
+    },
+    // Big Cartel — small e-commerce; phishing risk on payment pages.
+    ServiceFingerprint {
+        name: "Big Cartel",
+        cname_patterns: &[".bigcartel.com"],
+        http_signatures: &[
+            "<h1>Oops! We couldn&#8217;t find that page.</h1>",
+            "<h1>Oops! We couldn't find that page.</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the domain to a Big Cartel store.",
+    },
+    // Campaign Monitor — email-marketing dashboards.
+    ServiceFingerprint {
+        name: "Campaign Monitor",
+        cname_patterns: &[".createsend.com"],
+        http_signatures: &[
+            "Double check the URL or <a href=\"mailto:help@createsend.com",
+            "Trying to access your account?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the account domain inside Campaign Monitor.",
+    },
+    // HelpJuice
+    ServiceFingerprint {
+        name: "HelpJuice",
+        cname_patterns: &[".helpjuice.com"],
+        http_signatures: &[
+            "We could not find what you're looking for.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the docs subdomain in HelpJuice.",
+    },
+    // HelpRace
+    ServiceFingerprint {
+        name: "HelpRace",
+        cname_patterns: &[".helprace.com"],
+        http_signatures: &[
+            "We need help to figure out where the page went",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the workspace in HelpRace.",
+    },
+    // Mashery — Tibco API portal hosting.
+    ServiceFingerprint {
+        name: "Mashery",
+        cname_patterns: &[".mashery.com"],
+        http_signatures: &[
+            "Unrecognized domain <strong>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or bind the portal to a Mashery account.",
+    },
+    // NationBuilder — political/campaign sites; severe phishing risk.
+    ServiceFingerprint {
+        name: "NationBuilder",
+        cname_patterns: &["nationbuilder.com"],
+        http_signatures: &[
+            "If this is your website and you've just created it",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the site in NationBuilder.",
+    },
+    // TeamWork
+    ServiceFingerprint {
+        name: "TeamWork",
+        cname_patterns: &[".teamwork.com"],
+        http_signatures: &[
+            "Oops - We didn't find your site.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the workspace subdomain in TeamWork.",
+    },
+    // ngrok — leftover tunnels are common in dev/staging DNS. Body must contain BOTH
+    // "Tunnel" and "not found" to avoid hitting generic 404 bodies.
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app", ".ngrok.app"],
+        http_signatures: &[
+            "Tunnel <strong",
+            "not found",
+        ],
+        header_patterns: &[("ngrok-trace-id", "")],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to an expired ngrok tunnel; rebind the reserved domain in ngrok or stop publishing the host.",
+    },
+    // Cloudflare Pages — body marker plus the CF Pages CNAME family avoid the FP risk
+    // of "Project not found" matching generic 404 shells.
+    ServiceFingerprint {
+        name: "Cloudflare Pages",
+        cname_patterns: &[".pages.dev"],
+        http_signatures: &[
+            "<title>404 - Project Not Found</title>",
+            "There is nothing here, yet.",
+        ],
+        header_patterns: &[("server", "cloudflare")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or create the Cloudflare Pages project to claim the hostname.",
+    },
+    // DigitalOcean App Platform — staging surfaces routinely outlive the apps behind them.
+    ServiceFingerprint {
+        name: "DigitalOcean App Platform",
+        cname_patterns: &[".ondigitalocean.app"],
+        http_signatures: &[
+            "Application not found",
+            "is not deployed",
+        ],
+        header_patterns: &[("server", "DO App Platform")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or redeploy the App Platform service bound to this hostname.",
+    },
+    // AWS Elastic Beanstalk — region-specific endpoints; the NXDOMAIN path is the
+    // exploitable one because EB environment names are first-come / globally unique
+    // within a region.
+    ServiceFingerprint {
+        name: "AWS Elastic Beanstalk",
+        cname_patterns: &[".elasticbeanstalk.com"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to an absent Beanstalk environment, or recreate the environment in the matching region.",
+    },
+    // Google Cloud Run — newer than App Engine; abandoned services leave dangling CNAMEs.
+    ServiceFingerprint {
+        name: "Google Cloud Run",
+        cname_patterns: &[".run.app"],
+        http_signatures: &[
+            "Error: Service Unavailable",
+            "The requested URL was not found on this server.  That\u{2019}s all we know.",
+        ],
+        header_patterns: &[("server", "Google Frontend")],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME pointing to a deleted Cloud Run service, or redeploy the service with the same name in the same project/region.",
+    },
+    // Akamai NetStorage — legacy CDN origin; account terminations leave CNAMEs behind.
+    ServiceFingerprint {
+        name: "Akamai NetStorage",
+        cname_patterns: &[".s3.akamai.com", ".akamaihd.net", ".edgekey.net", ".edgesuite.net"],
+        http_signatures: &[
+            "<TITLE>Invalid URL</TITLE>",
+            "An error occurred while processing your request",
+        ],
+        header_patterns: &[("server", "AkamaiNetStorage"), ("server", "AkamaiGHost")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.0,
+        confirmed_exploitable: false,
+        remediation: "Audit the CNAME with Akamai; remove dangling NetStorage / edge configurations that no longer back a property.",
+    },
+    // Squarespace — used by very high-traffic brand sites; phishing impact is severe.
+    ServiceFingerprint {
+        name: "Squarespace",
+        cname_patterns: &["ext-cust.squarespace.com", "ext-sq.squarespace.com"],
+        http_signatures: &[
+            "Website Expired",
+            "If this is your domain, you can renew",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the domain to a Squarespace subscription.",
+    },
+    // Unbounce — landing pages used for ads; phishing-grade impact.
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server.",
+            "this domain name doesn't match a known Unbounce page",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or bind the domain to an Unbounce page.",
+    },
+    // Uberflip — content marketing hubs.
+    ServiceFingerprint {
+        name: "Uberflip",
+        cname_patterns: &[".uberflip.com"],
+        http_signatures: &[
+            "The URL you've followed may be incorrect",
+            "<title>Uberflip - Page Not Found</title>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the hub domain in Uberflip.",
+    },
+    // Frontify — brand portals containing logos, fonts, brand guidelines.
+    ServiceFingerprint {
+        name: "Frontify",
+        cname_patterns: &[".frontify.com"],
+        http_signatures: &[
+            "404 - Page not found",
+            "Frontify",
+        ],
+        header_patterns: &[("x-frontify-handler", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or attach the brand portal domain in Frontify.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
@@ -950,8 +1431,8 @@ impl SubdomainTakeoverScanner {
             false_positive: false,
             remediation,
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_confidence: None,
-                ml_data: None,
+            ml_confidence: None,
+            ml_data: None,
         }
     }
 }

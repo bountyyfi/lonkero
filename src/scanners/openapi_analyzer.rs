@@ -49,41 +49,201 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Every match goes through `detect_version` which requires a top-level
+/// `openapi` or `swagger` key, so adding broad path candidates here cannot
+/// produce false positives — a 200 returning HTML or unrelated JSON is rejected.
 const OPENAPI_PATHS: &[&str] = &[
+    // Bare/common
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api-docs/swagger.json",
+    "/api-docs/swagger.yaml",
+    // Swagger / Springfox (Java)
+    "/v2/api-docs",
+    "/v2/api-docs?group=full-api",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v3/api-docs/public-api",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // .NET / Swashbuckle
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/openapi/v1.json",
+    "/openapi/v2.json",
+    // Versioned API roots
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    // /api prefixed
     "/api/swagger.json",
+    "/api/swagger.yaml",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/api-docs",
+    "/api/api-docs.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    // /docs prefixed
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
+    "/docs/openapi.yaml",
+    "/docs/spec.json",
+    "/docs/spec.yaml",
+    "/docs/api-docs",
+    // Django REST framework / drf-spectacular / drf-yasg
+    "/schema",
+    "/schema/",
+    "/api/schema/",
+    "/api/schema/openapi/",
+    "/swagger/?format=openapi",
+    "/swagger/?format=openapi-json",
+    // NestJS default
+    "/swagger-json",
+    "/api-json",
+    // Strapi
+    "/documentation/v1.0.0/swagger.json",
+    "/documentation/v1.0.0",
+    // Hapi (hapi-swagger)
+    "/documentation/swagger.json",
+    // Tyk / Kong / Apigee management
+    "/api-portal/openapi.json",
+    "/portal/openapi.json",
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    "/.well-known/api-catalog",
+    // Common backwater locations seen in audits
+    "/openapi",
+    "/openapi/",
+    "/openapi/api-docs",
+    "/openapi/v3/api-docs",
+    "/openapi/v2/api-docs",
+    "/swagger",
+    "/swagger/",
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    "/specs",
+    "/specs/swagger.json",
+    "/specs/openapi.json",
+    "/apispec",
+    "/apispec.json",
+    "/apispec_1.json",
+    "/apidoc",
+    "/apidoc.json",
+    "/apidocs",
+    "/apidocs.json",
+    "/apidocs/swagger.json",
+    // Atlassian-style /rest + version
+    "/rest/api/2/openapi.json",
+    "/rest/api/3/openapi.json",
+    "/rest/v1/openapi.json",
+    // GraphQL-adjacent (some servers expose a JSON schema description here)
+    "/graphql/schema.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI paths.
+///
+/// Every candidate is validated by checking the response body for one of
+/// `swagger-ui`, `redoc`, `rapidoc`, `stoplight`, or `scalar` so adding broad
+/// candidates here cannot trigger on generic 200 shells.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swashbuckle / Springfox classic
     "/swagger-ui.html",
-    "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui/index.html",
+    "/swagger-ui/dist/",
+    "/swagger-ui-dist/",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui",
+    "/swagger/ui/",
+    "/swagger/ui/index",
+    // /api prefixed Swagger UI
+    "/api/swagger",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    "/api/swagger-ui",
+    "/api/swagger-ui/",
     "/api/swagger-ui.html",
-    "/docs/",
-    "/api-docs/",
+    "/api/swagger-ui/index.html",
     "/api/docs",
+    "/api/docs/",
+    "/api/v1/docs",
+    "/api/v1/docs/",
+    "/api/v2/docs",
+    "/api/v2/docs/",
+    "/api/v3/docs",
+    "/api/v3/docs/",
+    "/api/explorer",
+    "/api/explorer/",
+    // FastAPI / Starlette defaults
+    "/docs",
+    "/docs/",
     "/redoc",
+    "/redoc/",
+    // ReDoc / RapiDoc / Stoplight Elements / Scalar
+    "/redoc.html",
     "/rapidoc",
+    "/rapidoc.html",
+    "/elements",
+    "/elements/",
+    "/stoplight",
+    "/stoplight/",
+    "/scalar",
+    "/scalar/",
+    // Versioned docs
+    "/docs/v1",
+    "/docs/v1/",
+    "/docs/v2",
+    "/docs/v2/",
+    "/docs/api",
+    "/docs/api/",
+    // Common alternates
+    "/api-docs",
+    "/api-docs/",
+    "/api-docs/swagger",
+    "/api-docs/index.html",
+    "/apidocs",
+    "/apidocs/",
+    "/apidoc",
+    "/apidoc/",
+    "/explorer",
+    "/explorer/",
+    "/swagger-explorer",
+    "/swagger-explorer/",
+    // OpenAPI generator / Scalar Galaxy
+    "/openapi",
+    "/openapi/",
+    "/openapi.html",
+    "/openapi/index.html",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -1172,8 +1332,11 @@ impl OpenApiAnalyzer {
 
             if let Ok(regex) = Regex::new(pattern) {
                 if let Some(capture) = regex.find(&spec_string) {
-                    let evidence =
-                        &spec_string[capture.start()..ceil_char_boundary(&spec_string, capture.end().min(capture.start() + 100))];
+                    let evidence = &spec_string[capture.start()
+                        ..ceil_char_boundary(
+                            &spec_string,
+                            capture.end().min(capture.start() + 100),
+                        )];
                     vulnerabilities.push(self.create_vulnerability(
                         "OpenAPI Sensitive Data Exposure",
                         base_url,
@@ -1291,6 +1454,10 @@ impl OpenApiAnalyzer {
                             || body_lower.contains("swagger ui")
                             || body_lower.contains("redoc")
                             || body_lower.contains("rapidoc")
+                            || body_lower.contains("stoplight-elements")
+                            || body_lower.contains("@stoplight/elements")
+                            || body_lower.contains("scalar-api-reference")
+                            || body_lower.contains("@scalar/api-reference")
                             || body_lower.contains("api documentation")
                         {
                             vulnerabilities.push(self.create_vulnerability(
@@ -1347,8 +1514,8 @@ impl OpenApiAnalyzer {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_confidence: None,
-                ml_data: None,
+            ml_confidence: None,
+            ml_data: None,
         }
     }
 

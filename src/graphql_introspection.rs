@@ -239,15 +239,110 @@ impl GraphQLIntrospector {
     /// Try multiple common GraphQL paths and return first successful introspection
     pub async fn discover_and_introspect(&self, base_url: &str) -> Result<Vec<GraphQLSchema>> {
         let base = base_url.trim_end_matches('/');
+        // Strict validation: parse_introspection_response requires a `data.__schema`
+        // object in the body, so HTML/JSON pages at any of these paths cannot
+        // produce a false positive — they just fail to parse and are skipped.
         let paths = vec![
+            // Bare / root
             "",
             "/graphql",
-            "/api/graphql",
-            "/query",
+            "/graphql/",
+            "/graphiql",
+            "/graphiql/",
+            "/playground",
+            "/altair",
+            "/voyager",
+            "/explorer",
+            "/__graphql",
             "/gql",
+            "/query",
+            "/queries",
+            // /api prefixed
+            "/api",
+            "/api/graphql",
+            "/api/graphql/",
             "/api/gql",
+            "/api/query",
+            "/api/index",
+            "/api/graphiql",
+            "/api/playground",
+            // Versioned API roots
             "/v1/graphql",
             "/v2/graphql",
+            "/v3/graphql",
+            "/v4/graphql",
+            "/v1alpha1/graphql",
+            "/v1beta1/graphql",
+            "/api/v1/graphql",
+            "/api/v2/graphql",
+            "/api/v3/graphql",
+            "/api/v4/graphql",
+            // Hasura
+            "/v1/pg/select",
+            // Shopify Storefront API
+            "/api/2024-01/graphql.json",
+            "/api/2024-04/graphql.json",
+            "/api/2024-07/graphql.json",
+            "/api/2024-10/graphql.json",
+            "/api/2025-01/graphql.json",
+            // Salesforce graph
+            "/services/data/v58.0/graphql",
+            "/services/data/v59.0/graphql",
+            "/services/data/v60.0/graphql",
+            // Saleor / Vendure / Directus / Strapi / Sanity / Magento / Drupal
+            "/admin/api",
+            "/admin-api",
+            "/shop-api",
+            "/graphql/system",
+            "/graphql/v1",
+            "/graphql/v2",
+            "/admin/graphql",
+            // Postgraphile / DGraph defaults
+            "/postgraphile",
+            "/postgraphile/graphql",
+            // GraphQL Mesh / Apollo Federation / Apollo Router
+            "/router/graphql",
+            // CMS / framework defaults
+            "/index.php?graphql",
+            "/index.php?graphql=1",
+            "/wp-graphql",
+            "/wp/graphql",
+            "/?graphql",
+            // .NET HotChocolate default
+            "/graphql/ui",
+            // Strawberry / Ariadne / Tartiflette
+            "/graphql/schema",
+            "/graphql/schema.json",
+            // Apollo Engine / Gateway
+            "/.well-known/apollo/server-health",
+            // Common misnamed paths seen in audits
+            "/api/data/graphql",
+            "/data/graphql",
+            "/api/v1/query",
+            "/api/v1/queries",
+            "/api/queries/graphql",
+            "/services/graphql",
+            "/service/graphql",
+            "/backend/graphql",
+            "/internal/graphql",
+            "/external/graphql",
+            "/public/graphql",
+            "/private/graphql",
+            // Headless CMS / DXP
+            "/api/content/graphql",
+            "/api/cms/graphql",
+            "/cms/graphql",
+            "/content/graphql",
+            "/headless/graphql",
+            // Mobile/BFF patterns
+            "/mobile/graphql",
+            "/bff/graphql",
+            "/web/graphql",
+            "/app/graphql",
+            // Common alt paths
+            "/api/2.0/graphql",
+            "/api/3.0/graphql",
+            "/api/4.0/graphql",
         ];
 
         let mut schemas = Vec::new();
