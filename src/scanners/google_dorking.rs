@@ -454,6 +454,28 @@ impl GoogleDorkingScanner {
             impact: "Public Trello boards may expose project details and credentials".to_string(),
         });
 
+        // --- High-impact, low-false-positive additions ---
+        // The dorks below are vendor- or signature-anchored and restricted to
+        // the target via `site:` or `intext:"{domain}"`. Each one is either an
+        // exact product banner (no benign overlap) or a filesystem artifact
+        // that should never be indexed in production.
+
+        Self::push_exposed_admin_panels(&mut dorks, clean_domain);
+        Self::push_internal_dashboards(&mut dorks, clean_domain);
+        Self::push_directory_listings(&mut dorks, clean_domain);
+        Self::push_backup_and_secret_files(&mut dorks, clean_domain);
+        Self::push_vcs_artifacts(&mut dorks, clean_domain);
+        Self::push_credentialed_configs(&mut dorks, clean_domain);
+        Self::push_wordpress_artifacts(&mut dorks, clean_domain);
+        Self::push_graphql_and_api_schemas(&mut dorks, clean_domain);
+        Self::push_soap_wsdl(&mut dorks, clean_domain);
+        Self::push_cloud_storage_extra(&mut dorks, clean_domain);
+        Self::push_paste_and_code_leaks(&mut dorks, clean_domain);
+        Self::push_bug_bounty_disclosures(&mut dorks, clean_domain);
+        Self::push_document_leaks(&mut dorks, clean_domain);
+        Self::push_log_and_debug_files(&mut dorks, clean_domain);
+        Self::push_devops_artifacts(&mut dorks, clean_domain);
+
         // Build categories map
         let mut by_category: HashMap<String, Vec<GoogleDork>> = HashMap::new();
         for dork in &dorks {
@@ -578,6 +600,584 @@ impl GoogleDorkingScanner {
     }
 }
 
+impl GoogleDorkingScanner {
+    /// Exposed admin / management UIs. Each title string is a verbatim banner
+    /// emitted by the product itself, so a `intitle:` hit on the target domain
+    /// is essentially proof the panel is publicly reachable.
+    fn push_exposed_admin_panels(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let panels: &[(&str, &str, &str)] = &[
+            ("intitle:\"Dashboard [Jenkins]\"", "Jenkins CI dashboard",
+             "Anonymous read of Jenkins exposes jobs, build logs and often credentials"),
+            ("intitle:\"GitLab\" inurl:/users/sign_in", "Self-hosted GitLab login",
+             "Public GitLab portal — enables user enumeration and possible repo exposure"),
+            ("intitle:\"Gitea: Git with a cup of tea\"", "Gitea instance",
+             "Self-hosted Gitea may expose internal repos and tokens"),
+            ("intitle:\"Sign in - Gerrit Code Review\"", "Gerrit Code Review",
+             "Public Gerrit may expose code review queues and patch sets"),
+            ("intitle:\"phpMyAdmin\" inurl:index.php", "phpMyAdmin login page",
+             "phpMyAdmin reachable from the internet — direct DB credential surface"),
+            ("intitle:\"Adminer\" \"Login\"", "Adminer DB front-end",
+             "Adminer is a single-file DB UI — exposure is high-impact"),
+            ("intitle:\"phpPgAdmin\"", "phpPgAdmin (Postgres)",
+             "Postgres web admin exposed — credential surface for Postgres"),
+            ("intitle:\"Kibana\"", "Kibana dashboard",
+             "Kibana usually has read access to ALL indexed logs/PII"),
+            ("intitle:\"Grafana\" inurl:/login", "Grafana login",
+             "Public Grafana often allows anonymous read of metrics and dashboards"),
+            ("intitle:\"Prometheus Time Series Collection and Processing Server\"", "Prometheus UI",
+             "Prometheus has no auth by default — exposes internal target list and metrics"),
+            ("intitle:\"Alertmanager\"", "Prometheus Alertmanager",
+             "Alertmanager exposes routing rules, silences and incident metadata"),
+            ("intitle:\"splunk\" inurl:en-US/account/login", "Splunk login",
+             "Splunk exposed — typically indexes credentials and PII"),
+            ("intitle:\"Sign In - Airflow\"", "Apache Airflow login",
+             "Airflow public — DAG code and connection secrets risk"),
+            ("intitle:\"Spark Master at\"", "Apache Spark master UI",
+             "Spark master allows job submission == RCE on the cluster"),
+            ("intitle:\"Hadoop\" intext:\"Cluster\"", "Hadoop ResourceManager / NameNode",
+             "Hadoop UI exposed — HDFS browsing and job submission"),
+            ("intitle:\"SonarQube\" inurl:sessions/new", "SonarQube login",
+             "SonarQube exposes source code, secrets and vulnerability reports"),
+            ("intitle:\"RabbitMQ Management\"", "RabbitMQ management UI",
+             "RabbitMQ UI exposed — message contents and credentials risk"),
+            ("intitle:\"Sign in to Argo CD\"", "Argo CD login",
+             "Argo CD exposes cluster manifests and deployment secrets"),
+            ("intitle:\"Rancher\" inurl:dashboard", "Rancher cluster manager",
+             "Rancher exposed — full Kubernetes cluster takeover risk"),
+            ("intitle:\"Portainer\" inurl:#!/auth", "Portainer container UI",
+             "Portainer exposed — full Docker/k8s control plane"),
+            ("intitle:\"Traefik\"", "Traefik dashboard",
+             "Traefik dashboard exposes routing rules and backend endpoints"),
+            ("intitle:\"HAProxy Statistics Report\"", "HAProxy stats",
+             "HAProxy stats page leaks backend server names and health"),
+            ("intitle:\"Apache Tomcat\" intext:\"Manager App\"", "Tomcat Manager",
+             "Tomcat Manager exposed — WAR upload == RCE"),
+            ("intitle:\"WebLogic Server Administration Console\"", "Oracle WebLogic console",
+             "WebLogic admin console is a long-standing critical RCE target"),
+            ("intitle:\"JBoss\" inurl:/console", "JBoss admin console",
+             "JBoss/Wildfly admin exposed — deployment-based RCE"),
+            ("intitle:\"Solr Admin\"", "Apache Solr admin",
+             "Solr admin exposed — query injection and historical RCE CVEs"),
+            ("intitle:\"Couchbase\" intext:\"Sign in\"", "Couchbase admin",
+             "Couchbase web console exposed — direct data and bucket access"),
+            ("intitle:\"MinIO Console\"", "MinIO object storage console",
+             "MinIO console exposed — S3-compatible bucket access surface"),
+        ];
+        for (q, desc, impact) in panels {
+            dorks.push(GoogleDork {
+                category: "Exposed Admin Panels".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Internal observability / dev dashboards that should never be public.
+    fn push_internal_dashboards(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("intitle:\"Index of\" \"cgi-bin\"", "Apache cgi-bin listing",
+             "Directory listing of cgi-bin — exposes executable scripts"),
+            ("intitle:\"Mongo Express\"", "mongo-express UI",
+             "mongo-express exposed — direct read/write to MongoDB"),
+            ("intitle:\"Redis Commander\"", "redis-commander UI",
+             "Redis web UI exposed — full key-value access"),
+            ("intitle:\"Elasticsearch\" intext:\"cluster_name\"", "Elasticsearch JSON banner",
+             "Elasticsearch HTTP API exposed — cluster takeover surface"),
+            ("intitle:\"Consul by HashiCorp\"", "HashiCorp Consul UI",
+             "Consul UI exposed — KV store and service catalog leak"),
+            ("intitle:\"Nomad\"", "HashiCorp Nomad UI",
+             "Nomad UI exposed — job submission == RCE"),
+            ("intitle:\"Vault\" intext:\"sign in to Vault\"", "HashiCorp Vault login",
+             "Vault UI exposed — token brute-force surface"),
+            ("intitle:\"cAdvisor - /\"", "cAdvisor container metrics",
+             "cAdvisor exposes container metadata and host paths"),
+            ("intitle:\"node_exporter\"", "Prometheus node_exporter",
+             "node_exporter exposes host-level OS metrics"),
+            ("intitle:\"Sentry\" inurl:/auth/login", "Self-hosted Sentry",
+             "Sentry exposes stack traces, request payloads and tokens"),
+            ("intitle:\"Mattermost\" inurl:/login", "Self-hosted Mattermost",
+             "Mattermost login exposed — user enum and OAuth abuse"),
+            ("intitle:\"Bitbucket\" inurl:/login", "Self-hosted Bitbucket",
+             "Bitbucket exposed — repo enumeration and potential SSRF"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "Internal Dashboards".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Directory listings — the `Index of` banner is emitted only by web
+    /// servers in autoindex mode, so a hit is high-confidence.
+    fn push_directory_listings(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let queries: &[(&str, &str, &str)] = &[
+            ("intitle:\"Index of /\" \"Parent Directory\"",
+             "Open directory listing", "Any indexed directory may expose source, backups or secrets"),
+            ("intitle:\"Index of /\" \".git\"",
+             "Indexed .git directory", "Full source-code disclosure via .git directory exposure"),
+            ("intitle:\"Index of /\" \".env\"",
+             "Indexed .env file", "Environment variables / secrets exposed"),
+            ("intitle:\"Index of /backup\" OR intitle:\"Index of /backups\" OR intitle:\"Index of /bak\"",
+             "Indexed backup directory", "Backup directory exposed — full database/source download risk"),
+            ("intitle:\"Index of /uploads\"",
+             "Indexed uploads directory", "User-uploaded files exposed — PII / document leak"),
+            ("intitle:\"Index of /\" \"sql\"",
+             "Indexed SQL dump", "Directory listing containing .sql dumps"),
+            ("intitle:\"Index of /\" \"private\"",
+             "Indexed private directory", "Private directory exposed by autoindex"),
+            ("intitle:\"Index of /\" \"id_rsa\"",
+             "Indexed SSH private key", "SSH private key inside an exposed directory"),
+            ("intitle:\"Index of /\" \"wp-config\"",
+             "Indexed WordPress config", "WordPress DB credentials exposure"),
+            ("intitle:\"Index of /\" \"docker-compose\"",
+             "Indexed docker-compose.yml", "Compose files often hardcode service credentials"),
+        ];
+        for (q, desc, impact) in queries {
+            dorks.push(GoogleDork {
+                category: "Directory Listings".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Backup, swap and secret files. Combined with `site:` these have an
+    /// extremely high signal-to-noise ratio.
+    fn push_backup_and_secret_files(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let files: &[(&str, &str, &str)] = &[
+            ("ext:env", ".env file",
+             "Environment file with API keys / DB creds"),
+            ("inurl:\".env.production\" OR inurl:\".env.local\" OR inurl:\".env.staging\"",
+             "Environment file variants",
+             "Per-environment env files routinely contain production secrets"),
+            ("ext:bak OR ext:backup OR ext:old OR ext:save OR ext:swp OR ext:swo",
+             "Editor/server backup files",
+             "Backup of source or config — direct credential/source leak"),
+            ("ext:sql OR ext:dump OR ext:db",
+             "Database dumps",
+             "SQL dump on the web root — full DB exfiltration risk"),
+            ("ext:sqlite OR ext:sqlite3 OR ext:db3",
+             "SQLite database file",
+             "Embedded DB on the web root — direct read of user records"),
+            ("inurl:\"phpinfo.php\" OR inurl:\"info.php\" OR inurl:\"test.php\" intext:\"PHP Version\"",
+             "phpinfo() output",
+             "phpinfo leaks env vars, paths, modules and request headers"),
+            ("ext:pem OR ext:key OR ext:crt OR ext:cer OR ext:p12 OR ext:pfx",
+             "Key/certificate material",
+             "Private keys or certs on the web root — TLS / signing compromise"),
+            ("inurl:.npmrc intext:_authToken",
+             ".npmrc with auth token",
+             "Indexed .npmrc grants publish access to private npm packages"),
+            ("inurl:.pypirc intext:password",
+             ".pypirc with password",
+             "PyPI publishing credentials"),
+            ("inurl:.netrc intext:machine",
+             ".netrc file",
+             ".netrc stores plaintext passwords for HTTP/FTP automation"),
+            ("inurl:\".bash_history\" OR inurl:\".zsh_history\"",
+             "Shell history",
+             "Shell history regularly contains pasted secrets and tokens"),
+            ("inurl:\"id_rsa\" OR inurl:\"id_dsa\" OR inurl:\"id_ecdsa\" OR inurl:\"id_ed25519\"",
+             "SSH private key file name",
+             "SSH private key exposed by name — direct host compromise"),
+            ("inurl:\".aws/credentials\" OR inurl:\"credentials\" filetype:csv intext:\"AKIA\"",
+             "AWS credentials file",
+             "AWS access keys exposed in a credentials file"),
+            ("filetype:pem intext:\"BEGIN RSA PRIVATE KEY\" OR intext:\"BEGIN OPENSSH PRIVATE KEY\"",
+             "PEM-armored private key",
+             "Indexed PEM private key — used for TLS/SSH/JWT signing"),
+            ("ext:cfg OR ext:conf OR ext:config intext:password",
+             "Config file containing 'password'",
+             "Configuration files referencing passwords"),
+            ("ext:yml OR ext:yaml intext:password OR intext:secret_key",
+             "YAML config with secrets",
+             "Application YAML config exposing credentials"),
+            ("ext:properties intext:password OR intext:jdbc",
+             "Java .properties file",
+             "Spring/Java properties files commonly contain DB credentials"),
+            ("inurl:\".DS_Store\"",
+             "Mac .DS_Store file",
+             ".DS_Store enumerates files/folders that exist in a directory"),
+            ("inurl:\"Thumbs.db\"",
+             "Windows Thumbs.db",
+             "Thumbs.db reveals file names and metadata from Windows dirs"),
+        ];
+        for (q, desc, impact) in files {
+            dorks.push(GoogleDork {
+                category: "Backup & Secret Files".to_string(),
+                query: format!("site:{} {}", d, q),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Version-control artifacts exposed on the web root.
+    fn push_vcs_artifacts(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("inurl:\".git/config\" OR inurl:\".git/HEAD\" OR inurl:\".git/index\"",
+             "Exposed .git internals", "Full repo reconstruction == source-code disclosure"),
+            ("inurl:\".svn/entries\" OR inurl:\".svn/wc.db\"",
+             "Exposed .svn metadata", "Subversion repo metadata — source reconstruction"),
+            ("inurl:\".hg/store\" OR inurl:\".hg/dirstate\"",
+             "Exposed Mercurial repo", "Mercurial metadata — source reconstruction"),
+            ("inurl:\".bzr/branch-format\"",
+             "Exposed Bazaar repo", "Bazaar metadata exposed"),
+            ("inurl:\"CVS/Entries\" OR inurl:\"CVS/Root\"",
+             "Exposed CVS metadata", "Legacy CVS metadata exposed"),
+            ("inurl:\".gitlab-ci.yml\" OR inurl:\".github/workflows\"",
+             "CI/CD pipeline definitions",
+             "Pipeline YAML often references secret names and registry hosts"),
+            ("inurl:\".gitignore\" intext:\".env\" OR intext:\"secrets\"",
+             ".gitignore mentioning secrets",
+             ".gitignore confirms which sensitive files exist next to it"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "VCS Artifacts".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Application-config files that hardcode credentials.
+    fn push_credentialed_configs(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("inurl:\"web.config\" intext:\"connectionString\"",
+             "ASP.NET web.config with DB conn", "DB connection string with credentials"),
+            ("inurl:\"appsettings.json\" intext:\"ConnectionStrings\"",
+             ".NET appsettings.json", ".NET Core config with DB / API secrets"),
+            ("inurl:\"application.properties\" intext:\"spring.datasource\"",
+             "Spring datasource config", "Spring Boot DB credentials"),
+            ("inurl:\"application.yml\" intext:\"datasource\"",
+             "Spring YAML datasource", "Spring Boot DB credentials"),
+            ("inurl:\"database.yml\" intext:\"password\"",
+             "Rails database.yml", "Rails DB credentials"),
+            ("inurl:\"secrets.yml\" intext:\"secret_key_base\"",
+             "Rails secrets.yml", "Rails master signing key"),
+            ("inurl:\"config/master.key\"",
+             "Rails master.key", "Decrypts encrypted Rails credentials.yml.enc"),
+            ("inurl:\"docker-compose.yml\" intext:\"password\" OR intext:\"API_KEY\"",
+             "docker-compose with secrets", "Compose file with hardcoded credentials"),
+            ("inurl:\"Dockerfile\" intext:\"ENV \" intext:\"KEY\" OR intext:\"TOKEN\" OR intext:\"PASSWORD\"",
+             "Dockerfile ENV with secret", "Build-time secrets baked into image"),
+            ("inurl:\"kubeconfig\" OR inurl:\".kube/config\"",
+             "kubeconfig file", "Kubernetes cluster credentials"),
+            ("inurl:\"terraform.tfstate\"",
+             "Terraform state file", "Terraform state contains plaintext secrets and infra map"),
+            ("inurl:\"terraform.tfvars\" intext:\"password\" OR intext:\"secret\"",
+             "Terraform variable file", "Terraform variables with provider credentials"),
+            ("inurl:\"ansible/group_vars\" OR inurl:\"vault.yml\" intext:\"$ANSIBLE_VAULT\"",
+             "Ansible vault file", "Encrypted secrets — offline brute-force surface"),
+            ("inurl:\"pubspec.yaml\" intext:\"secret\"",
+             "Flutter pubspec with secret", "Flutter app secrets leaked"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "Credentialed Configs".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// WordPress-specific exposures. Each one targets a documented artifact.
+    fn push_wordpress_artifacts(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("inurl:\"wp-config.php.bak\" OR inurl:\"wp-config.php.old\" OR inurl:\"wp-config.php~\" OR inurl:\"wp-config.bak\"",
+             "WordPress wp-config backup",
+             "wp-config backups contain DB credentials and auth salts"),
+            ("inurl:\"wp-content/debug.log\"",
+             "WordPress debug.log", "Debug log leaks paths, plugin errors and sometimes tokens"),
+            ("inurl:\"wp-content/uploads/wpallimport\"",
+             "WP All Import uploads", "Importer uploads frequently contain CSVs with PII"),
+            ("inurl:\"wp-content/uploads/backup\" OR inurl:\"wp-content/backup-db\"",
+             "WordPress DB backups", "WP DB backups indexed — full site dump"),
+            ("inurl:\"wp-json/wp/v2/users\"",
+             "WP REST users endpoint", "User enumeration via REST"),
+            ("inurl:\"xmlrpc.php\"",
+             "WordPress xmlrpc endpoint",
+             "xmlrpc supports password brute force amplification and pingback SSRF"),
+            ("inurl:\"wp-content/uploads/.htpasswd\" OR inurl:\".htpasswd\"",
+             ".htpasswd file", "Apache basic-auth hash file"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "WordPress Artifacts".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// GraphQL endpoints and exposed schemas.
+    fn push_graphql_and_api_schemas(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("inurl:\"/graphql\" OR inurl:\"/api/graphql\" OR inurl:\"/query\"",
+             "GraphQL endpoint", "Reachable GraphQL endpoint — introspection / IDOR surface"),
+            ("intitle:\"GraphQL Playground\" OR intitle:\"GraphiQL\" OR intitle:\"Apollo Studio\"",
+             "GraphQL interactive UI", "Interactive GraphQL UI exposed — full schema browsing"),
+            ("inurl:\"openapi.json\" OR inurl:\"swagger.json\" OR inurl:\"swagger.yaml\" OR inurl:\"openapi.yaml\"",
+             "OpenAPI spec file", "Full API schema — enables targeted auth bypass / IDOR tests"),
+            ("inurl:\"/swagger-ui\" OR inurl:\"/swagger-ui.html\" OR inurl:\"/v3/api-docs\"",
+             "Swagger UI", "Interactive API docs — enumerates every endpoint"),
+            ("inurl:\"/_postman/\" OR inurl:\"postman_collection.json\"",
+             "Postman collection",
+             "Exported Postman collections often embed API keys and example bodies"),
+            ("inurl:\"AsyncAPI\" OR inurl:\"asyncapi.yaml\" OR inurl:\"asyncapi.json\"",
+             "AsyncAPI spec", "Streaming/event-driven API schema exposed"),
+            ("inurl:\"actuator\" OR inurl:\"actuator/env\" OR inurl:\"actuator/heapdump\"",
+             "Spring Boot Actuator endpoint",
+             "Actuator exposes env vars, beans, heap dumps and trace data"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "API Schemas & GraphQL".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// SOAP / WSDL endpoints, often forgotten legacy attack surface.
+    fn push_soap_wsdl(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("inurl:\"?wsdl\" OR ext:wsdl",
+             "Exposed WSDL", "SOAP service description — full operation/parameter map"),
+            ("inurl:\"asmx?wsdl\" OR ext:asmx",
+             "ASP.NET .asmx service", "Legacy .NET web services often unauthenticated"),
+            ("inurl:\".svc?wsdl\"",
+             "WCF service", "WCF service description — legacy .NET attack surface"),
+            ("inurl:\"jaxws\" OR inurl:\"cxf/services\"",
+             "JAX-WS / CXF SOAP endpoint", "Java SOAP service listing"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "SOAP / WSDL".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Additional cloud-storage providers not in the original list.
+    fn push_cloud_storage_extra(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let providers: &[(&str, &str, &str)] = &[
+            ("site:r2.dev", "Cloudflare R2 public hostname",
+             "Cloudflare R2 public bucket referencing the domain"),
+            ("site:r2.cloudflarestorage.com", "Cloudflare R2 storage",
+             "R2 buckets serving content for the domain"),
+            ("site:storage.googleapis.com", "Google Cloud Storage bucket",
+             "GCS bucket content referencing the domain"),
+            ("site:storage.cloud.google.com", "Google Cloud Storage browser",
+             "GCS bucket browser referencing the domain"),
+            ("site:s3.us-east-1.amazonaws.com OR site:s3.us-west-2.amazonaws.com OR site:s3.eu-west-1.amazonaws.com",
+             "Region-prefixed S3 hosts", "S3 buckets in common regions"),
+            ("site:s3-website.us-east-1.amazonaws.com OR site:s3-website-us-east-1.amazonaws.com",
+             "S3 static website endpoints", "Static sites served from S3"),
+            ("site:wasabisys.com", "Wasabi object storage",
+             "Wasabi bucket referencing the domain"),
+            ("site:backblazeb2.com OR site:b2cdn.com",
+             "Backblaze B2 storage", "B2 bucket referencing the domain"),
+            ("site:linodeobjects.com", "Linode object storage",
+             "Linode bucket referencing the domain"),
+            ("site:scw.cloud", "Scaleway object storage",
+             "Scaleway bucket referencing the domain"),
+            ("site:fly.storage.tigris.dev", "Fly.io Tigris storage",
+             "Tigris bucket referencing the domain"),
+            ("site:supabase.co inurl:storage", "Supabase storage",
+             "Supabase storage URL referencing the domain"),
+            ("site:appspot.com", "GAE / Cloud Run default domain",
+             "Default appspot host referencing the target"),
+            ("site:azurewebsites.net", "Azure App Service default host",
+             "Default Azure App Service host referencing the target"),
+            ("site:azurefd.net OR site:azureedge.net",
+             "Azure Front Door / CDN host", "Azure CDN hosts referencing the target"),
+            ("site:cloudfront.net",
+             "AWS CloudFront", "CloudFront distributions referencing the target"),
+            ("site:herokuapp.com",
+             "Heroku default host", "Heroku app referencing the target"),
+            ("site:vercel.app OR site:netlify.app OR site:pages.dev",
+             "Static / serverless host", "Preview deployments referencing the target"),
+        ];
+        for (q, desc, impact) in providers {
+            dorks.push(GoogleDork {
+                category: "Cloud Storage".to_string(),
+                query: format!("{} \"{}\"", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Paste / snippet / code-sharing sites — anchored by exact domain string.
+    fn push_paste_and_code_leaks(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let sites: &[(&str, &str, &str)] = &[
+            ("site:gist.github.com",
+             "GitHub Gists", "Gists often hold one-off scripts with embedded credentials"),
+            ("site:gitlab.com/snippets OR site:gitlab.com/-/snippets",
+             "GitLab snippets", "GitLab snippets — credential paste risk"),
+            ("site:bitbucket.org/snippets",
+             "Bitbucket snippets", "Bitbucket snippets — credential paste risk"),
+            ("site:scribd.com",
+             "Scribd documents", "Uploaded docs may contain HR/financial/PII data"),
+            ("site:slideshare.net",
+             "SlideShare presentations", "Internal-style decks routinely uploaded publicly"),
+            ("site:hastebin.com OR site:dpaste.com OR site:rentry.co OR site:paste.ee OR site:ghostbin.com",
+             "Generic paste services", "Credential / log paste risk"),
+            ("site:ideone.com OR site:repl.it OR site:replit.com",
+             "Online IDE / runner snippets",
+             "Hosted code snippets often retain embedded credentials"),
+        ];
+        for (q, desc, impact) in sites {
+            dorks.push(GoogleDork {
+                category: "Code Leaks".to_string(),
+                query: format!("{} \"{}\"", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Bug-bounty / vulnerability-disclosure platforms.
+    fn push_bug_bounty_disclosures(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let sites: &[(&str, &str, &str)] = &[
+            ("site:hackerone.com inurl:reports",
+             "HackerOne disclosed reports", "Previously disclosed bugs targeting the domain"),
+            ("site:bugcrowd.com/disclosures",
+             "Bugcrowd disclosures", "Disclosed Bugcrowd reports for the domain"),
+            ("site:intigriti.com",
+             "Intigriti disclosures", "Intigriti research about the domain"),
+            ("site:yeswehack.com",
+             "YesWeHack reports", "YesWeHack disclosures for the domain"),
+            ("site:huntr.com OR site:huntr.dev",
+             "huntr reports", "huntr open-source disclosures referencing the domain"),
+            ("site:securitytrails.com",
+             "SecurityTrails data", "Historical DNS / subdomain intelligence"),
+            ("site:crt.sh",
+             "Certificate transparency", "Issued certs reveal subdomains and SAN entries"),
+        ];
+        for (q, desc, impact) in sites {
+            dorks.push(GoogleDork {
+                category: "Public Disclosures".to_string(),
+                query: format!("{} intext:\"{}\"", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Confidential documents indexed under the target.
+    fn push_document_leaks(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("filetype:pdf intext:\"confidential\" OR intext:\"internal use only\" OR intext:\"do not distribute\"",
+             "Confidential PDF",
+             "PDF marked confidential — potential PII / IP disclosure"),
+            ("filetype:xlsx OR filetype:xls intext:\"password\" OR intext:\"username\"",
+             "Spreadsheet with credentials",
+             "Spreadsheet containing credential-style columns"),
+            ("filetype:docx intext:\"NDA\" OR intext:\"non-disclosure\"",
+             "NDA document", "NDA documents indexed publicly"),
+            ("filetype:csv intext:\"@\" intext:\"phone\" OR intext:\"address\"",
+             "PII CSV", "CSV containing PII columns"),
+            ("filetype:pptx intext:\"internal\" OR intext:\"roadmap\"",
+             "Internal slide deck", "Internal roadmap deck leaked publicly"),
+            ("filetype:vsdx OR filetype:vsd",
+             "Visio diagrams", "Network/architecture diagrams indexed"),
+            ("filetype:eml OR filetype:msg",
+             "Raw email files", "Indexed emails — header + body disclosure"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "Document Leaks".to_string(),
+                query: format!("site:{} {}", d, q),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// Logs and debug output — often indexed accidentally.
+    fn push_log_and_debug_files(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("ext:log intext:\"DEBUG\" OR intext:\"ERROR\" OR intext:\"Exception\"",
+             "Application log file", "Indexed application log — stack traces and IDs"),
+            ("ext:log intext:\"Authorization: Bearer\"",
+             "Log containing bearer tokens", "Bearer tokens echoed into a log file"),
+            ("ext:log intext:\"set-cookie\" intext:\"session\"",
+             "Log containing session cookies", "Session cookies leaked via access log"),
+            ("inurl:\"access.log\" OR inurl:\"access_log\" OR inurl:\"error.log\"",
+             "Web-server log files", "Apache/Nginx logs indexed"),
+            ("inurl:\"laravel.log\"",
+             "Laravel log file", "Laravel debug log — secrets often present"),
+            ("inurl:\"sentry/issues\" OR inurl:\"sentry-dsn\"",
+             "Sentry DSN / issue link", "Sentry DSN may be abused for noise injection"),
+            ("intitle:\"Whoops! There was an error\"",
+             "Symfony / Laravel debug page",
+             "Whoops debug page exposes source, env vars and config"),
+            ("intitle:\"Werkzeug Debugger\"",
+             "Flask Werkzeug debugger",
+             "Werkzeug PIN debugger may allow RCE if exposed"),
+            ("intitle:\"Django Debug Page\"",
+             "Django debug page", "Django DEBUG=True page leaks settings and traceback"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "Logs & Debug Output".to_string(),
+                query: format!("site:{} {}", d, q),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+
+    /// DevOps and CI/CD-adjacent artifacts.
+    fn push_devops_artifacts(dorks: &mut Vec<GoogleDork>, d: &str) {
+        let items: &[(&str, &str, &str)] = &[
+            ("inurl:\".travis.yml\" OR inurl:\".circleci/config.yml\" OR inurl:\"bitbucket-pipelines.yml\" OR inurl:\"Jenkinsfile\"",
+             "CI pipeline file",
+             "Pipeline definitions reference secret names and registry hosts"),
+            ("inurl:\"argocd-cm\" OR inurl:\"argocd-secret\"",
+             "Argo CD config map / secret",
+             "Argo CD config exposes cluster credentials"),
+            ("inurl:\"flux-system\" intext:\"Kind: Kustomization\"",
+             "Flux CD manifests", "GitOps manifests may include sealed/unsealed secrets"),
+            ("inurl:\"helm/charts\" intext:\"values.yaml\" intext:\"password\"",
+             "Helm values.yaml with password", "Helm chart values containing credentials"),
+            ("inurl:\".env.vault\"",
+             "dotenv-vault file", "Encrypted dotenv vault file — offline brute-force surface"),
+            ("inurl:\"id_rsa.pub\" OR inurl:\"authorized_keys\"",
+             "SSH key files", "authorized_keys / pub-key files exposed"),
+            ("ext:rdp",
+             "RDP connection file", "RDP shortcut with host + sometimes credentials"),
+            ("ext:ovpn",
+             "OpenVPN profile", "OpenVPN client config — connect into internal network"),
+            ("inurl:\"wireguard\" ext:conf intext:\"PrivateKey\"",
+             "WireGuard config",
+             "WireGuard config with private key — VPN takeover"),
+        ];
+        for (q, desc, impact) in items {
+            dorks.push(GoogleDork {
+                category: "DevOps Artifacts".to_string(),
+                query: format!("{} site:{}", q, d),
+                description: (*desc).to_string(),
+                impact: (*impact).to_string(),
+            });
+        }
+    }
+}
+
 impl Default for GoogleDorkingScanner {
     fn default() -> Self {
         Self::new()
@@ -659,6 +1259,56 @@ mod tests {
         assert!(results.by_category.contains_key("API Endpoints"));
         assert!(results.by_category.contains_key("Sensitive Files"));
         assert!(results.by_category.contains_key("Cloud Storage"));
+    }
+
+    #[test]
+    fn test_high_impact_categories_exist() {
+        let scanner = GoogleDorkingScanner::new();
+        let results = scanner.generate_dorks("example.com");
+
+        for expected in [
+            "Exposed Admin Panels",
+            "Internal Dashboards",
+            "Directory Listings",
+            "Backup & Secret Files",
+            "VCS Artifacts",
+            "Credentialed Configs",
+            "WordPress Artifacts",
+            "API Schemas & GraphQL",
+            "SOAP / WSDL",
+            "Public Disclosures",
+            "Document Leaks",
+            "Logs & Debug Output",
+            "DevOps Artifacts",
+        ] {
+            assert!(
+                results.by_category.contains_key(expected),
+                "missing category: {}",
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_every_dork_references_target_or_known_site() {
+        // Every generated dork must constrain its search to either the target
+        // domain (via `site:` / `intext:`) or a known third-party site, so a
+        // hit cannot be a generic, unrelated result.
+        let scanner = GoogleDorkingScanner::new();
+        let results = scanner.generate_dorks("example.com");
+
+        for dork in &results.dorks {
+            let q = &dork.query;
+            let mentions_target =
+                q.contains("example.com") || q.contains("\"example.com\"");
+            // Allow generic security.txt enumeration which intentionally is global.
+            let is_known_global = q.contains("site:*/security.txt");
+            assert!(
+                mentions_target || is_known_global,
+                "dork is not anchored to the target: {}",
+                q
+            );
+        }
     }
 
     #[test]
