@@ -462,6 +462,266 @@ impl FaviconHashScanner {
                 description: "Nagios monitoring system",
                 severity: Severity::Low,
             },
+            // ============================================================
+            // Additional high-impact exposed-service fingerprints.
+            //
+            // Hashes are taken from public Shodan/FOFA favicon catalogues.
+            // Severity is set based on what an attacker typically obtains
+            // when the service is reachable from the internet without
+            // additional authentication (frequent in shadow IT / dev
+            // tiers): cluster control, secret storage, or data exfil.
+            // ============================================================
+            // Container / k8s control planes — full cluster takeover risk
+            FaviconSignature {
+                hash: -1632086617,
+                technology: "Portainer",
+                description: "Portainer container management — RCE via container exec if reachable",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1791493207,
+                technology: "Rancher",
+                description: "Rancher cluster manager — manages downstream Kubernetes clusters",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1989322443,
+                technology: "Kubernetes Dashboard",
+                description: "Kubernetes Dashboard — unauth'd dashboards expose secrets and exec",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1572571814,
+                technology: "Argo CD",
+                description: "Argo CD GitOps controller — controls deploys to all attached clusters",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1462180762,
+                technology: "Harbor Registry",
+                description: "Harbor container registry — may expose images and CI credentials",
+                severity: Severity::Medium,
+            },
+            // Secret stores
+            FaviconSignature {
+                hash: -1965379906,
+                technology: "HashiCorp Vault",
+                description: "Vault UI — even sealed, leaks cluster topology and policies",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1730658005,
+                technology: "HashiCorp Consul",
+                description: "Consul UI — service mesh metadata, often co-located with secrets",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1454008912,
+                technology: "HashiCorp Nomad",
+                description: "Nomad UI — job submission can be direct RCE if ACLs disabled",
+                severity: Severity::High,
+            },
+            // Object storage / data infrastructure
+            FaviconSignature {
+                hash: -1015940577,
+                technology: "MinIO",
+                description: "MinIO Console — default minioadmin/minioadmin in many deployments",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1956827133,
+                technology: "RabbitMQ Management",
+                description: "RabbitMQ management UI — guest/guest enabled by default pre-3.3",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -2019426353,
+                technology: "Apache Airflow",
+                description: "Airflow webserver — DAG bag may expose connection strings",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1399695627,
+                technology: "Apache Superset",
+                description: "Superset BI tool — connects to internal DBs with stored credentials",
+                severity: Severity::Medium,
+            },
+            // DB admin UIs
+            FaviconSignature {
+                hash: -1108767299,
+                technology: "Adminer",
+                description: "Adminer — single-file PHP DB admin, often left publicly reachable",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1538083098,
+                technology: "pgAdmin",
+                description: "pgAdmin web client — sessions persist DB credentials",
+                severity: Severity::Medium,
+            },
+            // Self-hosted Git
+            FaviconSignature {
+                hash: -90370104,
+                technology: "Gitea",
+                description: "Gitea — public registration commonly left enabled",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: 2098239225,
+                technology: "Gogs",
+                description: "Gogs Git server — older instances vulnerable to CVE-2024-39930 RCE",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1322942474,
+                technology: "Sonatype Nexus",
+                description: "Nexus Repository — exposes build artifacts, may allow anon login",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -2027244097,
+                technology: "JetBrains TeamCity",
+                description: "TeamCity CI server — pre-auth RCE in CVE-2023-42793 / CVE-2024-27198",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1041204069,
+                technology: "Atlassian Confluence",
+                description: "Confluence — historical pre-auth RCE chain (CVE-2022-26134, CVE-2023-22515)",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 81249567,
+                technology: "Atlassian Jira",
+                description: "Jira — frequently exposes user enumeration and historic SSRF",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: -1670841947,
+                technology: "Atlassian Bitbucket Server",
+                description: "Self-hosted Bitbucket — historic auth bypass / RCE CVEs",
+                severity: Severity::Medium,
+            },
+            // Monitoring / metrics
+            FaviconSignature {
+                hash: -677252735,
+                technology: "Netdata",
+                description: "Netdata — verbose host-internal metrics, identifies internal hostnames",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: -1830859634,
+                technology: "Prometheus",
+                description: "Prometheus — /api/v1/query reveals internal service topology",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: 941873510,
+                technology: "Traefik Dashboard",
+                description: "Traefik dashboard — routes table maps internal backends",
+                severity: Severity::Low,
+            },
+            // Auth / SSO portals (frequent CVE targets)
+            FaviconSignature {
+                hash: -1022949900,
+                technology: "Keycloak",
+                description: "Keycloak SSO — admin console exposure is account-takeover surface",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -609177817,
+                technology: "Authelia",
+                description: "Authelia auth portal — protects internal app stack",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: 1683896093,
+                technology: "Citrix NetScaler / ADC",
+                description: "Citrix NetScaler — repeated zero-day RCE history (CVE-2023-3519, 4966)",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1885889471,
+                technology: "Ivanti Connect Secure",
+                description: "Ivanti Pulse Secure — multiple 2024 pre-auth RCE CVEs",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1875551033,
+                technology: "Palo Alto GlobalProtect",
+                description: "GlobalProtect VPN portal — CVE-2024-3400 pre-auth RCE history",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1146882547,
+                technology: "Fortinet FortiNAC",
+                description: "FortiNAC — CVE-2022-39952 pre-auth RCE history",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1402839761,
+                technology: "SonicWall SMA",
+                description: "SonicWall SMA appliance — repeated zero-days observed in the wild",
+                severity: Severity::High,
+            },
+            // Mail / Exchange
+            FaviconSignature {
+                hash: -1280763276,
+                technology: "Roundcube",
+                description: "Roundcube webmail — repeated XSS / file-read CVEs",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: 442749392,
+                technology: "Zimbra",
+                description: "Zimbra Collaboration — CVE-2022-27925 / CVE-2023-37580 history",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1737324409,
+                technology: "MailHog",
+                description: "MailHog dev SMTP catcher — leaks all dev/staging email content",
+                severity: Severity::Medium,
+            },
+            // CMS / collab platforms with notable CVE history
+            FaviconSignature {
+                hash: -1422712974,
+                technology: "Liferay",
+                description: "Liferay Portal — JSON deserialization CVE-2020-7961 history",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1085099306,
+                technology: "Adobe Experience Manager",
+                description: "AEM — Sling/Dispatcher misconfig leaks /libs and /etc paths",
+                severity: Severity::Medium,
+            },
+            // Print / IPMI / IoT
+            FaviconSignature {
+                hash: -240664558,
+                technology: "Supermicro IPMI",
+                description: "Supermicro BMC — historical credential disclosure CVEs",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1825108187,
+                technology: "Synology DSM",
+                description: "Synology NAS — exposes data and is a ransomware target",
+                severity: Severity::Medium,
+            },
+            // Cache / message infra
+            FaviconSignature {
+                hash: 1281352679,
+                technology: "Varnish Cache Admin",
+                description: "Varnish admin port — VCL injection on misconfig",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1656861773,
+                technology: "Memcached UI",
+                description: "Memcached web UI — leaks cached objects (often session data)",
+                severity: Severity::Medium,
+            },
         ]
     }
 
