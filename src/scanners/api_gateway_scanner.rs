@@ -481,25 +481,137 @@ impl ApiGatewayScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 10;
+        let mut tests_run: usize = 0;
 
         debug!("Testing for API schema disclosure");
 
+        // Each entry hits a single deterministic file path; the is_api_schema()
+        // body check downstream means a 200 plus matching content is required —
+        // we are not heuristically flagging anything that returns a generic page.
         let schema_endpoints = vec![
+            // Swagger / OpenAPI 2.x – 3.x defaults
             "/swagger.json",
             "/swagger.yaml",
+            "/swagger.yml",
+            "/swagger/v1/swagger.json",
+            "/swagger/v2/swagger.json",
+            "/swagger/v3/swagger.json",
+            "/swagger/docs/v1",
+            "/swagger/docs/v2",
+            "/swagger-resources",
+            "/swagger-resources/configuration/ui",
+            "/swagger-resources/configuration/security",
             "/openapi.json",
             "/openapi.yaml",
+            "/openapi.yml",
+            "/openapi/v1",
+            "/openapi/v2",
+            "/openapi/v3",
+            "/openapi-spec.json",
+            "/openapi-spec.yaml",
+            // Common doc roots
             "/api-docs",
+            "/api-docs.json",
+            "/api-docs.yaml",
             "/api/swagger.json",
+            "/api/swagger.yaml",
             "/api/openapi.json",
+            "/api/openapi.yaml",
+            "/api/api-docs",
+            "/api/api-docs.json",
+            "/api/v1/api-docs",
+            "/api/v2/api-docs",
+            "/api/v3/api-docs",
+            "/api/v1/swagger.json",
+            "/api/v2/swagger.json",
+            "/api/v3/swagger.json",
+            "/api/v1/openapi.json",
+            "/api/v2/openapi.json",
+            "/api/v3/openapi.json",
+            "/v1/api-docs",
+            "/v2/api-docs",
+            "/v3/api-docs",
+            "/v1/swagger.json",
+            "/v2/swagger.json",
+            "/v3/swagger.json",
+            "/v1/openapi.json",
+            "/v2/openapi.json",
+            "/v3/openapi.json",
             "/docs",
+            "/docs/openapi.json",
+            "/docs/swagger.json",
+            "/docs/api",
+            "/docs/api-docs",
             "/api/docs",
+            "/api/docs/openapi.json",
+            "/api/docs/swagger.json",
             "/redoc",
+            "/redoc.html",
+            "/redoc.standalone.js",
+            "/api/redoc",
+            // FastAPI / Starlette defaults
+            "/docs/oauth2-redirect",
+            // Spring springdoc / Spring REST Docs / Actuator OpenAPI
+            "/v3/api-docs/swagger-config",
+            "/v3/api-docs.yaml",
+            "/swagger-ui/swagger-config",
+            "/actuator/openapi",
+            "/actuator/swagger-ui",
+            // .NET Core / NSwag defaults
+            "/swagger/v1/swagger.yaml",
+            "/index.html?urls.primaryName=v1",
+            // AsyncAPI (event-driven API descriptions – leaks broker URLs, topics)
+            "/asyncapi.json",
+            "/asyncapi.yaml",
+            "/asyncapi.yml",
+            "/asyncapi/spec",
+            // RAML / API Blueprint / WADL (older API description formats still in use)
+            "/api.raml",
+            "/api-blueprint.apib",
+            "/apiary.apib",
+            "/application.wadl",
+            "/services?wsdl",
+            "/?wsdl",
+            // GraphQL schema dumps (SDL files)
+            "/schema.graphql",
+            "/schema.gql",
+            "/graphql/schema.json",
+            "/graphql/schema",
+            "/graphql.schema.json",
+            "/.well-known/graphql",
+            // Postman / Insomnia collections accidentally committed
+            "/postman_collection.json",
+            "/postman.json",
+            "/api.postman_collection.json",
+            "/api.postman_collection_v2.1.json",
+            "/insomnia_collection.json",
+            "/insomnia_export.json",
+            // OpenAPI plugin defaults (Kong, Tyk, Krakend, WSO2)
+            "/.well-known/openapi",
+            "/.well-known/openapi.json",
+            "/.well-known/openapi.yaml",
+            "/.well-known/api-catalog",
+            "/api/specs",
+            "/api/spec",
+            "/api/manifest",
+            "/api/manifest.json",
+            // Common framework-specific
+            "/q/openapi",                  // Quarkus
+            "/q/openapi.yaml",
+            "/q/swagger-ui",
+            "/_doc",                       // older Hapi.js doc plugin
+            "/documentation/api/swagger.json",
+            "/documentation/swagger.json",
+            // Vendor portals
+            "/developers/api-spec",
+            "/developer/api-spec",
+            "/developers/openapi.json",
+            "/developer/openapi.json",
         ];
 
         for endpoint in schema_endpoints {
             let test_url = self.build_url(url, endpoint);
+            tests_run += 1;
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
@@ -539,33 +651,134 @@ impl ApiGatewayScanner {
 
         debug!("Testing for BFF/Internal gateway exposure");
 
-        // Common BFF (Backend-For-Frontend) path patterns
+        // Common BFF (Backend-For-Frontend) path patterns.
+        // Findings are gated on either an internal URL appearing in a 30x
+        // Location, or an internal-infra indicator (private IPs, *.internal,
+        // localhost) appearing in the response body — both unambiguous, so
+        // expanding this list trades coverage for tests run, not for FP risk.
         let bff_paths = vec![
             // BFF endpoints
             "/cx-bff/config/",
             "/cx-bff/config/.?params=test",
             "/bff/config/",
             "/bff/api/",
+            "/bff/v1/",
+            "/bff/v2/",
+            "/bff/graphql/",
+            "/bff/rest/",
+            "/bff/health/",
             "/_bff/",
+            "/_bff/config",
             "/api-bff/",
+            "/api/bff/",
+            "/api/bff/config",
+            "/webapp-bff/",
+            "/mobile-bff/",
+            "/mobile/bff/",
+            "/desktop-bff/",
+            "/web/bff/",
+            "/spa-bff/",
+            "/portal-bff/",
+            "/customer-bff/",
+            "/admin-bff/",
             // Gateway internal endpoints
             "/gateway/internal/",
+            "/gateway/admin/",
+            "/gateway/config/",
+            "/gateway/routes/",
+            "/gateway/api/",
             "/gatewayInternal/",
             "/internal-api/",
+            "/internal-api/v1/",
+            "/internal-api/v2/",
             "/internal/",
+            "/internal/api/",
+            "/internal/api/v1/",
+            "/internal/v1/",
+            "/internal/health/",
+            "/internal/config/",
             "/proxy/internal/",
+            "/proxy/admin/",
+            "/proxy/api/",
+            // Kong / Tyk / Krakend / KrakenD admin surfaces – often left
+            // exposed when the operator forgets to firewall the admin port.
+            "/kong/",
+            "/krakend/",
+            "/krakend/__health",
+            "/krakend/__debug",
+            "/tyk/",
+            "/tyk/keys/",
+            "/tyk/apis/",
+            "/tyk-gateway/apis",
+            "/apigee/",
+            "/apim/",
+            "/wso2/",
+            "/wso2/admin/",
+            // Spring Cloud Gateway, Spring Cloud Config Server
+            "/actuator/gateway/routes",
+            "/actuator/gateway/globalfilters",
+            "/actuator/gateway/routefilters",
+            "/actuator/gateway/refresh",
+            "/cloudconfig/",
+            "/config-server/",
             // Config discovery
             "/config/",
+            "/config/application",
+            "/config/application.json",
+            "/config/application.yml",
             "/api/config/",
+            "/api/config.json",
+            "/api/configuration",
+            "/api/v1/config",
+            "/api/v2/config",
             "/api/internal/",
+            "/api/internal/config",
+            "/api/_internal/",
             "/.internal/",
+            "/.internal/config",
+            "/_config/",
+            "/_internal/",
+            "/_internal/api",
             // Graph/Federation
             "/graphql/internal/",
+            "/graphql/admin/",
+            "/graphql/federation/",
+            "/graphql/_internal",
             "/federation/",
-            // Service mesh
+            "/federation/health",
+            "/apollo-federation/",
+            "/router/",
+            "/router/__health",
+            // Service mesh / sidecar exposure (Envoy/Istio admin is gold)
             "/service/internal/",
+            "/services/internal/",
             "/mesh/",
+            "/mesh/config",
             "/sidecar/",
+            "/sidecar/admin",
+            "/envoy/admin/",
+            "/envoy/clusters",
+            "/envoy/config_dump",
+            "/envoy/listeners",
+            "/envoy/stats",
+            "/envoy/server_info",
+            "/istio/",
+            "/linkerd/",
+            "/linkerd/metrics",
+            "/consul/v1/agent/self",
+            "/consul/v1/catalog/services",
+            // Kubernetes / cloud control planes accidentally proxied
+            "/k8s/",
+            "/kubernetes/",
+            "/api/k8s/",
+            "/eureka/apps",
+            "/discovery/services",
+            // Backstage / internal developer portals – usually full SBOM/PII
+            "/backstage/",
+            "/backstage/api/catalog/entities",
+            "/backstage/api/scaffolder/v2/templates",
+            "/catalog/api/",
+            "/catalog/entities",
         ];
 
         // Fuzz suffixes to append for path-based discovery
