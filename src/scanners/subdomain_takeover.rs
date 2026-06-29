@@ -399,6 +399,293 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // AWS Elastic Beanstalk - NXDOMAIN takeover when the env is deleted
+    ServiceFingerprint {
+        name: "AWS Elastic Beanstalk",
+        cname_patterns: &[
+            ".elasticbeanstalk.com",
+            ".eba-",
+            ".elb.amazonaws.com",
+        ],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to the decommissioned Elastic Beanstalk environment, or recreate the environment with the same name in the same region.",
+    },
+    // Webflow - very specific body fingerprint via proxy.webflow.com
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &["proxy-ssl.webflow.com", "proxy.webflow.com"],
+        http_signatures: &[
+            "the page you are looking for doesn't exist or has been moved",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Webflow, or add the custom domain to a Webflow project you control.",
+    },
+    // Unbounce - landing-page hosting
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "the requested url was not found on this server",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Unbounce, or claim the custom domain inside an Unbounce account.",
+    },
+    // Strikingly - page-builder, very specific 404 body
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com", ".strikingly.com"],
+        http_signatures: &[
+            "page not found.  next time, try using a search engine to help",
+            "<h1>page not found</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Strikingly, or add the domain to a Strikingly site you own.",
+    },
+    // Statuspage.io - public status pages
+    ServiceFingerprint {
+        name: "Statuspage.io",
+        cname_patterns: &[".statuspage.io"],
+        http_signatures: &[
+            "there is no such app",
+            "you are being <a href=\"https://www.statuspage.io",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Statuspage, or claim the subdomain inside a Statuspage account.",
+    },
+    // ReadMe.io - hosted developer docs
+    ServiceFingerprint {
+        name: "ReadMe.io",
+        cname_patterns: &[".readme.io"],
+        http_signatures: &[
+            "project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to ReadMe.io, or create a project there and bind the custom domain.",
+    },
+    // HubSpot - landing pages / CMS
+    ServiceFingerprint {
+        name: "HubSpot",
+        cname_patterns: &[".hs-sites.com", ".hubspot.net", ".sites.hubspot.com"],
+        http_signatures: &[
+            "domain not found",
+            "the page you were looking for couldn't be found.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to HubSpot, or claim the custom domain in the HubSpot CMS settings.",
+    },
+    // Campaign Monitor - createsend.com hosted forms / pages
+    ServiceFingerprint {
+        name: "Campaign Monitor",
+        cname_patterns: &[".createsend.com", ".name.createsend.com"],
+        http_signatures: &[
+            "double check the url or <a href=\"mailto:help@createsend.com",
+            "trying to access your account?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Campaign Monitor, or claim the custom domain inside a Campaign Monitor account.",
+    },
+    // Brightcove - hosted video galleries
+    ServiceFingerprint {
+        name: "Brightcove",
+        cname_patterns: &[".brightcovegallery.com", ".gallery.video", ".bcvp0rtal.com"],
+        http_signatures: &[
+            "<p class=\"bc-gallery-error-code\">error code: 404</p>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Brightcove, or reclaim the gallery inside Brightcove.",
+    },
+    // Big Cartel - shop hosting
+    ServiceFingerprint {
+        name: "Big Cartel",
+        cname_patterns: &[".bigcartel.com"],
+        http_signatures: &[
+            "<h1>oops! we couldn&#8217;t find that page.</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Big Cartel, or claim the custom domain inside a Big Cartel shop.",
+    },
+    // JetBrains InCloud YouTrack
+    ServiceFingerprint {
+        name: "JetBrains YouTrack",
+        cname_patterns: &[".myjetbrains.com"],
+        http_signatures: &[
+            "is not a registered incloud youtrack",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to JetBrains InCloud, or register the YouTrack instance with the matching subdomain.",
+    },
+    // Intercom - help-center custom domain
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &["custom.intercom.help"],
+        http_signatures: &[
+            "this page is reserved for artistic dogs.",
+            "uh oh. that page doesn&#8217;t exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to custom.intercom.help, or configure the custom domain in your Intercom workspace.",
+    },
+    // LaunchRock - landing pages
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "it looks like you may have taken a wrong turn somewhere. don't worry...it happens to all of us.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to LaunchRock, or claim the custom subdomain inside LaunchRock.",
+    },
+    // HatenaBlog
+    ServiceFingerprint {
+        name: "HatenaBlog",
+        cname_patterns: &[".hatenablog.com"],
+        http_signatures: &[
+            "404 blog is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to HatenaBlog, or claim the custom domain in HatenaBlog.",
+    },
+    // Smartling - translation portal
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &[".smartling.com"],
+        http_signatures: &[
+            "domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Smartling, or claim the domain inside the Smartling dashboard.",
+    },
+    // Aha! - product roadmap portal
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &[".aha.io"],
+        http_signatures: &[
+            "there is no portal here ... sending you back to aha!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Aha!, or claim the portal inside an Aha! workspace.",
+    },
+    // Pingdom public dashboards
+    ServiceFingerprint {
+        name: "Pingdom",
+        cname_patterns: &["stats.pingdom.com", "share.pingdom.com"],
+        http_signatures: &[
+            "public report not activated",
+            "this public report page",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record pointing to Pingdom, or republish the public report from the Pingdom account that owns it.",
+    },
+    // DigitalOcean App Platform - NXDOMAIN takeover when the app is deleted
+    ServiceFingerprint {
+        name: "DigitalOcean App Platform",
+        cname_patterns: &[".ondigitalocean.app"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to the deleted DigitalOcean App, or recreate the App with the same generated name.",
+    },
+    // Worksites.net - hosted sites
+    ServiceFingerprint {
+        name: "Worksites.net",
+        cname_patterns: &[".worksites.net", ".alwaysdata.net"],
+        http_signatures: &[
+            "hello! sorry, but the website you&rsquo;re looking for doesn&rsquo;t exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record, or claim the hostname inside the hosting account.",
+    },
+    // Tave studio - photography CRM
+    ServiceFingerprint {
+        name: "Tave",
+        cname_patterns: &[".tavestudio.com"],
+        http_signatures: &[
+            "<h1>error 404: page not found</h1>",
+            "this page is no longer available.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Tave, or rebind the subdomain inside the Tave studio settings.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
