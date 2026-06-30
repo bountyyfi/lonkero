@@ -1221,6 +1221,287 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // -------------------------------------------------------------
+                // Modern AI / SaaS / infra tokens. All anchored on vendor-issued
+                // prefixes that cannot occur in normal minified JavaScript, so
+                // any match is a real key with near-zero false-positive risk.
+                // -------------------------------------------------------------
+                // Groq — fixed `gsk_` prefix issued only by Groq Cloud.
+                CompiledPattern {
+                    name: "Groq API Key".to_string(),
+                    regex: Regex::new(r#"gsk_[A-Za-z0-9]{52}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Groq Cloud API key found - allows LLM inference billing abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Perplexity — `pplx-` followed by a 48-char alphanumeric.
+                CompiledPattern {
+                    name: "Perplexity API Key".to_string(),
+                    regex: Regex::new(r#"pplx-[A-Za-z0-9]{48}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Perplexity API key found - billed inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Replicate — `r8_` prefix is unique to Replicate tokens.
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"r8_[A-Za-z0-9]{37,40}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token found - paid model inference".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Hugging Face — `hf_` prefix is issued only by HF user-access tokens.
+                CompiledPattern {
+                    name: "Hugging Face Access Token".to_string(),
+                    regex: Regex::new(r#"hf_[A-Za-z0-9]{34}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Hugging Face access token found - private repo / inference endpoint access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Resend — `re_` prefix for transactional email API.
+                CompiledPattern {
+                    name: "Resend API Key".to_string(),
+                    regex: Regex::new(r#"re_[A-Za-z0-9]{8}_[A-Za-z0-9]{24}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Resend API key found - allows sending email as the target domain".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Brevo (formerly SendinBlue) — `xkeysib-` prefix is vendor-issued.
+                CompiledPattern {
+                    name: "Brevo (SendinBlue) API Key".to_string(),
+                    regex: Regex::new(r#"xkeysib-[a-f0-9]{64}-[A-Za-z0-9]{16}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Brevo (SendinBlue) API key found - allows sending email and SMS as the target".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Klaviyo private API key — `pk_` followed by a 34-char hex string,
+                // anchored by an explicit klaviyo context to avoid clashing with
+                // public Stripe `pk_` keys.
+                CompiledPattern {
+                    name: "Klaviyo Private API Key".to_string(),
+                    regex: Regex::new(r#"(?i)klaviyo[_-]?(?:private[_-]?)?(?:api[_-]?)?key\s*[=:]\s*['\"]pk_[A-Fa-f0-9]{34}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Klaviyo private API key found - allows reading subscriber lists and sending email".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Clerk — `sk_test_` / `sk_live_` overlaps with Stripe's prefix, so
+                // we require a Clerk context word to avoid double-flagging real
+                // Stripe keys as Clerk keys.
+                CompiledPattern {
+                    name: "Clerk Secret Key".to_string(),
+                    regex: Regex::new(r#"(?i)clerk[_-]?(?:secret[_-]?)?key\s*[=:]\s*['\"]sk_(?:test|live)_[A-Za-z0-9]{40,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Clerk secret key found - identity provider full access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // WorkOS — `sk_` prefix with WorkOS context.
+                CompiledPattern {
+                    name: "WorkOS Secret Key".to_string(),
+                    regex: Regex::new(r#"(?i)workos[_-]?(?:api[_-]?)?(?:key|secret)\s*[=:]\s*['\"]sk_[A-Za-z0-9_]{40,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "WorkOS API secret found - SSO / directory sync admin access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe restricted live key — distinct from `sk_live_`; impactful
+                // because it can still move money / refund.
+                CompiledPattern {
+                    name: "Stripe Restricted Live Key".to_string(),
+                    regex: Regex::new(r#"rk_live_[A-Za-z0-9]{24,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Stripe restricted live key found - scoped payment access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe webhook signing secret — disclosure allows forging
+                // webhook events into the application.
+                CompiledPattern {
+                    name: "Stripe Webhook Signing Secret".to_string(),
+                    regex: Regex::new(r#"whsec_[A-Za-z0-9]{32,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Stripe webhook signing secret found - allows forging webhook events (e.g. fake successful payments)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Anthropic legacy short form — already covered above; here is the
+                // newer admin/console-key form.
+                CompiledPattern {
+                    name: "Anthropic Admin Key".to_string(),
+                    regex: Regex::new(r#"sk-ant-admin01-[A-Za-z0-9_-]{86,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Anthropic admin API key found - org-level workspace administration".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Upstash Redis REST URL — embedded password in the URL.
+                CompiledPattern {
+                    name: "Upstash Redis REST URL".to_string(),
+                    regex: Regex::new(r#"https://[a-z0-9-]+\.upstash\.io[^\s\"'<>]*"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Upstash Redis REST endpoint URL found - paired with token enables direct DB access".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Convex deploy key — `prod:` prefix locks it to the Convex format.
+                CompiledPattern {
+                    name: "Convex Deploy Key".to_string(),
+                    regex: Regex::new(r#"prod:[a-z0-9-]+\|[A-Za-z0-9]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Convex production deploy key found - allows pushing arbitrary functions".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Neon database — connection string with embedded password.
+                CompiledPattern {
+                    name: "Neon Database Connection String".to_string(),
+                    regex: Regex::new(r#"postgres(?:ql)?://[^:\s]+:[^@\s]+@[a-z0-9-]+\.[a-z0-9-]+\.neon\.tech[^\s\"'<>]*"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Neon serverless Postgres connection string with credentials".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Turso database token — JWT but anchored by libsql / turso URL.
+                CompiledPattern {
+                    name: "Turso Database URL".to_string(),
+                    regex: Regex::new(r#"libsql://[a-z0-9-]+\.turso\.io"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Turso libSQL endpoint found - paired with the auth token grants DB access".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // ElevenLabs — `(?i)xi-api-key` is the documented header form.
+                CompiledPattern {
+                    name: "ElevenLabs API Key".to_string(),
+                    regex: Regex::new(r#"(?i)xi[_-]?api[_-]?key\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "ElevenLabs API key found - paid voice synthesis abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // OpenAI project-scoped key — newer `sk-proj-` format.
+                CompiledPattern {
+                    name: "OpenAI Project Key".to_string(),
+                    regex: Regex::new(r#"sk-proj-[A-Za-z0-9_-]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI project-scoped API key found - billed inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Mistral La Plateforme — `(?i)mistral[_-]api` context + 32-char body.
+                CompiledPattern {
+                    name: "Mistral AI API Key".to_string(),
+                    regex: Regex::new(r#"(?i)mistral[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][A-Za-z0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Mistral AI API key found - billed inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // DeepSeek — `sk-` prefix but anchored by a deepseek context marker
+                // so it doesn't fight with the generic OpenAI pattern.
+                CompiledPattern {
+                    name: "DeepSeek API Key".to_string(),
+                    regex: Regex::new(r#"(?i)deepseek[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"]sk-[A-Za-z0-9]{32,}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "DeepSeek API key found - billed inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Together AI — `(?i)together[_-]api` context with hex body.
+                CompiledPattern {
+                    name: "Together AI API Key".to_string(),
+                    regex: Regex::new(r#"(?i)together[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{64}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Together AI API key found - billed inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks — `dapi` is the documented PAT prefix.
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"dapi[a-f0-9]{32}(?:-\d+)?"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token found - workspace data + compute access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Snowflake — `(?i)snowflake.*password` context with a JDBC URL
+                // ensures we match real connection strings, not vendor prose.
+                CompiledPattern {
+                    name: "Snowflake Connection String".to_string(),
+                    regex: Regex::new(r#"jdbc:snowflake://[a-zA-Z0-9._-]+\.snowflakecomputing\.com[^\s\"'<>]*"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Snowflake JDBC connection string found - paired with credentials = data warehouse access".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // AWS Account ID exposed via ARN — pinning to the `arn:aws:` prefix
+                // avoids matching random 12-digit numbers.
+                CompiledPattern {
+                    name: "AWS ARN Exposure".to_string(),
+                    regex: Regex::new(r#"arn:aws:[a-z0-9-]+:[a-z0-9-]*:\d{12}:[A-Za-z0-9._:/+=,@-]+"#).unwrap(),
+                    severity: Severity::Low,
+                    description: "AWS ARN found - reveals the AWS account ID and resource layout".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // GCP project ID + service account email exposure.
+                CompiledPattern {
+                    name: "GCP Service Account Email".to_string(),
+                    regex: Regex::new(r#"[a-z0-9](?:[a-z0-9-]{4,28})@[a-z][-a-z0-9]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "GCP service account email found - identifies the project and service principal targeted by impersonation attacks".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Azure tenant / client ID disclosure — anchored by Microsoft's
+                // login domain so we don't catch random UUIDs.
+                CompiledPattern {
+                    name: "Azure Tenant ID Exposure".to_string(),
+                    regex: Regex::new(r#"login\.microsoftonline\.com/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#).unwrap(),
+                    severity: Severity::Low,
+                    description: "Azure AD tenant ID disclosed in login URL - enables targeted phishing and recon".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Kubernetes API server URL — anchored on the standard API path.
+                CompiledPattern {
+                    name: "Kubernetes API Server URL".to_string(),
+                    regex: Regex::new(r#"https?://[a-zA-Z0-9.-]+(?::\d+)?/api/v1/namespaces/[a-z0-9-]+"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Kubernetes API server URL leaked - useful for SSRF / unauthenticated API enumeration".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // HashiCorp Vault address + path leak.
+                CompiledPattern {
+                    name: "HashiCorp Vault Address".to_string(),
+                    regex: Regex::new(r#"https?://[a-zA-Z0-9.-]+(?::\d+)?/v1/(?:secret|kv|auth)/[a-zA-Z0-9._/-]+"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "HashiCorp Vault URL with secret path found - reveals where to direct token attacks".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Internal Slack workspace token via xapp- (Socket Mode app token).
+                CompiledPattern {
+                    name: "Slack App-Level Token".to_string(),
+                    regex: Regex::new(r#"xapp-1-[A-Z0-9]+-[0-9]+-[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack app-level (xapp-1-) token found - Socket Mode bot access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // npm publish token — `npm_` already covered above; the older
+                // 64-char hex form survives in some lockfiles and is worth catching.
+                CompiledPattern {
+                    name: "npm Authentication Token (legacy)".to_string(),
+                    regex: Regex::new(r#"//registry\.npmjs\.org/:_authToken=[A-Za-z0-9._-]{36,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Legacy npm registry auth token found - publish-as-org supply chain risk".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PyPI upload token — `pypi-` prefix with the documented body shape.
+                CompiledPattern {
+                    name: "PyPI Upload Token".to_string(),
+                    regex: Regex::new(r#"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PyPI upload token found - publish malicious package versions".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // RubyGems API key — `rubygems_` prefix is vendor-issued.
+                CompiledPattern {
+                    name: "RubyGems API Key".to_string(),
+                    regex: Regex::new(r#"rubygems_[a-f0-9]{48}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "RubyGems API key found - publish-as-owner supply chain risk".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // crates.io token — `cio` prefix is documented; 32-char body.
+                CompiledPattern {
+                    name: "crates.io API Token".to_string(),
+                    regex: Regex::new(r#"cio[A-Za-z0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "crates.io API token found - publish-as-owner supply chain risk".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {

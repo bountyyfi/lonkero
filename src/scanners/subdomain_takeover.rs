@@ -399,6 +399,293 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Acquia Cloud Site Factory — service-specific 404 page rendered when no Acquia
+    // tenant claims the hostname. CNAME gate prevents collisions with generic 404s.
+    ServiceFingerprint {
+        name: "Acquia Cloud",
+        cname_patterns: &[".acquia-sites.com", ".acquia-test.co"],
+        http_signatures: &[
+            "Web Site Not Found",
+            "If you are the owner of this website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the hostname in Acquia Cloud.",
+    },
+    // Brightcove — distinctive `bc-gallery-error-msg` class is rendered only by the
+    // Brightcove gallery error template, never by a normal site.
+    ServiceFingerprint {
+        name: "Brightcove",
+        cname_patterns: &["bcvp0rtal.com", "brightcovegallery.com", ".gallery.video"],
+        http_signatures: &[
+            "<p class=\"bc-gallery-error-msg\">",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reclaim the Brightcove gallery domain.",
+    },
+    // Campaign Monitor — unclaimed CNAMEs return the createsend "Trying to access
+    // your account?" page. Signature is unique to that template.
+    ServiceFingerprint {
+        name: "Campaign Monitor",
+        cname_patterns: &["createsend.com", ".cmail19.com", ".cmail20.com"],
+        http_signatures: &[
+            "Trying to access your account?",
+            "Double check the URL or",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the hostname to your Campaign Monitor account.",
+    },
+    // Canny.io — "Company Not Found" page is served only when the subdomain has
+    // not been mapped to a Canny workspace.
+    ServiceFingerprint {
+        name: "Canny.io",
+        cname_patterns: &["canny.io"],
+        http_signatures: &[
+            "Company Not Found",
+            "There is no such company. Did you enter the right URL?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register the workspace in Canny.io.",
+    },
+    // GetResponse landing pages — the marketing 404 text only appears on the
+    // landing-page hosting product, so the CNAME + signature pair is unambiguous.
+    ServiceFingerprint {
+        name: "GetResponse",
+        cname_patterns: &[".gr8.com"],
+        http_signatures: &[
+            "With GetResponse Landing Pages, lead generation has never been easier",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to a GetResponse landing page.",
+    },
+    // Hatena Blog — "404 Blog is not found" is Hatena's hosting-specific message.
+    ServiceFingerprint {
+        name: "Hatena Blog",
+        cname_patterns: &[".hatenablog.com"],
+        http_signatures: &[
+            "404 Blog is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the blog on Hatena.",
+    },
+    // HelpJuice — gated by helpjuice.com CNAME; the 404 wording is the canonical
+    // Helpjuice unclaimed-tenant page.
+    ServiceFingerprint {
+        name: "HelpJuice",
+        cname_patterns: &[".helpjuice.com"],
+        http_signatures: &[
+            "We could not find what you're looking for.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reclaim the HelpJuice knowledge base.",
+    },
+    // LaunchRock — distinctive "wrong turn somewhere" copy is unique to LaunchRock.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the page on LaunchRock.",
+    },
+    // Mashery — API portal product that surfaces an "Unrecognized domain" page when
+    // the host isn't tied to a Mashery tenant.
+    ServiceFingerprint {
+        name: "Mashery",
+        cname_patterns: &[".mashery.com"],
+        http_signatures: &[
+            "Unrecognized domain <strong>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to your Mashery account.",
+    },
+    // Proposify — error page contains a unique mailto link to support@proposify.biz.
+    ServiceFingerprint {
+        name: "Proposify",
+        cname_patterns: &[".proposify.com", ".proposify.biz"],
+        http_signatures: &[
+            "If you need immediate assistance, please contact <a href=\"mailto:support@proposify.biz\"",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the proposal domain on Proposify.",
+    },
+    // Read the Docs — "unknown to Read the Docs" is the documented hosting error.
+    ServiceFingerprint {
+        name: "Read the Docs",
+        cname_patterns: &[".readthedocs.io", ".rtfd.io"],
+        http_signatures: &[
+            "unknown to Read the Docs",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or import the project into Read the Docs.",
+    },
+    // Smartling — translation platform's unclaimed-tenant page reads "Domain is
+    // not configured".
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &[".smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register the domain in Smartling.",
+    },
+    // StatusPage.io — when a status page is decommissioned the CNAME resolves to
+    // the public Statuspage redirect, which is a recognizable hijackable state.
+    ServiceFingerprint {
+        name: "Atlassian Statuspage",
+        cname_patterns: &[".statuspage.io"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io",
+            "There isn't a Statuspage here.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or re-create the status page in Atlassian Statuspage.",
+    },
+    // Strikingly — unique uppercase "PAGE NOT FOUND." (with trailing period) is
+    // rendered by the Strikingly hosting error template.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".strikinglydns.com", ".s.strikinglydns.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND.",
+            "But if you're looking to build your own website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain in Strikingly.",
+    },
+    // Webflow — proxy.webflow.com / proxy-ssl.webflow.com is only used by Webflow
+    // hosting, so the bundled 404 text reliably indicates an unclaimed hostname.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &["proxy.webflow.com", "proxy-ssl.webflow.com", ".webflow.io"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the custom domain in Webflow.",
+    },
+    // Wishpond — unique URL with `?campaign=true` query string only appears on the
+    // Wishpond 404 template.
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign=true",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the campaign domain in Wishpond.",
+    },
+    // WP Engine — managed WordPress host returns a service-specific 404 when no
+    // install owns the hostname.
+    ServiceFingerprint {
+        name: "WP Engine",
+        cname_patterns: &[".wpengine.com"],
+        http_signatures: &[
+            "The site you were looking for couldn't be found.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to a WP Engine install.",
+    },
+    // Aha! ideas portal — gated by `ideas.aha.io` CNAME pattern.
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &["ideas.aha.io"],
+        http_signatures: &[
+            "There is no portal here",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or re-create the ideas portal in Aha!.",
+    },
+    // ngrok free tunnel — left-over CNAMEs to ngrok.io tunnels can be hijacked by
+    // anyone able to register the same subdomain in a paid account.
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok.app", ".ngrok-free.app"],
+        http_signatures: &[
+            "Tunnel <strong style=\"font-family: 'JetBrains Mono'\"",
+            "ngrok.io not found",
+            "Tunnel not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to the disposable ngrok tunnel.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
