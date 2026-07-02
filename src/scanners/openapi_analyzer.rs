@@ -49,41 +49,187 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Discovery here is gated by `parse_openapi_spec` — a response is only
+/// registered when the returned bytes parse as a valid OpenAPI/Swagger
+/// document with a recognisable version, so paths that 404 or serve
+/// unrelated HTML don't produce findings. This makes it safe to be
+/// aggressive about adding framework- and vendor-specific defaults.
 const OPENAPI_PATHS: &[&str] = &[
+    // --- Root / generic ---
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/apidocs.json",
+    "/apispec.json",
+    "/apispec_1.json",
+    "/spec.json",
+    "/spec.yaml",
+    "/schema.json",
+    "/schema.yaml",
+    // --- /swagger/vN/... (Swashbuckle default) ---
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/v1/swagger.yaml",
+    "/swagger/v2/swagger.yaml",
+    "/swagger/v3/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/resources",
+    // --- /vN/... ---
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    // --- /api/... prefixes ---
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/swagger.yaml",
+    "/api/api-docs",
+    "/api/apidocs.json",
+    "/api/apispec.json",
+    "/api/apispec_1.json",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/latest/swagger.json",
+    // --- Springdoc / Springfox (Spring Boot) ---
+    "/v3/api-docs/swagger-config",
+    "/api/v3/api-docs/swagger-config",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    "/actuator/openapi",
+    "/actuator/swaggerui",
+    // --- /docs/... ---
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/api-docs",
+    "/docs/swagger.yaml",
+    "/docs/openapi.yaml",
+    // --- FastAPI / Django REST framework defaults ---
     "/openapi/v3/api-docs",
+    "/api/schema/openapi.json",
+    "/api/schema/openapi.yaml",
+    // --- Flask / Flasgger / Connexion ---
+    "/spec",
+    "/spec/",
+    "/api/spec/",
+    "/apispec/",
+    // --- Atlassian / JIRA / Confluence REST ---
+    "/rest/api/2/serverInfo",
+    "/rest/api/2/",
+    "/rest/api/swagger.json",
+    "/rest/api/latest/swagger.json",
+    // --- Well-known / discoverable ---
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    "/.well-known/api-catalog",
+    // --- Cloud-vendor gateways ---
+    "/prod/api-docs",
+    "/prod/openapi.json",
+    "/stage/api-docs",
+    "/stage/openapi.json",
+    "/dev/api-docs",
+    "/dev/openapi.json",
+    // --- Postman collections often shipped alongside specs ---
+    "/postman_collection.json",
+    "/postman/collection.json",
+    "/api/postman_collection.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API documentation UI paths.
+///
+/// The consumer checks the response body for `swagger-ui`, `redoc`,
+/// `rapidoc`, or `api documentation` before firing, so listing many
+/// candidate paths cannot by itself produce a false positive — a 404 or
+/// unrelated 200 page will still be filtered out at the body check.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI defaults
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui-dist/",
     "/swagger/",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger/",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/v1/swagger-ui/",
+    "/v2/swagger-ui/",
+    "/v3/swagger-ui/",
+    "/swagger-ui/oauth2-redirect.html",
+    // FastAPI / Starlette defaults
+    "/docs",
     "/docs/",
-    "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/api/v1/docs",
+    "/api/v1/docs/",
+    // ReDoc
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/redoc-static.html",
+    "/api/redoc",
+    "/api/redoc/",
+    // RapiDoc
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    // Django REST framework / drf-yasg / drf-spectacular
+    "/schema/",
+    "/schema/swagger-ui/",
+    "/schema/redoc/",
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // API docs conventions
+    "/api-docs",
+    "/api-docs/",
+    "/api-docs/index.html",
+    "/documentation",
+    "/documentation/",
+    "/api/documentation",
+    "/apidocs/",
+    "/apidocs/index.html",
+    "/apiexplorer/",
+    "/api-explorer/",
+    // Stoplight Elements / Slate / Docusaurus reference docs
+    "/reference",
+    "/reference/",
+    "/api/reference",
+    // Vendor-specific defaults
+    "/graphiql",
+    "/playground",
+    "/graphql/playground",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

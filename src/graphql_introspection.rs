@@ -236,18 +236,70 @@ impl GraphQLIntrospector {
         self.parse_introspection_response(endpoint, &response.body)
     }
 
-    /// Try multiple common GraphQL paths and return first successful introspection
+    /// Try multiple common GraphQL paths and return first successful introspection.
+    ///
+    /// Every path is verified by attempting a full `__schema` introspection —
+    /// a finding is only registered when the endpoint responds with a parseable
+    /// introspection result. Adding candidate paths that don't exist is safe;
+    /// they simply 404 and are filtered out.
     pub async fn discover_and_introspect(&self, base_url: &str) -> Result<Vec<GraphQLSchema>> {
         let base = base_url.trim_end_matches('/');
         let paths = vec![
+            // Root fallback — some servers proxy GraphQL at /
             "",
+            // Canonical
             "/graphql",
+            "/graphql/",
+            "/graphiql",
+            "/graphiql/",
             "/api/graphql",
+            "/api/graphql/",
+            "/api/graphiql",
+            // Query / Gateway conventions
             "/query",
+            "/queries",
+            "/api/query",
+            "/gateway/graphql",
+            // Short aliases
             "/gql",
             "/api/gql",
+            "/api/v1/gql",
+            // Versioned
             "/v1/graphql",
             "/v2/graphql",
+            "/v3/graphql",
+            "/api/v1/graphql",
+            "/api/v2/graphql",
+            "/api/v3/graphql",
+            // Framework defaults
+            "/graphql-api",
+            "/graphql/api",
+            "/api/graphql-api",
+            "/index.php?graphql", // WordPress WPGraphQL default
+            "/wp/graphql",         // WordPress WPGraphQL alt
+            "/wp-json/graphql",   // WordPress WPGraphQL alt
+            "/wp-content/plugins/wp-graphql/graphql",
+            // Django Graphene
+            "/gql/graphql",
+            // Hasura (v1/graphql is already listed above under Versioned)
+            "/v1alpha1/graphql",
+            "/v1beta1/graphql",
+            // Apollo / relay / server defaults
+            "/apollo",
+            "/api/apollo",
+            "/graphql-server",
+            "/api/graphql-server",
+            // Admin / internal
+            "/admin/graphql",
+            "/admin/api/graphql",
+            "/internal/graphql",
+            // Playground / explorer (often exposes introspection UI)
+            "/playground",
+            "/api/playground",
+            "/graphql/playground",
+            "/graphql-explorer",
+            "/explorer",
+            "/api/explorer",
         ];
 
         let mut schemas = Vec::new();
