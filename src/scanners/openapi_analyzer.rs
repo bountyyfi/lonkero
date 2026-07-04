@@ -70,6 +70,68 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Additional public locations observed in the wild
+    "/swagger.yml",
+    "/openapi.yml",
+    "/api-docs.yml",
+    "/api/swagger.yaml",
+    "/api/openapi.yaml",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v4/openapi.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/schema",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    // Spring / Springdoc defaults
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v2/api-docs",
+    "/api-docs/swagger-config",
+    // FastAPI defaults
+    "/openapi",
+    "/api/v1/openapi",
+    // NestJS / Kong / Gateway conventions
+    "/api-json",
+    "/api-yaml",
+    "/api-docs/v1",
+    "/api-docs/v2",
+    "/api-docs/v3",
+    "/documentation/json",
+    "/documentation/yaml",
+    "/api/openapi/v3",
+    // AWS API Gateway / GCP endpoints
+    "/prod/swagger.json",
+    "/dev/swagger.json",
+    "/staging/swagger.json",
+    "/test/swagger.json",
+    // Common alt roots
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    "/webjars/swagger-ui/index.html",
+    // Older/legacy patterns
+    "/apidocs.json",
+    "/apidocs/swagger.json",
+    "/api/apidocs.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs.json",
+    "/v3/api-docs.yml",
+    "/service/api-docs",
+    "/service/openapi.json",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +146,39 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Additional UI locations
+    "/swagger-ui",
+    "/swagger-ui/index.html?url=/openapi.json",
+    "/swagger/index.html",
+    "/api/swagger",
+    "/api/swagger/index.html",
+    "/api/swagger-ui/",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/api/v1/swagger-ui/",
+    "/api/v2/swagger-ui/",
+    "/apidocs",
+    "/apidocs/",
+    "/apidocs/index.html",
+    "/documentation",
+    "/documentation/",
+    "/redoc/",
+    "/redoc.html",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/scalar",
+    "/scalar/",
+    "/reference",
+    "/reference/",
+    "/explorer",
+    "/api-explorer",
+    "/graphiql",
+    "/graphql-playground",
+    "/altair",
+    // Kubernetes / operator UIs that host swagger
+    "/openapi/v2",
+    "/openapi/v3",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -135,6 +230,184 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
         r"(?i)(?:dev|staging|test)[._-]",
         "non-production environment",
     ),
+    // Vendor-prefixed credential tokens — extremely specific so no false positives
+    (
+        r"AKIA[0-9A-Z]{16}",
+        "AWS access key ID (AKIA prefix)",
+    ),
+    (
+        r"ASIA[0-9A-Z]{16}",
+        "AWS session access key (ASIA prefix)",
+    ),
+    (
+        r"AGPA[0-9A-Z]{16}",
+        "AWS user access key (AGPA prefix)",
+    ),
+    (
+        r"AIDA[0-9A-Z]{16}",
+        "AWS IAM access key (AIDA prefix)",
+    ),
+    (
+        r"AROA[0-9A-Z]{16}",
+        "AWS role access key (AROA prefix)",
+    ),
+    (
+        r"ghp_[A-Za-z0-9]{36}",
+        "GitHub personal access token (ghp_)",
+    ),
+    (
+        r"gho_[A-Za-z0-9]{36}",
+        "GitHub OAuth access token (gho_)",
+    ),
+    (
+        r"ghu_[A-Za-z0-9]{36}",
+        "GitHub user-to-server token (ghu_)",
+    ),
+    (
+        r"ghs_[A-Za-z0-9]{36}",
+        "GitHub server-to-server token (ghs_)",
+    ),
+    (
+        r"ghr_[A-Za-z0-9]{36}",
+        "GitHub refresh token (ghr_)",
+    ),
+    (
+        r"github_pat_[A-Za-z0-9_]{80,}",
+        "GitHub fine-grained PAT",
+    ),
+    (
+        r"glpat-[A-Za-z0-9_\-]{20}",
+        "GitLab personal access token",
+    ),
+    (
+        r"xox[baprs]-[A-Za-z0-9-]{10,}",
+        "Slack token",
+    ),
+    (
+        r"AIza[0-9A-Za-z\-_]{35}",
+        "Google API key",
+    ),
+    (
+        r"ya29\.[0-9A-Za-z\-_]{20,}",
+        "Google OAuth access token",
+    ),
+    (
+        r"sk_live_[0-9a-zA-Z]{24,}",
+        "Stripe live secret key",
+    ),
+    (
+        r"sk_test_[0-9a-zA-Z]{24,}",
+        "Stripe test secret key",
+    ),
+    (
+        r"rk_live_[0-9a-zA-Z]{24,}",
+        "Stripe restricted live key",
+    ),
+    (
+        r"pk_live_[0-9a-zA-Z]{24,}",
+        "Stripe live publishable key",
+    ),
+    (
+        r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",
+        "SendGrid API key",
+    ),
+    (
+        r"key-[a-f0-9]{32}",
+        "Mailgun API key",
+    ),
+    (
+        r"SK[a-f0-9]{32}",
+        "Twilio API key",
+    ),
+    (
+        r"AC[a-f0-9]{32}",
+        "Twilio account SID",
+    ),
+    (
+        r"npm_[A-Za-z0-9]{36}",
+        "npm access token",
+    ),
+    (
+        r"dop_v1_[a-f0-9]{64}",
+        "DigitalOcean personal access token",
+    ),
+    (
+        r"doo_v1_[a-f0-9]{64}",
+        "DigitalOcean OAuth token",
+    ),
+    (
+        r"dor_v1_[a-f0-9]{64}",
+        "DigitalOcean refresh token",
+    ),
+    (
+        r"sq0atp-[0-9A-Za-z\-_]{22}",
+        "Square access token",
+    ),
+    (
+        r"sq0csp-[0-9A-Za-z\-_]{43}",
+        "Square OAuth secret",
+    ),
+    (
+        r"EAACEdEose0cBA[0-9A-Za-z]+",
+        "Facebook access token",
+    ),
+    (
+        r"[a-zA-Z]{3,10}://[^/\s:@]+:[^/\s:@]+@[a-zA-Z0-9._\-]+",
+        "credentials embedded in URL (user:pass@host)",
+    ),
+    (
+        r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----",
+        "PEM private key block",
+    ),
+    (
+        r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",
+        "JWT token (three-segment base64url)",
+    ),
+    (
+        r#"(?i)mongodb(?:\+srv)?://[^\s"']+"#,
+        "MongoDB connection string",
+    ),
+    (
+        r#"(?i)postgres(?:ql)?://[^\s"']+"#,
+        "PostgreSQL connection string",
+    ),
+    (
+        r#"(?i)mysql://[^\s"']+"#,
+        "MySQL connection string",
+    ),
+    (
+        r#"(?i)redis://[^\s"']+"#,
+        "Redis connection string",
+    ),
+    (
+        r#"(?i)amqp://[^\s"']+"#,
+        "AMQP/RabbitMQ connection string",
+    ),
+    (
+        r"(?i)Server=[^;]+;\s*Database=[^;]+;\s*User\s*Id=[^;]+;\s*Password=[^;]+",
+        "SQL Server ADO connection string",
+    ),
+    (
+        r"(?i)DefaultEndpointsProtocol=https?;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]+",
+        "Azure storage connection string",
+    ),
+    (
+        r"(?i)xoxa-[A-Za-z0-9-]+",
+        "Slack workspace access token",
+    ),
+    // Cloud metadata references embedded in examples
+    (
+        r"169\.254\.169\.254",
+        "AWS/GCP instance metadata IP",
+    ),
+    (
+        r"(?i)metadata\.google\.internal",
+        "GCP metadata hostname",
+    ),
+    (
+        r"(?i)169\.254\.170\.2",
+        "AWS ECS task metadata IP",
+    ),
 ];
 
 /// Admin/debug endpoint patterns
@@ -156,6 +429,71 @@ const ADMIN_PATTERNS: &[&str] = &[
     r"(?i)/eval",
     r"(?i)/test",
     r"(?i)/_",
+    // High-signal admin/introspection endpoints commonly documented in specs
+    r"(?i)/superuser",
+    r"(?i)/root",
+    r"(?i)/sudo",
+    r"(?i)/backoffice",
+    r"(?i)/backend",
+    r"(?i)/private",
+    r"(?i)/restricted",
+    r"(?i)/staff",
+    r"(?i)/operator",
+    r"(?i)/moderator",
+    // Ops / observability that leak internals
+    r"(?i)/actuator/env",
+    r"(?i)/actuator/heapdump",
+    r"(?i)/actuator/threaddump",
+    r"(?i)/actuator/configprops",
+    r"(?i)/actuator/loggers",
+    r"(?i)/actuator/mappings",
+    r"(?i)/actuator/beans",
+    r"(?i)/env",
+    r"(?i)/dump",
+    r"(?i)/heapdump",
+    r"(?i)/threaddump",
+    r"(?i)/trace",
+    r"(?i)/traces",
+    r"(?i)/loggers",
+    r"(?i)/prometheus",
+    r"(?i)/varz",
+    r"(?i)/debug/pprof",
+    r"(?i)/debug/vars",
+    r"(?i)/debug/requests",
+    // Data/query endpoints often left exposed
+    r"(?i)/graphql",
+    r"(?i)/graphiql",
+    r"(?i)/playground",
+    r"(?i)/query",
+    r"(?i)/sql",
+    r"(?i)/exec-sql",
+    r"(?i)/run-sql",
+    r"(?i)/kv",
+    r"(?i)/cache/flush",
+    // Admin-only user-management operations (public register/reset flows deliberately excluded)
+    r"(?i)/impersonate",
+    r"(?i)/switch-user",
+    r"(?i)/users/create",
+    r"(?i)/users/delete",
+    r"(?i)/users/promote",
+    r"(?i)/users/demote",
+    r"(?i)/roles/create",
+    r"(?i)/roles/delete",
+    r"(?i)/roles/assign",
+    r"(?i)/permissions/grant",
+    r"(?i)/permissions/revoke",
+    // Files / backup admin ops (generic /upload /download are user-facing, excluded)
+    r"(?i)/backup",
+    r"(?i)/restore",
+    r"(?i)/snapshot",
+    // Devops / cluster operations (destructive or infra-scoped only)
+    r"(?i)/deploy",
+    r"(?i)/rollback",
+    r"(?i)/restart",
+    r"(?i)/shutdown",
+    r"(?i)/cluster",
+    r"(?i)/nodes",
+    r"(?i)/tasks/kill",
 ];
 
 /// Dangerous HTTP methods that should require authentication

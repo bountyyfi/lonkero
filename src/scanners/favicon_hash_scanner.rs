@@ -63,6 +63,33 @@ impl FaviconHashScanner {
             "/favicon.png",
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            // Common CMS/framework-specific favicon subpaths — often the only place a distinctive
+            // default favicon still lives when the root /favicon.ico has been customised.
+            "/wp-includes/images/w-logo-blue-white-bg.png",
+            "/wp-admin/images/wordpress-logo.svg",
+            "/misc/druplicon.png",
+            "/core/misc/favicon.ico",
+            "/media/system/images/joomla_black.png",
+            "/administrator/templates/system/images/favicon.ico",
+            "/static/favicon.ico",
+            "/static/img/favicon.ico",
+            "/static/images/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/img/favicon.ico",
+            "/assets/images/favicon.ico",
+            "/public/favicon.ico",
+            "/images/favicon.ico",
+            "/img/favicon.ico",
+            "/icons/favicon.ico",
+            "/media/favicon.ico",
+            // Common vendor mount points where default images survive
+            "/manager/media/style/default/images/misc/favicon.ico",
+            "/app/dist/favicon.ico",
+            "/ui/favicon.ico",
+            "/admin/favicon.ico",
+            "/login/favicon.ico",
+            "/portal/favicon.ico",
+            "/console/favicon.ico",
         ];
 
         // Also check for link tags in HTML
