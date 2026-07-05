@@ -70,6 +70,63 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Springdoc / Spring Boot
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    // Springfox legacy
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // FastAPI / Starlette defaults
+    "/openapi.json?pretty",
+    // NestJS common mounts
+    "/docs-json",
+    "/docs-yaml",
+    "/api/docs-json",
+    // Django REST framework (drf-yasg / drf-spectacular)
+    "/schema/",
+    "/schema/?format=openapi",
+    "/api/schema/",
+    "/api/schema/?format=json",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    // Kubernetes API server
+    "/openapi/v2",
+    "/openapi/v3",
+    // Kong Admin
+    "/services",
+    "/kong",
+    // Postman collections occasionally left public next to APIs
+    "/postman.json",
+    "/collection.json",
+    "/api/postman.json",
+    // Insomnia workspace exports
+    "/insomnia.json",
+    // AsyncAPI
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/asyncapi",
+    // GraphQL SDL / persisted queries (schema disclosure)
+    "/graphql/schema",
+    "/graphql/schema.json",
+    "/graphql/schema.graphql",
+    "/graphql.schema.json",
+    // WSDL siblings that often live next to REST
+    "/api?wsdl",
+    "/services?wsdl",
+    // Common yaml variants that appear on real prod
+    "/openapi/openapi.yaml",
+    "/openapi/openapi.json",
+    "/spec/openapi.json",
+    "/spec/swagger.json",
+    "/static/swagger.json",
+    "/static/openapi.json",
+    "/public/swagger.json",
+    "/public/openapi.json",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +141,31 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Spring Boot / Springdoc default (post-2.x)
+    "/swagger-ui/index.html?url=/v3/api-docs",
+    "/webjars/swagger-ui/index.html",
+    // NestJS common mount
+    "/api",
+    "/api/",
+    // DRF-yasg / spectacular Swagger UI
+    "/api/swagger/",
+    "/api/redoc/",
+    // Stoplight Elements
+    "/elements",
+    "/api-reference",
+    "/reference",
+    // GraphQL playground / GraphiQL (schema disclosure UIs)
+    "/graphiql",
+    "/graphql-playground",
+    "/playground",
+    "/altair",
+    "/voyager",
+    // AsyncAPI Studio embeds
+    "/asyncapi/",
+    // ReDoc common alternates
+    "/redoc/",
+    "/api/redoc",
+    "/docs/redoc",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

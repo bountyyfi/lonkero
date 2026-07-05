@@ -399,6 +399,278 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Webflow — anchored on a distinctive combined phrase to avoid collisions with generic 404 pages.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".proxy-ssl.webflow.com", ".proxy.webflow.com"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.1,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or claim the custom domain inside the Webflow project settings.",
+    },
+    // Statuspage.io — brand impact is high because the takeover mimics an official status endpoint.
+    ServiceFingerprint {
+        name: "Statuspage.io",
+        cname_patterns: &[".statuspage.io"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io\">redirected",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.1,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME or register the corresponding page inside Statuspage.io.",
+    },
+    // Read the Docs — anchored on the unique 'Unknown to Read the Docs' error text.
+    ServiceFingerprint {
+        name: "Read the Docs",
+        cname_patterns: &[".readthedocs.io", ".readthedocs.org"],
+        http_signatures: &[
+            "unknown to Read the Docs",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or provision the RTD project under the target namespace.",
+    },
+    // Ngrok — public tunnels frequently outlive their infrastructure; takeover phishes internal tools.
+    ServiceFingerprint {
+        name: "Ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app", ".ngrok.app"],
+        http_signatures: &[
+            "not found</title>",
+            "Tunnel <em>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record; ngrok tunnels should never be advertised via long-lived DNS.",
+    },
+    // Anima App — the response contains the highly specific 'If this is your website, sign in here'.
+    ServiceFingerprint {
+        name: "Anima",
+        cname_patterns: &[".animaapp.io"],
+        http_signatures: &[
+            "If this is your website, sign in here",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reclaim the project inside Anima.",
+    },
+    // AnnounceKit — the tenant page is publicly claimable while the DNS record persists.
+    ServiceFingerprint {
+        name: "AnnounceKit",
+        cname_patterns: &[".announcekit.co", ".announcekit.app"],
+        http_signatures: &[
+            "There is no such app",
+            "Announcement not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME or configure the domain inside AnnounceKit.",
+    },
+    // Kajabi — used heavily by SMB course/product landing pages.
+    ServiceFingerprint {
+        name: "Kajabi",
+        cname_patterns: &[".mykajabi.com"],
+        http_signatures: &[
+            "The page you were looking for doesn't exist",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain inside Kajabi.",
+    },
+    // LaunchRock — signature is a distinctive marketing phrase from the default 404 page.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reclaim the LaunchRock page.",
+    },
+    // Thinkific — course-hosting SaaS with claimable subdomains.
+    ServiceFingerprint {
+        name: "Thinkific",
+        cname_patterns: &[".thinkific.com"],
+        http_signatures: &[
+            "You may have mistyped the address or the page may have moved",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME record or configure the domain inside Thinkific.",
+    },
+    // Frontify — brand-portal SaaS; takeover impersonates the target's brand guidelines site.
+    ServiceFingerprint {
+        name: "Frontify",
+        cname_patterns: &[".frontify.com"],
+        http_signatures: &[
+            "This subdomain is not linked to any project",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME or register the project inside Frontify.",
+    },
+    // Uberflip — content-experience platform used heavily for gated marketing hubs.
+    ServiceFingerprint {
+        name: "Uberflip",
+        cname_patterns: &[".uberflip.com"],
+        http_signatures: &[
+            "The URL you've accessed does not provide a hub",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the hub inside Uberflip.",
+    },
+    // Unbounce — pins on a unique combined phrase to avoid generic 404 collisions.
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server",
+            "unbouncepages.com",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME or point the domain at an active Unbounce page.",
+    },
+    // Wishpond — landing-page SaaS.
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reactivate the campaign inside Wishpond.",
+    },
+    // Strikingly — SMB site-builder.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com", ".strikingly.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND.",
+            "But if you're looking to build",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME or claim the site inside Strikingly.",
+    },
+    // Aftership — logistics-tracking pages; takeover can be used to phish shipment recipients.
+    ServiceFingerprint {
+        name: "Aftership",
+        cname_patterns: &[".aftership.com"],
+        http_signatures: &[
+            "Oops.</h2>",
+            "The page you're looking for doesn't exist",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the tracking page inside Aftership.",
+    },
+    // Netlify legacy naming ('*.netlify.app') — the primary Netlify entry already covers the newer host.
+    ServiceFingerprint {
+        name: "Netlify (legacy)",
+        cname_patterns: &[".bitballoon.com"],
+        http_signatures: &[
+            "Not Found - Request ID:",
+            "Netlify",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.1,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME record or reclaim the BitBalloon/Netlify site.",
+    },
+    // Readme.io — API documentation portal. Takeover here is high-impact (attackers publish fake docs).
+    ServiceFingerprint {
+        name: "Readme.io",
+        cname_patterns: &[".readme.io"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or provision the project inside Readme.io.",
+    },
+    // Smugmug — photo portfolios, common on personal domains and some marketing surfaces.
+    ServiceFingerprint {
+        name: "SmugMug",
+        cname_patterns: &[".smugmug.com"],
+        http_signatures: &[
+            "Sorry, the site you are looking for is unavailable",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 5.4,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME record or map the domain to a SmugMug account.",
+    },
+    // Teamwork — project-management SaaS.
+    ServiceFingerprint {
+        name: "Teamwork",
+        cname_patterns: &[".teamwork.com"],
+        http_signatures: &[
+            "Oops - We didn't find your site",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME record or configure the site inside Teamwork.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
