@@ -228,6 +228,81 @@ impl InformationDisclosureScanner {
             // Java / JSP
             "/WEB-INF/web.xml",
             "/META-INF/MANIFEST.MF",
+            // Java Spring profile-specific properties (very high impact)
+            "/application-prod.properties",
+            "/application-production.properties",
+            "/application-dev.properties",
+            "/application-staging.properties",
+            "/application-prod.yml",
+            "/application-production.yml",
+            "/bootstrap.yml",
+            "/bootstrap.properties",
+            // Rails additional
+            "/config/environments/production.rb",
+            "/config/environments/staging.rb",
+            "/config/storage.yml",
+            "/config/cable.yml",
+            "/config/puma.rb",
+            // Django additional
+            "/db.sqlite3",
+            "/dev.db",
+            "/database.sqlite",
+            "/database.sqlite3",
+            // Vault
+            "/.vault-token",
+            "/vault.hcl",
+            // Ansible
+            "/ansible.cfg",
+            "/hosts.ini",
+            "/inventory.ini",
+            "/inventory.yml",
+            // Kubernetes / Helm secrets
+            "/values.yaml",
+            "/values.prod.yaml",
+            "/values.production.yaml",
+            "/kustomization.yaml",
+            "/secrets.yaml",
+            "/helmfile.yaml",
+            // NextJS build artifacts (leak routes/env/source layout)
+            "/.next/BUILD_ID",
+            "/.next/build-manifest.json",
+            "/.next/routes-manifest.json",
+            "/.next/required-server-files.json",
+            "/.next/prerender-manifest.json",
+            "/.next/server/pages-manifest.json",
+            "/.next/server/middleware-manifest.json",
+            // Editor swap / lock files (vim/emacs)
+            "/.env.swp",
+            "/.env.swo",
+            "/wp-config.php.swp",
+            "/config.php.swp",
+            // Extra backup patterns
+            "/db.sql",
+            "/db.sql.gz",
+            "/db_dump.sql",
+            "/mysql_dump.sql",
+            "/mysqldump.sql",
+            "/data.sql",
+            "/data.tar.gz",
+            "/latest.sql",
+            "/latest.tar.gz",
+            "/site-backup.zip",
+            "/website-backup.zip",
+            "/webroot.zip",
+            "/htdocs.zip",
+            // DevOps monitoring configs
+            "/prometheus.yml",
+            "/grafana.ini",
+            "/logstash.yml",
+            "/logstash.conf",
+            "/filebeat.yml",
+            // PHP framework leftovers
+            "/adminer.php",
+            "/phpmyadmin/config.inc.php",
+            // MSBuild publish profile
+            "/Properties/PublishProfiles/",
+            // Composer authentication
+            "/composer/auth.json",
         ];
         let tests_run = sensitive_files.len();
 
@@ -669,6 +744,21 @@ impl InformationDisclosureScanner {
             "/.idea/datasources.local.xml",
             "/.vscode/sftp.json",
             "/sftp-config.json",
+            // Newly added critical paths
+            "/.vault-token",
+            "/vault.hcl",
+            "/secrets.yaml",
+            "/composer/auth.json",
+            "/db.sqlite3",
+            "/dev.db",
+            "/database.sqlite",
+            "/database.sqlite3",
+            "/application-prod.properties",
+            "/application-production.properties",
+            "/application-prod.yml",
+            "/application-production.yml",
+            "/bootstrap.yml",
+            "/bootstrap.properties",
         ];
         for cp in critical_paths {
             if f.ends_with(cp) || f == *cp {
@@ -949,6 +1039,224 @@ impl InformationDisclosureScanner {
                 || lower.contains("api_key")
                 || lower.contains("_env"))
                 && (body.contains(":") || body.contains("="));
+        }
+
+        // HashiCorp Vault token / config
+        if fname_lower.ends_with("/.vault-token") {
+            let trimmed = body.trim();
+            // Vault tokens: hvs.*, s.*, hvb.*, hvr.* (root/service/batch/recovery)
+            return (trimmed.starts_with("hvs.")
+                || trimmed.starts_with("hvb.")
+                || trimmed.starts_with("hvr.")
+                || (trimmed.starts_with("s.") && trimmed.len() >= 26 && trimmed.len() <= 200))
+                && trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_');
+        }
+        if fname_lower.ends_with("/vault.hcl") {
+            return (body.contains("storage ") || body.contains("listener "))
+                && (body.contains("{") && body.contains("}"));
+        }
+
+        // Ansible
+        if fname_lower.ends_with("/ansible.cfg") {
+            return body.contains("[defaults]")
+                || body.contains("[ssh_connection]")
+                || body.contains("[privilege_escalation]");
+        }
+        if fname_lower.ends_with("/hosts.ini")
+            || fname_lower.ends_with("/inventory.ini")
+        {
+            // Ini-style inventory: groups in [brackets] plus host lines with ansible_ vars
+            return body.contains("[") && body.contains("]")
+                && (body.contains("ansible_host")
+                    || body.contains("ansible_user")
+                    || body.contains("ansible_ssh"));
+        }
+        if fname_lower.ends_with("/inventory.yml") {
+            return body.contains("hosts:")
+                && (body.contains("ansible_host:")
+                    || body.contains("ansible_user:")
+                    || body.contains("ansible_connection:"));
+        }
+
+        // Kubernetes / Helm
+        if fname_lower.ends_with("/values.yaml")
+            || fname_lower.ends_with("/values.prod.yaml")
+            || fname_lower.ends_with("/values.production.yaml")
+        {
+            // Only flag when the values file actually carries secret-looking material
+            let lower = body.to_lowercase();
+            return (lower.contains("password:")
+                || lower.contains("secret:")
+                || lower.contains("apikey:")
+                || lower.contains("api_key:")
+                || lower.contains("token:")
+                || lower.contains("privatekey:")
+                || lower.contains("private_key:"))
+                && (body.contains("image:") || body.contains("replicaCount:")
+                    || body.contains("service:") || body.contains("ingress:"));
+        }
+        if fname_lower.ends_with("/secrets.yaml") {
+            // Only flag actual K8s Secret manifests
+            return body.contains("kind: Secret")
+                && body.contains("apiVersion:")
+                && (body.contains("data:") || body.contains("stringData:"));
+        }
+        if fname_lower.ends_with("/kustomization.yaml") {
+            return body.contains("apiVersion: kustomize.config.k8s.io")
+                || body.contains("kind: Kustomization");
+        }
+        if fname_lower.ends_with("/helmfile.yaml") {
+            return body.contains("releases:") && body.contains("chart:");
+        }
+
+        // Composer authentication file
+        if fname_lower.ends_with("/composer/auth.json") {
+            return body.contains("\"http-basic\"")
+                || body.contains("\"github-oauth\"")
+                || body.contains("\"gitlab-token\"")
+                || body.contains("\"bitbucket-oauth\"")
+                || body.contains("\"bearer\"");
+        }
+
+        // SQLite databases (binary signature)
+        if fname_lower.ends_with(".sqlite")
+            || fname_lower.ends_with(".sqlite3")
+            || fname_lower.ends_with("/dev.db")
+        {
+            // SQLite files always start with "SQLite format 3\0"
+            return body.starts_with("SQLite format 3");
+        }
+
+        // Rails additional configs
+        if fname_lower.ends_with("/config/environments/production.rb")
+            || fname_lower.ends_with("/config/environments/staging.rb")
+        {
+            return body.contains("Rails.application.configure")
+                && (body.contains("config.") || body.contains("secret_key_base"));
+        }
+        if fname_lower.ends_with("/config/storage.yml") {
+            let lower = body.to_lowercase();
+            return body.contains("service:")
+                && (lower.contains("amazon") || lower.contains("azure")
+                    || lower.contains("google") || lower.contains("s3")
+                    || lower.contains("access_key") || lower.contains("secret_access_key"));
+        }
+        if fname_lower.ends_with("/config/cable.yml") {
+            return (body.contains("adapter:") || body.contains("production:"))
+                && (body.contains("redis") || body.contains("url:"));
+        }
+        if fname_lower.ends_with("/config/puma.rb") {
+            return body.contains("workers")
+                || body.contains("threads")
+                || body.contains("bind ")
+                || body.contains("pidfile");
+        }
+
+        // Java Spring profile-specific properties/yml
+        if fname_lower.ends_with(".properties")
+            && (fname_lower.contains("application-") || fname_lower.contains("bootstrap"))
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("spring.") || lower.contains("server.")
+                || lower.contains("management.") || lower.contains("logging."))
+                && (lower.contains("password=") || lower.contains("secret=")
+                    || lower.contains("username=") || lower.contains("url=")
+                    || lower.contains("token=") || lower.contains("api-key="));
+        }
+        if fname_lower.ends_with("/bootstrap.yml")
+            || (fname_lower.ends_with(".yml")
+                && (fname_lower.contains("application-prod")
+                    || fname_lower.contains("application-production")))
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("spring:") || lower.contains("server:")
+                || lower.contains("management:") || lower.contains("datasource:"))
+                && (lower.contains("password:") || lower.contains("secret:")
+                    || lower.contains("username:") || lower.contains("url:")
+                    || lower.contains("token:"));
+        }
+
+        // NextJS build artifacts
+        if fname_lower.ends_with("/.next/build_id") {
+            let trimmed = body.trim();
+            // BUILD_ID is a short alphanumeric identifier
+            return !trimmed.is_empty() && trimmed.len() < 128
+                && trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        }
+        if fname_lower.contains("/.next/build-manifest.json") {
+            return body.contains("\"polyfillFiles\"")
+                || body.contains("\"devFiles\"")
+                || body.contains("\"pages\"") && body.contains("\"rootMainFiles\"");
+        }
+        if fname_lower.contains("/.next/routes-manifest.json") {
+            return body.contains("\"dynamicRoutes\"")
+                || body.contains("\"staticRoutes\"")
+                || body.contains("\"dataRoutes\"");
+        }
+        if fname_lower.contains("/.next/required-server-files.json") {
+            // High impact: leaks env config used for production
+            return body.contains("\"config\"")
+                && (body.contains("\"env\"") || body.contains("\"basePath\"")
+                    || body.contains("\"nextConfigOutput\""));
+        }
+        if fname_lower.contains("/.next/prerender-manifest.json") {
+            return body.contains("\"routes\"")
+                && (body.contains("\"preview\"") || body.contains("\"previewModeId\""));
+        }
+        if fname_lower.contains("/.next/server/pages-manifest.json")
+            || fname_lower.contains("/.next/server/middleware-manifest.json")
+        {
+            return body.trim_start().starts_with("{")
+                && (body.contains("\"pages\"") || body.contains("\"middleware\"")
+                    || body.contains("\"functions\""));
+        }
+
+        // Editor swap / lock files (Vim swp signature)
+        if fname_lower.ends_with(".swp") || fname_lower.ends_with(".swo") {
+            // Vim swap file magic: b0VIM (0x62 0x30 0x56 0x49 0x4d) at start
+            return body.starts_with("b0VIM");
+        }
+
+        // Prometheus / Grafana / Logstash / Filebeat
+        if fname_lower.ends_with("/prometheus.yml") {
+            return body.contains("scrape_configs:")
+                || body.contains("global:") && body.contains("scrape_interval:")
+                || body.contains("alerting:");
+        }
+        if fname_lower.ends_with("/grafana.ini") {
+            return body.contains("[server]")
+                || body.contains("[security]")
+                || body.contains("[database]")
+                || body.contains("[auth]");
+        }
+        if fname_lower.ends_with("/logstash.yml") {
+            return body.contains("pipeline.workers")
+                || body.contains("path.config")
+                || body.contains("http.host")
+                || body.contains("xpack.");
+        }
+        if fname_lower.ends_with("/logstash.conf") {
+            return body.contains("input {")
+                && (body.contains("output {") || body.contains("filter {"));
+        }
+        if fname_lower.ends_with("/filebeat.yml") {
+            return body.contains("filebeat.inputs")
+                || body.contains("filebeat.modules")
+                || body.contains("output.elasticsearch")
+                || body.contains("output.logstash");
+        }
+
+        // Adminer / phpMyAdmin config
+        if fname_lower.ends_with("/adminer.php") {
+            // Legit adminer.php almost always contains this signature at top
+            return body.contains("Adminer")
+                && (body.contains("<?php") || body.contains("adminer_object")
+                    || body.contains("function adminer"));
+        }
+        if fname_lower.ends_with("/phpmyadmin/config.inc.php") {
+            return body.contains("<?php")
+                && (body.contains("$cfg[") || body.contains("blowfish_secret")
+                    || body.contains("PmaAbsoluteUri"));
         }
 
         // Use pattern-based detection instead of relying on response similarity

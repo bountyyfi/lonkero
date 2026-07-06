@@ -1221,6 +1221,182 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // Groq (LLM inference) - billing abuse target
+                CompiledPattern {
+                    name: "Groq API Key".to_string(),
+                    regex: Regex::new(r#"gsk_[A-Za-z0-9]{52}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Groq API key found - can be exploited for LLM inference billing abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // HuggingFace access tokens (hf_ prefix + 34-40 alphanumerics)
+                CompiledPattern {
+                    name: "HuggingFace Access Token".to_string(),
+                    regex: Regex::new(r#"hf_[A-Za-z0-9]{34,40}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "HuggingFace access token found - grants model repo access and inference API".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Replicate (model inference) - billing abuse target
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"r8_[A-Za-z0-9]{37,40}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token found - can be exploited for model inference billing abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Perplexity - LLM inference API
+                CompiledPattern {
+                    name: "Perplexity API Key".to_string(),
+                    regex: Regex::new(r#"pplx-[A-Za-z0-9]{48,56}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Perplexity API key found - LLM billing abuse target".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // xAI (Grok) - LLM inference
+                CompiledPattern {
+                    name: "xAI (Grok) API Key".to_string(),
+                    regex: Regex::new(r#"xai-[A-Za-z0-9]{80}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "xAI/Grok API key found - LLM billing abuse target".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Fireworks AI - LLM inference
+                CompiledPattern {
+                    name: "Fireworks AI API Key".to_string(),
+                    regex: Regex::new(r#"fw_[A-Za-z0-9]{24}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Fireworks AI API key found - LLM billing abuse target".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // LangSmith / LangChain API keys
+                CompiledPattern {
+                    name: "LangSmith API Key".to_string(),
+                    regex: Regex::new(r#"lsv2_(?:pt|sk)_[A-Za-z0-9]{32}_[a-f0-9]{10}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "LangSmith API key found - grants tracing/eval workspace access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Together AI - LLM inference
+                CompiledPattern {
+                    name: "Together AI API Key".to_string(),
+                    regex: Regex::new(r#"(?i)together[_-]?(?:ai[_-]?)?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{64}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Together AI API key found - LLM billing abuse target".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Mistral AI
+                CompiledPattern {
+                    name: "Mistral AI API Key".to_string(),
+                    regex: Regex::new(r#"(?i)mistral[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][A-Za-z0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Mistral AI API key found - LLM billing abuse target".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Deepseek
+                CompiledPattern {
+                    name: "Deepseek API Key".to_string(),
+                    regex: Regex::new(r#"(?i)deepseek[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"]sk-[a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Deepseek API key found - LLM billing abuse target".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Anthropic admin key (higher-priv than regular sk-ant-api)
+                CompiledPattern {
+                    name: "Anthropic Admin API Key".to_string(),
+                    regex: Regex::new(r#"sk-ant-admin[0-9]{2}-[A-Za-z0-9_-]{86,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Anthropic ADMIN API key found - full organization control, immediately rotate".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Alibaba Cloud AccessKey (LTAI prefix)
+                CompiledPattern {
+                    name: "Alibaba Cloud Access Key ID".to_string(),
+                    regex: Regex::new(r#"LTAI[A-Za-z0-9]{12,20}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Alibaba Cloud AccessKey ID found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Tencent Cloud
+                CompiledPattern {
+                    name: "Tencent Cloud SecretId".to_string(),
+                    regex: Regex::new(r#"AKID[A-Za-z0-9]{32,36}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tencent Cloud SecretId found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe Restricted API key (rk_test_/rk_live_) - was missing
+                CompiledPattern {
+                    name: "Stripe Restricted Key".to_string(),
+                    regex: Regex::new(r#"rk_(?:test|live)_[A-Za-z0-9]{24,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Stripe restricted API key found - allows scoped API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Klaviyo private API key
+                CompiledPattern {
+                    name: "Klaviyo Private API Key".to_string(),
+                    regex: Regex::new(r#"pk_[a-f0-9]{34}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Klaviyo private API key found - grants full account access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Salesforce access token
+                CompiledPattern {
+                    name: "Salesforce Access Token".to_string(),
+                    regex: Regex::new(r#"00D[A-Za-z0-9]{12,15}![A-Za-z0-9._]{80,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Salesforce OAuth access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord bot token (three base64 segments separated by dots)
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    regex: Regex::new(r#"[MN][A-Za-z\d]{23,25}\.[\w-]{6,7}\.[\w-]{27,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token found - allows full bot control".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // AWS session token (STS) - long base64, look for context
+                CompiledPattern {
+                    name: "AWS Session Token".to_string(),
+                    regex: Regex::new(r#"(?i)aws[_-]?session[_-]?token\s*[=:]\s*['\"][A-Za-z0-9+/=]{100,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "AWS STS session token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks personal access token
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"dapi[a-f0-9]{32}(?:-\d)?"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token found - grants workspace access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Snowflake OAuth PAT
+                CompiledPattern {
+                    name: "Snowflake OAuth Token".to_string(),
+                    regex: Regex::new(r#"(?i)snowflake[_-]?(?:oauth[_-]?)?token\s*[=:]\s*['\"]ver:[12]-hint:\d+-[A-Za-z0-9+/=]{30,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Snowflake OAuth token found - data warehouse access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adyen live keys
+                CompiledPattern {
+                    name: "Adyen API Key".to_string(),
+                    regex: Regex::new(r#"AQE[A-Za-z0-9]{60,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Adyen live API key found - payment processing access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Braintree access token
+                CompiledPattern {
+                    name: "Braintree Access Token".to_string(),
+                    regex: Regex::new(r#"access_token\$(production|sandbox)\$[a-z0-9]{16}\$[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Braintree access token found - payment processing access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {
