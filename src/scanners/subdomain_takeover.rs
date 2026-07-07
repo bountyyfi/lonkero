@@ -399,6 +399,264 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Statuspage (Atlassian) — status pages regularly ship on marketing subdomains
+    // (status.example.com) and are one of the most-reported live takeovers on
+    // bounty programs. The redirect string is emitted by Statuspage's edge for
+    // unclaimed vanity domains.
+    ServiceFingerprint {
+        name: "Statuspage",
+        cname_patterns: &[".statuspage.io"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io\">redirected",
+            "There isn't a Statuspage here",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Statuspage, or claim the vanity domain inside the Statuspage tenant.",
+    },
+    // Readme.io — documentation hosting, published spec/project takeover.
+    ServiceFingerprint {
+        name: "Readme.io",
+        cname_patterns: &[".readme.io", ".readme.com"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in the ReadMe project.",
+    },
+    // Aha! — product roadmap tooling, unclaimed subdomains resolve to a marker page.
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &[".aha.io"],
+        http_signatures: &[
+            "There is no portal here ... sending you back to Aha!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in the Aha! account.",
+    },
+    // LaunchRock — landing-page host, historic takeover source.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in LaunchRock.",
+    },
+    // Unbounce — landing pages, subdomain takeover documented on unclaimed domains.
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server",
+            "The page you're looking for doesn't exist",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or map the domain to an Unbounce landing page.",
+    },
+    // Wishpond — landing-page platform.
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign=true",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to a Wishpond campaign.",
+    },
+    // Aftership — logistics / tracking pages hosted per-tenant.
+    ServiceFingerprint {
+        name: "Aftership",
+        cname_patterns: &[".aftership.com"],
+        http_signatures: &[
+            "Oops.</h2><p class=\"data-lead\">The page you're looking for doesn't exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain inside Aftership.",
+    },
+    // Uberflip — content hubs with vanity domains.
+    ServiceFingerprint {
+        name: "Uberflip",
+        cname_patterns: &[".uberflip.com"],
+        http_signatures: &[
+            "The URL you've come to is not currently available",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or bind the domain to an Uberflip hub.",
+    },
+    // Campaign Monitor — marketing email pages hosted per client.
+    ServiceFingerprint {
+        name: "Campaign Monitor",
+        cname_patterns: &["createsend.com", ".createsend.com"],
+        http_signatures: &[
+            "Double check the URL or ",
+            "Trying to access your account?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the vanity domain in Campaign Monitor.",
+    },
+    // Freshdesk — customer support portals on freshdesk.com vanity CNAMEs.
+    ServiceFingerprint {
+        name: "Freshdesk",
+        cname_patterns: &[".freshdesk.com"],
+        http_signatures: &[
+            "May be this is still fresh!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or map the vanity domain inside the Freshdesk portal.",
+    },
+    // Anima — designer-to-code tooling, historic takeover surface.
+    ServiceFingerprint {
+        name: "Anima",
+        cname_patterns: &[".animaapp.io"],
+        http_signatures: &[
+            "If this is your website and you've just created it",
+            "Missing Domain",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in the Anima project.",
+    },
+    // Kinsta static hosting
+    ServiceFingerprint {
+        name: "Kinsta",
+        cname_patterns: &[".kinsta.cloud", ".kinsta.com"],
+        http_signatures: &[
+            "No Site For Domain",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to a Kinsta site.",
+    },
+    // Strikingly — landing pages, unclaimed subdomains show a marker page.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in the Strikingly site.",
+    },
+    // Intercom — messenger vanity domains (intercomcdn/messenger).
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &["custom.intercom.help"],
+        http_signatures: &[
+            "This page is reserved for artistic dogs",
+            "Uh oh. That page doesn't exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or bind the custom domain inside Intercom.",
+    },
+    // JetBrains YouTrack / Space
+    ServiceFingerprint {
+        name: "JetBrains",
+        cname_patterns: &[".myjetbrains.com"],
+        http_signatures: &[
+            "is not a registered InCloud YouTrack",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the sub-instance in JetBrains InCloud.",
+    },
+    // Webflow — CMS-hosted marketing sites with vanity domains.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".proxy.webflow.com", ".proxy-ssl.webflow.com", ".webflow.io"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Webflow project hosting settings.",
+    },
+    // HatenaBlog
+    ServiceFingerprint {
+        name: "HatenaBlog",
+        cname_patterns: &["hatenablog.com"],
+        http_signatures: &[
+            "404 Blog is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to a HatenaBlog account.",
+    },
+    // Smugmug — photo hosting with per-account subdomains.
+    ServiceFingerprint {
+        name: "SmugMug",
+        cname_patterns: &["domains.smugmug.com"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::Medium,
+        cvss: 6.0,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record or configure the vanity domain in SmugMug.",
+    },
 ];
 
 /// DNS resolution result for a subdomain

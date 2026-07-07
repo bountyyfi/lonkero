@@ -49,41 +49,168 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Each path is a deterministic default emitted by a specific framework, tool,
+/// or hosting provider. Every candidate response is parsed as an OpenAPI/Swagger
+/// document before being reported, so a "false positive" would require the
+/// endpoint to coincidentally serve JSON/YAML with a matching `openapi:` or
+/// `swagger:` root — practically impossible outside a real spec.
 const OPENAPI_PATHS: &[&str] = &[
+    // Ubiquitous defaults
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/apidoc.json",
+    "/apidocs.json",
+    "/api/docs.json",
+    "/api/docs.yaml",
+    "/api/apidoc.json",
+    "/api/apidocs.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api-spec.json",
+    "/api-spec.yaml",
+    "/docs.json",
+    "/docs.yaml",
+    "/spec.json",
+    "/spec.yaml",
+    "/schema.json",
+    "/schema.yaml",
+    "/openapi.yaml.txt",
+    // Springfox / classic Swagger 2 defaults
+    "/v2/api-docs",
+    "/v2/api-docs?group=default",
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // Springdoc (Spring Boot 2.6+) defaults
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    // Quarkus defaults
+    "/q/openapi",
+    "/q/openapi.json",
+    "/q/openapi.yaml",
+    // Micronaut / typical helper defaults
+    "/openapi/openapi.json",
+    "/openapi/openapi.yaml",
+    "/openapi/v3/api-docs",
+    // Version-prefixed roots we regularly see on gateways
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/swagger/v1/swagger.json",
+    "/api/swagger/v2/swagger.json",
+    // Documentation site conventions
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/swagger.yaml",
+    "/api/openapi.yaml",
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
+    "/docs/swagger.yaml",
+    "/docs/openapi.yaml",
+    "/documentation/swagger.json",
+    "/documentation/openapi.json",
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    // Flask-RESTPlus / Flasgger
+    "/apispec_1.json",
+    "/apispec.json",
+    // Kubernetes API server (impactful if reachable)
+    "/openapi/v2",
+    "/openapi/v3",
+    // Django REST framework auto-schema
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    // FastAPI / Starlette defaults
+    "/openapi.json?format=json",
+    // Explorer/config JSON that seeds Swagger UI
+    "/explorer/swagger-config.yaml",
+    "/swagger-ui/swagger-config",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API explorer paths.
+///
+/// Reaching the UI itself doesn't leak the spec, but it lets us pull the
+/// spec URL out of the page and then analyse it — the UI paths below are the
+/// entry points every major generator produces by default.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Classic Swagger UI
     "/swagger-ui.html",
-    "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui/index.html",
+    "/swagger-ui/swagger-ui.html",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui",
+    "/swagger/ui/index",
     "/api/swagger-ui.html",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    // Springdoc conventions
+    "/swagger-ui/index.html?configUrl=/v3/api-docs/swagger-config",
+    "/webjars/swagger-ui/",
+    "/webjars/swagger-ui/index.html",
+    // Quarkus
+    "/q/swagger-ui",
+    "/q/swagger-ui/",
+    "/q/swagger-ui/index.html",
+    // Documentation portal conventions
     "/docs/",
+    "/docs/index.html",
+    "/documentation/",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/api/docs/index.html",
+    "/api-explorer",
+    "/api-explorer/",
+    "/explorer/",
+    // Redoc / RapiDoc / Elements / Scalar / Stoplight
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/elements/",
+    "/elements.html",
+    "/scalar",
+    "/scalar/",
+    "/stoplight",
+    "/stoplight/",
+    // GraphQL playground / IDEs frequently sit next to REST specs
+    "/graphiql",
+    "/graphql/console",
+    "/altair",
+    "/playground",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -137,17 +264,32 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Admin/debug endpoint patterns
+/// Admin/debug endpoint patterns.
+///
+/// Matched against the spec's declared paths, so a hit here means the API
+/// itself documents an admin/debug surface — a strong signal that the
+/// endpoint is real and reachable rather than guessed.
 const ADMIN_PATTERNS: &[&str] = &[
     r"(?i)/admin",
     r"(?i)/debug",
     r"(?i)/internal",
     r"(?i)/management",
+    // Spring Boot Actuator (each sub-path individually)
     r"(?i)/actuator",
+    r"(?i)/actuator/env",
+    r"(?i)/actuator/heapdump",
+    r"(?i)/actuator/threaddump",
+    r"(?i)/actuator/httptrace",
+    r"(?i)/actuator/loggers",
+    r"(?i)/actuator/mappings",
+    r"(?i)/actuator/beans",
+    r"(?i)/actuator/configprops",
+    r"(?i)/actuator/gateway/routes",
     r"(?i)/metrics",
     r"(?i)/health",
     r"(?i)/status",
     r"(?i)/config",
+    r"(?i)/configuration",
     r"(?i)/settings",
     r"(?i)/system",
     r"(?i)/console",
@@ -156,6 +298,48 @@ const ADMIN_PATTERNS: &[&str] = &[
     r"(?i)/eval",
     r"(?i)/test",
     r"(?i)/_",
+    // Feature/kill-switch surfaces that shouldn't sit next to unauth routes
+    r"(?i)/impersonate",
+    r"(?i)/su(?:doer)?/",
+    r"(?i)/masquerade",
+    r"(?i)/backdoor",
+    r"(?i)/superuser",
+    // Data-plane operations that regularly leak in specs
+    r"(?i)/dump",
+    r"(?i)/export",
+    r"(?i)/backup",
+    r"(?i)/restore",
+    r"(?i)/import",
+    r"(?i)/migrate",
+    r"(?i)/reindex",
+    r"(?i)/purge",
+    r"(?i)/flush",
+    // Auth-adjacent surfaces useful for account takeover
+    r"(?i)/token/(?:refresh|revoke|introspect)",
+    r"(?i)/oauth/(?:token|revoke|introspect)",
+    r"(?i)/impersonation",
+    r"(?i)/reset-password",
+    r"(?i)/change-password",
+    // Debug shells that occasionally ship enabled
+    r"(?i)/graphiql",
+    r"(?i)/graphql/console",
+    r"(?i)/rails/info",
+    r"(?i)/rails/db",
+    r"(?i)/laravel-telescope",
+    r"(?i)/_debugbar",
+    r"(?i)/wp-admin",
+    r"(?i)/wp-json/wp/v2/users",
+    // Cloud / infra control planes
+    r"(?i)/kubernetes",
+    r"(?i)/kube-system",
+    r"(?i)/vault",
+    r"(?i)/consul",
+    r"(?i)/nomad",
+    r"(?i)/rundeck",
+    r"(?i)/jenkins",
+    r"(?i)/argo",
+    r"(?i)/rancher",
+    r"(?i)/portainer",
 ];
 
 /// Dangerous HTTP methods that should require authentication
