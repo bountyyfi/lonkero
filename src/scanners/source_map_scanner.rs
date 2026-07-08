@@ -189,13 +189,21 @@ impl SourceMapScanner {
 
     /// Generate possible source map URLs for a JS file
     fn generate_map_urls(&self, js_url: &str) -> Vec<String> {
-        vec![
+        let mut candidates = vec![
             format!("{}.map", js_url),
             js_url.replace(".js", ".js.map"),
             js_url.replace(".min.js", ".js.map"),
+            js_url.replace(".min.js", ".min.js.map"),
             js_url.replace(".bundle.js", ".bundle.js.map"),
             format!("{}.map", js_url.replace(".min.js", ".js")),
-        ]
+            // esbuild / SWC / Turbopack sometimes place maps in a sibling directory
+            js_url.replace("/js/", "/js.map/"),
+            js_url.replace("/dist/", "/dist/maps/") + ".map",
+        ];
+        // Deduplicate to avoid double-fetching
+        candidates.sort();
+        candidates.dedup();
+        candidates
     }
 
     /// Extract sourceMappingURL from JS file
@@ -293,46 +301,144 @@ impl SourceMapScanner {
     }
 
     /// Find potential secrets in source map content
+    ///
+    /// Only high-signal patterns are included - each pattern is either a provider-specific
+    /// fingerprint (AKIA/sk_live_/ghp_/...) or a keyword+value pair with tight length
+    /// constraints. Generic matches are filtered against a placeholder list to avoid
+    /// reporting `password="your_password_here"` or `token="xxx"` samples.
     fn find_potential_secrets(&self, content: &str) -> Vec<String> {
         let mut secrets = Vec::new();
 
-        // API key patterns
-        let patterns = [
-            (
-                r#"["\']?api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "API Key",
-            ),
-            (
-                r#"["\']?secret["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "Secret",
-            ),
-            (
-                r#"["\']?password["\']?\s*[:=]\s*["\']([^"\']{4,})["\']"#,
-                "Password",
-            ),
-            (
-                r#"["\']?token["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "Token",
-            ),
-            (r#"AKIA[0-9A-Z]{16}"#, "AWS Key"),
-            (r#"sk_live_[a-zA-Z0-9]{24,}"#, "Stripe Key"),
+        // Provider-specific signatures - almost zero false-positive rate
+        let provider_patterns: &[(&str, &str)] = &[
+            // AWS
+            (r"AKIA[0-9A-Z]{16}", "AWS Access Key ID"),
+            (r"ASIA[0-9A-Z]{16}", "AWS STS Session Token"),
+            // Google / GCP
+            (r"AIza[0-9A-Za-z_-]{35}", "Google API Key"),
+            (r"ya29\.[0-9A-Za-z_-]{20,}", "Google OAuth Access Token"),
+            // Stripe
+            (r"sk_live_[0-9a-zA-Z]{24,}", "Stripe Live Secret Key"),
+            (r"rk_live_[0-9a-zA-Z]{24,}", "Stripe Live Restricted Key"),
+            (r"pk_live_[0-9a-zA-Z]{24,}", "Stripe Live Publishable Key"),
+            // GitHub
+            (r"ghp_[0-9A-Za-z]{36}", "GitHub Personal Access Token"),
+            (r"gho_[0-9A-Za-z]{36}", "GitHub OAuth Token"),
+            (r"ghu_[0-9A-Za-z]{36}", "GitHub User-to-Server Token"),
+            (r"ghs_[0-9A-Za-z]{36}", "GitHub Server-to-Server Token"),
+            (r"ghr_[0-9A-Za-z]{36}", "GitHub Refresh Token"),
+            (r"github_pat_[0-9A-Za-z_]{80,}", "GitHub Fine-Grained PAT"),
+            // GitLab
+            (r"glpat-[0-9A-Za-z_-]{20}", "GitLab Personal Access Token"),
+            // Slack
+            (r"xox[abpsr]-[0-9]+-[0-9]+-[0-9]+-[a-fA-F0-9]{32,}", "Slack Bot/User Token"),
+            (r"https://hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9A-Za-z]{24,}", "Slack Webhook URL"),
+            // Twilio
+            (r"AC[a-f0-9]{32}", "Twilio Account SID"),
+            (r"SK[a-f0-9]{32}", "Twilio API Key"),
+            // SendGrid / Mailgun / Mailchimp
+            (r"SG\.[0-9A-Za-z_-]{20,}\.[0-9A-Za-z_-]{20,}", "SendGrid API Key"),
+            (r"key-[0-9a-f]{32}", "Mailgun API Key"),
+            (r"[0-9a-f]{32}-us[0-9]{1,2}", "Mailchimp API Key"),
+            // OpenAI / Anthropic
+            (r"sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}", "OpenAI API Key"),
+            (r"sk-proj-[a-zA-Z0-9_-]{40,}", "OpenAI Project Key"),
+            (r"sk-ant-api03-[a-zA-Z0-9_-]{80,}", "Anthropic API Key"),
+            // Square
+            (r"sq0[a-z]{3}-[0-9A-Za-z_-]{22,43}", "Square OAuth Token"),
+            // DigitalOcean
+            (r"dop_v1_[0-9a-f]{64}", "DigitalOcean Personal Token"),
+            (r"doo_v1_[0-9a-f]{64}", "DigitalOcean OAuth Token"),
+            // Cloudflare
+            (r"v1\.0-[0-9a-f]{40}-[0-9a-f]{80,}", "Cloudflare API Token"),
+            // Firebase / Google refresh token
+            (r"1//0[a-zA-Z0-9_-]{50,}", "Google OAuth Refresh Token"),
+            // JWT (three base64url segments) - only report when it looks real
+            (r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", "JWT Token"),
+            // Private key blocks
+            (r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP |ENCRYPTED )?PRIVATE KEY-----", "Private Key Block"),
+            // Database connection strings with embedded credentials
+            (r#"(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s'"]+:[^@\s'"]{4,}@[^\s'"/]+"#, "DB Connection String with Credentials"),
         ];
 
-        for (pattern, name) in patterns {
+        for (pattern, name) in provider_patterns {
             if let Ok(re) = Regex::new(pattern) {
                 for cap in re.captures_iter(content) {
                     let matched = cap.get(0).map(|m| m.as_str()).unwrap_or("");
-                    if matched.len() < 200 {
-                        // Avoid huge matches
-                        secrets.push(format!("{}: {}", name, Self::truncate(matched, 50)));
+                    if matched.len() < 400 && !Self::is_placeholder_value(matched) {
+                        secrets.push(format!("{}: {}", name, Self::truncate(matched, 60)));
                     }
                 }
             }
         }
 
-        // Limit to first 10
-        secrets.truncate(10);
+        // Keyword=value patterns with placeholder filtering
+        let keyword_patterns: &[(&str, &str)] = &[
+            (r#"["\']?api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{20,120})["\']"#, "API Key"),
+            (r#"["\']?secret[_-]?key["\']?\s*[:=]\s*["\']([^"\']{16,120})["\']"#, "Secret Key"),
+            (r#"["\']?access[_-]?token["\']?\s*[:=]\s*["\']([^"\']{20,200})["\']"#, "Access Token"),
+            (r#"["\']?auth[_-]?token["\']?\s*[:=]\s*["\']([^"\']{20,200})["\']"#, "Auth Token"),
+            (r#"["\']?client[_-]?secret["\']?\s*[:=]\s*["\']([^"\']{16,200})["\']"#, "Client Secret"),
+            (r#"["\']?private[_-]?key["\']?\s*[:=]\s*["\']([^"\']{20,})["\']"#, "Private Key Field"),
+            (r#"["\']?bearer["\']?\s*[:=]\s*["\']([^"\']{20,200})["\']"#, "Bearer Token"),
+            (r#"["\']?password["\']?\s*[:=]\s*["\']([^"\']{6,120})["\']"#, "Password"),
+        ];
+
+        for (pattern, name) in keyword_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                for cap in re.captures_iter(content) {
+                    let value = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+                    if value.is_empty() || Self::is_placeholder_value(value) {
+                        continue;
+                    }
+                    // Reject values that look like template/env-var references
+                    if value.starts_with("${") || value.starts_with("{{")
+                        || value.starts_with("<%") || value.starts_with("process.env.")
+                        || value.starts_with("import.meta.env.")
+                    {
+                        continue;
+                    }
+                    let matched = cap.get(0).map(|m| m.as_str()).unwrap_or("");
+                    secrets.push(format!("{}: {}", name, Self::truncate(matched, 80)));
+                }
+            }
+        }
+
+        // Deduplicate while preserving order, limit to first 15
+        let mut seen = HashSet::new();
+        secrets.retain(|s| seen.insert(s.clone()));
+        secrets.truncate(15);
         secrets
+    }
+
+    /// Check if a captured value is a placeholder / obvious sample rather than a real secret.
+    /// Keeping this list tight is what makes the source map secret finder low-false-positive.
+    fn is_placeholder_value(value: &str) -> bool {
+        let v = value.to_lowercase();
+        // Common example / placeholder / redacted markers
+        let markers = [
+            "your_", "your-", "yourapi", "yoursecret", "example", "changeme",
+            "change-me", "change_me", "placeholder", "todo", "fixme", "insert-",
+            "xxxxxxxx", "aaaaaaaa", "0000000000", "1234567890",
+            "redacted", "hidden", "secret_here", "api_key_here", "token_here",
+            "password_here", "abcdef123", "test-token", "test_token", "test-key",
+            "test_key", "dummy", "sample", "fake-", "fake_", "sk_test_", "pk_test_",
+            "not-a-real", "not_a_real", "notarealkey", "somekey", "sometoken",
+            "your-key", "your_key", "your-token", "your_token",
+        ];
+        for m in markers {
+            if v.contains(m) {
+                return true;
+            }
+        }
+        // Reject values that are only a single repeated character (e.g., "aaaaaaaaaaaaaaaa")
+        if value.len() >= 8 {
+            let first = value.chars().next().unwrap_or(' ');
+            if value.chars().all(|c| c == first) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Scan source content for additional secrets
@@ -392,7 +498,7 @@ impl SourceMapScanner {
             "/static/js/runtime-main.js.map",
             "/static/js/runtime~main.js.map",
             "/static/css/main.css.map",
-            // Next.js
+            // Next.js (Pages Router + App Router)
             "/_next/static/chunks/main.js.map",
             "/_next/static/chunks/main-app.js.map",
             "/_next/static/chunks/webpack.js.map",
@@ -404,6 +510,10 @@ impl SourceMapScanner {
             "/_next/static/chunks/react-refresh.js.map",
             "/_next/static/chunks/app/layout.js.map",
             "/_next/static/chunks/app/page.js.map",
+            "/_next/static/chunks/app-pages-internals.js.map",
+            "/_next/static/chunks/pages/_document.js.map",
+            "/_next/static/development/_ssgManifest.js.map",
+            "/_next/static/development/_buildManifest.js.map",
             // Vite
             "/assets/index.js.map",
             "/assets/main.js.map",
@@ -412,7 +522,8 @@ impl SourceMapScanner {
             "/assets/client.js.map",
             "/assets/entry-client.js.map",
             "/assets/entry-server.js.map",
-            // Angular
+            "/assets/index.css.map",
+            // Angular (older + modern esbuild builder)
             "/main.js.map",
             "/main-es2015.js.map",
             "/main-es5.js.map",
@@ -426,7 +537,9 @@ impl SourceMapScanner {
             "/vendor-es2015.js.map",
             "/scripts.js.map",
             "/styles.css.map",
-            // Vue / Nuxt
+            "/chunk-common.js.map",
+            "/chunk-vendors.js.map",
+            // Vue / Nuxt (v2 + v3)
             "/js/app.js.map",
             "/js/chunk-vendors.js.map",
             "/js/chunk-common.js.map",
@@ -434,15 +547,30 @@ impl SourceMapScanner {
             "/_nuxt/vendor.js.map",
             "/_nuxt/entry.js.map",
             "/_nuxt/commons/app.js.map",
+            "/_nuxt/client-manifest.js.map",
+            "/_nuxt/server-manifest.js.map",
             // SvelteKit
             "/_app/immutable/entry/start.js.map",
             "/_app/immutable/entry/app.js.map",
             "/_app/immutable/chunks/index.js.map",
             "/_app/immutable/chunks/vendor.js.map",
+            "/_app/immutable/nodes/0.js.map",
+            "/_app/immutable/nodes/1.js.map",
             // Remix
             "/build/entry.client.js.map",
             "/build/root.js.map",
             "/build/_assets/entry.client.js.map",
+            "/build/manifest.js.map",
+            // Astro
+            "/_astro/hoisted.js.map",
+            "/_astro/client.js.map",
+            "/_astro/entry.js.map",
+            // Qwik / QwikCity
+            "/build/q-manifest.json.map",
+            "/build/q-bundle.js.map",
+            // Solid Start
+            "/_build/entry-client.js.map",
+            "/_build/entry-server.js.map",
             // Parcel
             "/parcel.js.map",
             "/index.js.map",
@@ -461,6 +589,10 @@ impl SourceMapScanner {
             "/commons.js.map",
             "/app-*.js.map",
             "/page-data.js.map",
+            // Docusaurus / Storybook (often shipped to marketing sites)
+            "/build/main.js.map",
+            "/storybook-static/main.js.map",
+            "/storybook-static/runtime~main.js.map",
             // Generic / old build output
             "/bundle.js.map",
             "/app.js.map",
@@ -480,6 +612,11 @@ impl SourceMapScanner {
             // Dev-server maps occasionally shipped to prod
             "/webpack-dev-server.js.map",
             "/static/js/devServer.js.map",
+            "/hot-update.js.map",
+            // React Native web / Expo
+            "/static/js.map",
+            "/AppEntry.js.map",
+            "/index.bundle.map",
         ]
     }
 
@@ -557,16 +694,53 @@ impl SourceMapScanner {
     }
 
     /// Check if URL is third-party
+    /// Filtering these out avoids reporting exposed source maps for CDN-hosted vendor
+    /// libraries that the target does not own (and cannot fix).
     fn is_third_party(&self, url: &str) -> bool {
         let third_party = [
             "cdn",
             "googleapis.com",
             "gstatic.com",
+            "google-analytics.com",
+            "googletagmanager.com",
             "cloudflare",
             "jsdelivr",
             "unpkg.com",
             "jquery.com",
             "bootstrapcdn",
+            "cdnjs",
+            "fontawesome.com",
+            "typekit.net",
+            "hotjar.com",
+            "hs-scripts.com",
+            "hs-analytics.net",
+            "hsforms.net",
+            "intercomcdn.com",
+            "intercom.io",
+            "segment.com",
+            "segment.io",
+            "amplitude.com",
+            "sentry.io",
+            "sentry-cdn.com",
+            "datadoghq-browser-agent",
+            "browser-intake",
+            "fullstory.com",
+            "logrocket.io",
+            "mixpanel.com",
+            "recaptcha.net",
+            "clarity.ms",
+            "onetrust.com",
+            "cookielaw.org",
+            "adobedtm.com",
+            "demdex.net",
+            "tealium.com",
+            "stripe.com",
+            "checkout.com",
+            "paypalobjects.com",
+            "braintreegateway.com",
+            "auth0.com",
+            "okta.com",
+            "cognito-idp.",
         ];
         let url_lower = url.to_lowercase();
         third_party.iter().any(|tp| url_lower.contains(tp))

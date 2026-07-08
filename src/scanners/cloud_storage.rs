@@ -381,11 +381,16 @@ impl CloudStorageScanner {
                         ".env",
                         ".git/",
                         "credentials.json",
+                        "credentials.csv",
                         "credentials.xml",
                         ".pem",
                         ".p12",
+                        ".pfx",
                         ".sql",
+                        ".sql.gz",
+                        ".sql.zip",
                         ".db",
+                        ".rdb",
                         ".htpasswd",
                         "wp-config.php",
                         "id_rsa",
@@ -393,6 +398,25 @@ impl CloudStorageScanner {
                         ".secret",
                         "password.txt",
                         "passwords.csv",
+                        // Cloud credential filenames
+                        "service-account.json",
+                        "firebase-adminsdk",
+                        "gcp-key",
+                        "google-services.json",
+                        // Mobile signing artifacts (private keystores)
+                        "keystore.jks",
+                        "release.keystore",
+                        // IaC state (all secrets in plaintext)
+                        ".tfstate",
+                        ".tfvars",
+                        // PII bulk exports - these buckets are the whole point of finding one
+                        "users.csv",
+                        "customers.csv",
+                        "emails.csv",
+                        "kyc",
+                        "passport",
+                        "ssn",
+                        "gdpr-export",
                     ];
 
                     let body_lower = response.body.to_lowercase();
@@ -434,29 +458,44 @@ impl CloudStorageScanner {
             ".git/HEAD",
             ".git/index",
             ".git/logs/HEAD",
+            ".git/packed-refs",
             ".gitignore",
             ".github/workflows/deploy.yml",
             ".github/workflows/ci.yml",
+            ".github/workflows/release.yml",
             // Environment & Config
             ".env",
             ".env.local",
             ".env.production",
             ".env.backup",
+            ".env.prod",
+            ".env.staging",
             "config.json",
             "config.php",
             "wp-config.php",
             "settings.py",
             "config.yml",
             "application.properties",
+            "application-prod.yml",
+            "application-prod.properties",
+            "appsettings.json",
+            "appsettings.Production.json",
             // AWS & Cloud Credentials
             ".aws/credentials",
             ".aws/config",
             "aws.json",
             "credentials.json",
+            "credentials.csv",
             "secrets.json",
             "api-keys.json",
             "firebase.json",
             ".firebase",
+            "firebase-adminsdk.json",
+            "service-account.json",
+            "gcp-key.json",
+            ".doctl/config.yaml",
+            ".doctlcfg",
+            "linode-cli",
             // SSH & Crypto Keys
             "id_rsa",
             "id_rsa.pub",
@@ -468,6 +507,8 @@ impl CloudStorageScanner {
             "privatekey.pem",
             ".ssh/id_rsa",
             ".ssh/authorized_keys",
+            ".ssh/config",
+            ".ssh/known_hosts",
             // Database Files
             "backup.sql",
             "database.sql",
@@ -478,6 +519,13 @@ impl CloudStorageScanner {
             "database.sqlite3",
             "db.sqlite",
             "data.db",
+            "dump.rdb",
+            "prod.sql",
+            "production.sql",
+            "users.sql",
+            "customers.sql",
+            "mongodump.tar.gz",
+            "mongodump.archive",
             // Backup & Archive Files
             "backup.zip",
             "backup.tar.gz",
@@ -488,6 +536,11 @@ impl CloudStorageScanner {
             "www.zip",
             "site.tar.gz",
             "prod-backup.zip",
+            "production-backup.tar.gz",
+            "full-backup.tar.gz",
+            "release.tar.gz",
+            "src.tar.gz",
+            "source.tar.gz",
             // Web Configs
             ".htaccess",
             ".htpasswd",
@@ -496,8 +549,12 @@ impl CloudStorageScanner {
             "nginx.conf",
             // Docker & Container
             "docker-compose.yml",
+            "docker-compose.prod.yml",
+            "docker-compose.production.yml",
+            "docker-compose.override.yml",
             "Dockerfile",
             ".dockerignore",
+            ".docker/config.json",
             // Package Managers
             "package.json",
             "package-lock.json",
@@ -556,9 +613,21 @@ impl CloudStorageScanner {
             // Mobile app artifacts often uploaded to public buckets
             "app-release.apk",
             "app-release-unsigned.apk",
+            "app-debug.apk",
+            "app-release.aab",
+            "app-release.ipa",
             "app.ipa",
+            "app.aab",
             "google-services.json",
             "GoogleService-Info.plist",
+            "AndroidManifest.xml",
+            "Info.plist",
+            "release/output-metadata.json",
+            "release.keystore",
+            "upload-keystore.jks",
+            "keystore.jks",
+            "keystore.properties",
+            "signing.properties",
             // Source code archives
             "src.zip",
             "source.zip",
@@ -571,21 +640,42 @@ impl CloudStorageScanner {
             // PII-shaped dumps
             "users.csv",
             "users.json",
+            "user_export.csv",
             "customers.csv",
             "customers.xlsx",
+            "customer-data.csv",
             "members.csv",
             "subscribers.csv",
             "emails.csv",
+            "email-list.csv",
+            "email_list.csv",
+            "mailing-list.csv",
+            "newsletter-signups.csv",
             "contacts.csv",
             "leads.csv",
             "employees.csv",
+            "payroll.csv",
             "invoices.csv",
+            "invoices.zip",
+            "receipts.zip",
             "transactions.csv",
             "orders.csv",
+            "orders.json",
             "payments.csv",
+            "billing.csv",
             "passwords.csv",
+            "credentials.txt",
             "pii.csv",
             "gdpr-export.zip",
+            "user-data-export.zip",
+            "patients.csv",
+            "medical-records.csv",
+            "ssn.csv",
+            "kyc-documents.zip",
+            "kyc.zip",
+            "identity-documents.zip",
+            "id-cards.zip",
+            "passports.zip",
             // Core dumps / heapdumps / memory captures
             "core",
             "core.dump",
@@ -593,20 +683,33 @@ impl CloudStorageScanner {
             "heapdump",
             "threaddump.txt",
             "crash.log",
+            "hs_err_pid.log",
+            "memory.dmp",
             // Helm / Ansible / Chef / Puppet
             "Chart.yaml",
             "requirements.yml",
             "ansible/vault.yml",
+            "ansible/vault.yaml",
             "ansible/group_vars/all.yml",
+            "ansible/group_vars/production.yml",
+            "ansible/host_vars/production.yml",
             "ansible/inventory",
             "hiera/common.yaml",
+            "data-bags/passwords.json",
+            "puppet/hieradata/common.yaml",
             // BigQuery / data export patterns
             "bigquery-export.json",
             "analytics-export.csv",
+            "ga-export.csv",
+            "mixpanel-export.jsonl",
+            "amplitude-export.json",
+            "segment-export.json",
             // API keys commonly scattered in buckets
             "sentry.properties",
             "newrelic.yml",
+            "newrelic.ini",
             "datadog.yaml",
+            "datadog.conf",
             "vault-token",
             ".vault-token",
             "service-account.json",
@@ -614,10 +717,34 @@ impl CloudStorageScanner {
             "gcs-key.json",
             "firebase-adminsdk.json",
             "firebase-service-account.json",
+            // Kafka / RabbitMQ / message broker configs
+            "kafka.properties",
+            "producer.properties",
+            "consumer.properties",
+            "rabbitmq.conf",
+            "definitions.json",
+            // OAuth / SSO client configs frequently uploaded by mistake
+            "client_secret.json",
+            "client-secrets.json",
+            "oauth-config.json",
+            "saml-metadata.xml",
+            "sp-metadata.xml",
+            "idp-metadata.xml",
+            // Payment processor exports
+            "stripe-export.csv",
+            "braintree-export.csv",
+            "paypal-transactions.csv",
+            // Encrypted archives (worth flagging - attackers can crack offline)
+            "backup.gpg",
+            "backup.age",
+            "vault.enc",
         ];
 
-        // Test first 40 most critical patterns
-        for path in sensitive_paths.iter().take(40) {
+        // Test the most critical patterns against the confirmed bucket. Raised from 40
+        // to 80 so newer high-value paths (PII exports, mobile keystores, oauth client
+        // secrets, dated DB dumps) are actually probed instead of being carried around
+        // as dead payload.
+        for path in sensitive_paths.iter().take(80) {
             tests_run += 1;
             let test_url = format!("{}/{}", bucket_url, path);
 
@@ -632,11 +759,21 @@ impl CloudStorageScanner {
                                 || path.contains("secret")
                                 || path.contains("key")
                                 || path.contains(".env")
+                                || path.contains("keystore")
+                                || path.contains("kyc")
+                                || path.contains("passport")
+                                || path.contains("ssn")
+                                || path.contains("medical")
+                                || path.contains("patient")
+                                || path.contains("payroll")
                             {
                                 Severity::Critical
                             } else if path.contains("backup")
                                 || path.contains("dump")
                                 || path.contains("database")
+                                || path.contains("-export")
+                                || path.contains("gdpr")
+                                || path.contains(".rdb")
                             {
                                 Severity::Critical
                             } else {
