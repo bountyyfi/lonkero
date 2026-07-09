@@ -57,12 +57,45 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Try common favicon locations. Order matters: cheap root paths first,
+        // then framework-specific asset conventions. All are static GETs so any
+        // 200 with an image content-type is authoritative — no false positives.
         let favicon_paths = vec![
+            // Root-level canonical paths
             "/favicon.ico",
             "/favicon.png",
+            "/favicon.svg",
+            "/favicon-16x16.png",
+            "/favicon-32x32.png",
+            "/favicon-96x96.png",
+            "/favicon-192x192.png",
+            // Apple touch icons — many enterprise / admin panels only ship these
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            "/apple-touch-icon-152x152.png",
+            "/apple-touch-icon-180x180.png",
+            // Android / PWA manifest icons frequently under /assets or /images
+            "/android-chrome-192x192.png",
+            "/android-chrome-512x512.png",
+            "/mstile-150x150.png",
+            // Static-asset conventions used by common frameworks
+            "/static/favicon.ico",
+            "/static/img/favicon.ico",
+            "/static/images/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/img/favicon.ico",
+            "/assets/images/favicon.ico",
+            "/public/favicon.ico",
+            "/dist/favicon.ico",
+            "/images/favicon.ico",
+            "/img/favicon.ico",
+            // Common admin-panel prefixes — hitting these directly can fingerprint
+            // the panel even when the marketing site ships a custom favicon.
+            "/admin/favicon.ico",
+            "/manager/favicon.ico",
+            "/cms/favicon.ico",
+            "/console/favicon.ico",
+            "/portal/favicon.ico",
         ];
 
         // Also check for link tags in HTML
