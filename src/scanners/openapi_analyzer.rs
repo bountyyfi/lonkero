@@ -49,7 +49,11 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Covers major frameworks: Spring / Springdoc, FastAPI, ASP.NET Core / NSwag,
+/// NestJS, Fastify, Hapi, Grape (Ruby), Django REST framework, Laravel L5-Swagger,
+/// go-swagger / swaggo, Quarkus, Micronaut, Loopback, and Kong Admin.
 const OPENAPI_PATHS: &[&str] = &[
     "/swagger.json",
     "/openapi.json",
@@ -70,9 +74,82 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Spring Boot / Springdoc-openapi
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v3/api-docs",
+    "/actuator/openapi",
+    "/actuator/swagger-ui/openapi.json",
+    // ASP.NET / NSwag / Ocelot
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/api/swagger/v1/swagger.json",
+    "/administration/swagger.json",
+    // NestJS (common configurations)
+    "/api-json",
+    "/api-yaml",
+    "/api/docs-json",
+    "/api/docs-yaml",
+    // Fastify Swagger
+    "/documentation/json",
+    "/documentation/yaml",
+    // Django REST framework / drf-spectacular
+    "/schema/",
+    "/schema.json",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema/openapi.json",
+    // FastAPI additional prefixes
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/openapi.yaml",
+    // Laravel L5-Swagger / DarkaOnLine
+    "/docs/asset/swagger-ui/spec.json",
+    "/docs/api-docs.json",
+    // Grape (Ruby) / rswag
+    "/swagger_doc",
+    "/swagger_doc.json",
+    "/api-docs/v1/swagger.yaml",
+    "/api-docs/v1/swagger.json",
+    // go-swagger / swaggo
+    "/swagger/doc.json",
+    "/swaggerapi",
+    // Quarkus (SmallRye OpenAPI)
+    "/q/openapi",
+    "/q/openapi.json",
+    "/q/openapi.yaml",
+    // Micronaut
+    "/swagger/views/swagger-ui/openapi.json",
+    // Loopback
+    "/explorer/openapi.json",
+    "/openapi/v3.json",
+    // Kong Admin API
+    "/kong/openapi.json",
+    // Generic/other spec locations frequently observed in the wild
+    "/openapi/spec.json",
+    "/api.json",
+    "/api.yaml",
+    "/api.yml",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/openapi.yml",
+    "/swagger.yml",
+    "/spec/openapi.json",
+    "/openapi/v1",
+    "/openapi/v2",
+    "/openapi/v3",
+    "/openapispec.json",
+    "/openapi/openapi.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / ReDoc / RapiDoc / Scalar / GraphiQL UI paths.
+///
+/// A hit is only reported when the response body actually contains a
+/// documentation-UI marker string (swagger-ui, redoc, rapidoc, etc.), so
+/// adding paths here cannot introduce false positives - a 200 without a
+/// marker is ignored.
 const SWAGGER_UI_PATHS: &[&str] = &[
     "/swagger-ui.html",
     "/swagger-ui/index.html",
@@ -84,6 +161,41 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Spring Boot / Springdoc-openapi
+    "/swagger-ui/swagger-ui.html",
+    "/swagger-ui/oauth2-redirect.html",
+    "/actuator/swagger-ui",
+    // Quarkus / SmallRye
+    "/q/swagger-ui",
+    "/q/swagger-ui/",
+    // ASP.NET / NSwag
+    "/swagger/index.html",
+    "/swagger",
+    // Node-based (NestJS/Fastify/Hapi/Loopback)
+    "/documentation",
+    "/documentation/static/index.html",
+    "/explorer",
+    "/explorer/",
+    // Django REST framework / drf-spectacular
+    "/redoc/",
+    "/schema/redoc/",
+    "/schema/swagger-ui/",
+    // Laravel L5-Swagger
+    "/api/documentation",
+    // Generic viewers seen in the wild
+    "/apidocs",
+    "/apidocs/",
+    "/api-explorer",
+    "/api-explorer/",
+    // GraphQL playgrounds - equally sensitive as they expose the schema surface
+    "/graphiql",
+    "/graphql/playground",
+    "/graphql-playground",
+    "/altair",
+    // Scalar API viewer
+    "/scalar",
+    "/scalar/v1",
+    "/reference",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -1287,11 +1399,22 @@ impl OpenApiAnalyzer {
                 Ok(response) => {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
+                        // Strict marker match keeps false positives out: a
+                        // generic 200 page is ignored unless the body clearly
+                        // identifies itself as an API-documentation viewer.
                         if body_lower.contains("swagger-ui")
                             || body_lower.contains("swagger ui")
                             || body_lower.contains("redoc")
                             || body_lower.contains("rapidoc")
                             || body_lower.contains("api documentation")
+                            // GraphQL schema-exploration UIs (equivalent risk:
+                            // full schema/introspection surface exposed)
+                            || body_lower.contains("graphiql")
+                            || body_lower.contains("graphql playground")
+                            || body_lower.contains("altair graphql")
+                            // Scalar API reference viewer
+                            || body_lower.contains("id=\"api-reference\"")
+                            || body_lower.contains("scalar api reference")
                         {
                             vulnerabilities.push(self.create_vulnerability(
                                 "OpenAPI Documentation UI Exposed",
