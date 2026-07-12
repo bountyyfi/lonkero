@@ -399,6 +399,344 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Vercel - previously deployed project deleted / project owner rotated
+    // Anyone with a Vercel account can attach the CNAME back and serve arbitrary content.
+    ServiceFingerprint {
+        name: "Vercel",
+        cname_patterns: &[
+            ".vercel.app",
+            ".now.sh",
+            "cname.vercel-dns.com",
+            ".vercel-dns.com",
+        ],
+        http_signatures: &[
+            "The deployment could not be found on Vercel",
+            "DEPLOYMENT_NOT_FOUND",
+            "This deployment cannot be found",
+        ],
+        header_patterns: &[("server", "Vercel"), ("x-vercel-error", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Vercel, or claim the target domain by creating a Vercel project and assigning the same custom domain in your team's dashboard.",
+    },
+    // Netlify - unclaimed *.netlify.app subdomain
+    ServiceFingerprint {
+        name: "Netlify",
+        cname_patterns: &[".netlify.app", ".netlify.com"],
+        http_signatures: &[
+            "Not Found - Request ID:",
+            "Not found - Request ID:",
+        ],
+        header_patterns: &[("server", "Netlify"), ("x-nf-request-id", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME to Netlify, or re-attach the domain to a Netlify site under your control.",
+    },
+    // Fly.io - deleted app leaves *.fly.dev unclaimed
+    ServiceFingerprint {
+        name: "Fly.io",
+        cname_patterns: &[".fly.dev", ".fly.io"],
+        http_signatures: &[
+            "The app you were looking for isn't here",
+            "app not found",
+        ],
+        header_patterns: &[("server", "Fly")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or create a fly.io app with the corresponding name to reclaim it.",
+    },
+    // Render.com - onrender.com static-site / web-service pattern
+    ServiceFingerprint {
+        name: "Render",
+        cname_patterns: &[".onrender.com", ".render.com"],
+        http_signatures: &[
+            "Not Found",
+            "This site is not currently configured",
+        ],
+        header_patterns: &[("server", "Render"), ("x-render-origin-server", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the service in Render.",
+    },
+    // Firebase Hosting - project deleted but CNAME left dangling
+    ServiceFingerprint {
+        name: "Firebase Hosting",
+        cname_patterns: &[".web.app", ".firebaseapp.com"],
+        http_signatures: &[
+            "Site Not Found",
+            "The specified site does not exist",
+        ],
+        header_patterns: &[("x-firebase-cache", ""), ("server", "Google Frontend")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or connect a Firebase project to the dangling site name.",
+    },
+    // Supabase - abandoned project reference (co.supabase.co / .supabase.co)
+    ServiceFingerprint {
+        name: "Supabase",
+        cname_patterns: &[".supabase.co", ".supabase.io"],
+        http_signatures: &[
+            "Project does not exist",
+            "project not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or recreate the Supabase project with the same ref.",
+    },
+    // Cloudflare Pages - unclaimed *.pages.dev project
+    ServiceFingerprint {
+        name: "Cloudflare Pages",
+        cname_patterns: &[".pages.dev"],
+        http_signatures: &[
+            "This deployment has been deleted",
+            "This page could not be found",
+        ],
+        header_patterns: &[("server", "cloudflare"), ("cf-ray", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME to Cloudflare Pages, or recreate the Pages project with the same subdomain.",
+    },
+    // DigitalOcean App Platform
+    ServiceFingerprint {
+        name: "DigitalOcean App Platform",
+        cname_patterns: &[".ondigitalocean.app"],
+        http_signatures: &[
+            "Application not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME to DigitalOcean App Platform or claim the app name.",
+    },
+    // Framer - website builder with custom-domain support
+    ServiceFingerprint {
+        name: "Framer",
+        cname_patterns: &[".framer.app", ".framer.website"],
+        http_signatures: &[
+            "The site you were looking for couldn't be found",
+            "Page Not Found - Framer",
+        ],
+        header_patterns: &[("server", "Framer")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Delete the CNAME to Framer or claim the domain in a Framer project.",
+    },
+    // Webflow - abandoned webflow.io subdomain
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".webflow.io", "proxy-ssl.webflow.com"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+            "<title>The page you are looking for doesn",
+        ],
+        header_patterns: &[("server", "Webflow")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Webflow.",
+    },
+    // Read the Docs - documentation subdomain
+    ServiceFingerprint {
+        name: "Read the Docs",
+        cname_patterns: &[".readthedocs.io", ".readthedocs-hosted.com"],
+        http_signatures: &[
+            "unknown to Read the Docs",
+            "The project you are trying to access has been deleted",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register the project name on Read the Docs.",
+    },
+    // Ghost.io - abandoned Ghost blog
+    ServiceFingerprint {
+        name: "Ghost",
+        cname_patterns: &[".ghost.io"],
+        http_signatures: &[
+            "Domain error",
+            "The custom domain has not been configured yet",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or re-configure the Ghost custom domain.",
+    },
+    // Statamic Cloud
+    ServiceFingerprint {
+        name: "Statamic Cloud",
+        cname_patterns: &[".statamic.cloud"],
+        http_signatures: &["No such site"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or recreate the Statamic Cloud site.",
+    },
+    // Squarespace custom domain
+    ServiceFingerprint {
+        name: "Squarespace",
+        cname_patterns: &[".squarespace.com", "ext-sq.squarespace.com"],
+        http_signatures: &[
+            "No Such Account",
+            "You're Almost There",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Squarespace.",
+    },
+    // Cargo (design portfolios) - now under .cargo.site
+    ServiceFingerprint {
+        name: "Cargo Site",
+        cname_patterns: &[".cargo.site"],
+        http_signatures: &[
+            "404 Not Found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 5.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Cargo.",
+    },
+    // Zendesk (broader pattern)
+    ServiceFingerprint {
+        name: "Zendesk",
+        cname_patterns: &[".zendesk.com"],
+        http_signatures: &[
+            "Help Center Closed",
+            "this help center no longer exists",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reactivate the Zendesk Help Center.",
+    },
+    // Intercom
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &[".custom.intercom.help", "custom.intercom.help"],
+        http_signatures: &[
+            "This page is reserved for artistic use",
+            "Uh oh. That page doesn",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the Intercom Help Center domain.",
+    },
+    // Pantheon.io
+    ServiceFingerprint {
+        name: "Pantheon",
+        cname_patterns: &[".pantheonsite.io"],
+        http_signatures: &["The gods are wise, but do not know of the site which you seek"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the Pantheon site.",
+    },
+    // Kinsta static site hosting
+    ServiceFingerprint {
+        name: "Kinsta Static",
+        cname_patterns: &[".kinsta.page", ".kinsta.cloud"],
+        http_signatures: &["No site for domain"],
+        header_patterns: &[("server", "Kinsta")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Kinsta.",
+    },
+    // Ngrok tunnels - short-lived, but frequently forgotten in DNS
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app", ".ngrok.app"],
+        http_signatures: &[
+            "Tunnel *.ngrok.io not found",
+            "ERR_NGROK_",
+        ],
+        header_patterns: &[("ngrok-trace-id", ""), ("server", "ngrok")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME to ngrok, or start a new ngrok tunnel bound to the same reserved domain.",
+    },
+    // Wordpress.com hosted
+    ServiceFingerprint {
+        name: "WordPress.com",
+        cname_patterns: &[".wordpress.com"],
+        http_signatures: &[
+            "Do you want to register",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 5.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the blog on WordPress.com.",
+    },
+    // Surge.sh
+    ServiceFingerprint {
+        name: "Surge.sh",
+        cname_patterns: &[".surge.sh"],
+        http_signatures: &[
+            "project not found",
+        ],
+        header_patterns: &[("server", "surge.sh")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or publish a new Surge project with the same name.",
+    },
+    // Netlify Large Media / Netlify custom domain sites (edge case)
+    ServiceFingerprint {
+        name: "Bitbucket Pages",
+        cname_patterns: &[".bitbucket.io"],
+        http_signatures: &[
+            "Repository not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or recreate the Bitbucket Cloud repository with matching name.",
+    },
 ];
 
 /// DNS resolution result for a subdomain

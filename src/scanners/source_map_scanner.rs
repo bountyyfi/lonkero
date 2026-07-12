@@ -296,43 +296,242 @@ impl SourceMapScanner {
     fn find_potential_secrets(&self, content: &str) -> Vec<String> {
         let mut secrets = Vec::new();
 
-        // API key patterns
+        // Prefixed / vendor-anchored patterns first (very low false-positive rate:
+        // each requires a vendor-specific prefix + exact length + alphabet, so any
+        // hit is almost certainly a real live key rather than a placeholder).
         let patterns = [
+            // ---- Prefixed vendor tokens (near-zero FP) ----
+            // GitHub personal, OAuth, user, refresh, server-to-server, saved tokens.
+            (r#"gh[pousr]_[A-Za-z0-9]{36,255}"#, "GitHub Token"),
+            // GitLab personal access tokens (glpat- prefix, 20-char b64url).
+            (r#"glpat-[A-Za-z0-9_\-]{20,40}"#, "GitLab PAT"),
+            // Slack bot / user / app tokens - the numeric-segment structure eliminates FPs.
             (
-                r#"["\']?api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
+                r#"xox[abpors]-[0-9]{10,13}-[0-9]{10,13}-[A-Za-z0-9]{24,40}"#,
+                "Slack Token",
+            ),
+            // Slack webhook URLs (deliverable target).
+            (
+                r#"https://hooks\.slack\.com/services/T[A-Z0-9]{8,12}/B[A-Z0-9]{8,12}/[A-Za-z0-9]{24,40}"#,
+                "Slack Webhook",
+            ),
+            // Discord webhook URLs (deliverable target).
+            (
+                r#"https://(?:canary\.|ptb\.)?discord(?:app)?\.com/api/webhooks/[0-9]{17,20}/[A-Za-z0-9_\-]{60,80}"#,
+                "Discord Webhook",
+            ),
+            // Google API keys (AIza + 35 chars, well-known).
+            (r#"AIza[0-9A-Za-z_\-]{35}"#, "Google API Key"),
+            // Google OAuth client tokens.
+            (r#"ya29\.[0-9A-Za-z_\-]{68,}"#, "Google OAuth Token"),
+            // Firebase database URL - direct pivot to often-open DBs.
+            (
+                r#"https://[a-z0-9\-]{3,63}\.firebaseio\.com"#,
+                "Firebase DB URL",
+            ),
+            // AWS access keys - AKIA (long-lived), ASIA (session), ABIA/ACCA variants.
+            (r#"(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}"#, "AWS Access Key"),
+            // AWS secret access key: base64-ish 40-char string next to an AWS-y key.
+            // The context word requirement + length keeps FP low.
+            (
+                r#"(?i)aws(?:.{0,20})?(?:secret|access)?[_\-]?key[^\n"']{0,10}["'][A-Za-z0-9/+=]{40}["']"#,
+                "AWS Secret Key",
+            ),
+            // Stripe live/test/restricted keys.
+            (r#"sk_live_[0-9a-zA-Z]{24,99}"#, "Stripe Secret Key"),
+            (
+                r#"rk_live_[0-9a-zA-Z]{24,99}"#,
+                "Stripe Restricted Key",
+            ),
+            (r#"pk_live_[0-9a-zA-Z]{24,99}"#, "Stripe Publishable Key"),
+            // Twilio account SID / auth token pairs.
+            (r#"AC[a-f0-9]{32}"#, "Twilio Account SID"),
+            (r#"SK[a-f0-9]{32}"#, "Twilio API Key SID"),
+            // SendGrid API key (SG. + two b64url chunks separated by `.`).
+            (
+                r#"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}"#,
+                "SendGrid API Key",
+            ),
+            // Mailgun API keys.
+            (r#"key-[0-9a-zA-Z]{32}"#, "Mailgun API Key"),
+            // Mailchimp keys embed the datacenter suffix.
+            (r#"[0-9a-f]{32}-us[0-9]{1,2}"#, "Mailchimp API Key"),
+            // Square access tokens.
+            (r#"sq0(?:atp|csp)-[0-9A-Za-z_\-]{22,43}"#, "Square Token"),
+            // Shopify shared secrets and access tokens.
+            (r#"shpss_[a-fA-F0-9]{32}"#, "Shopify Shared Secret"),
+            (r#"shpat_[a-fA-F0-9]{32}"#, "Shopify Access Token"),
+            (r#"shpca_[a-fA-F0-9]{32}"#, "Shopify Custom Access Token"),
+            (r#"shppa_[a-fA-F0-9]{32}"#, "Shopify Private App Token"),
+            // Heroku API keys are UUIDs anchored on a "heroku" context word.
+            (
+                r#"(?i)heroku[^\n]{0,30}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#,
+                "Heroku API Key",
+            ),
+            // Digital Ocean personal access tokens.
+            (r#"dop_v1_[a-f0-9]{64}"#, "DigitalOcean Token"),
+            // npm publish tokens.
+            (r#"npm_[A-Za-z0-9]{36}"#, "npm Access Token"),
+            // JetBrains hub perm tokens.
+            (
+                r#"perm-[A-Za-z0-9]{8}\.[A-Za-z0-9]{5,}\.[A-Za-z0-9]{40,}"#,
+                "JetBrains Token",
+            ),
+            // Datadog / New Relic / PagerDuty style keys are context-anchored.
+            (
+                r#"(?i)datadog[_\-]?(?:api|app)[_\-]?key["'\s:=]{1,10}["']?([a-f0-9]{32,40})["']?"#,
+                "Datadog Key",
+            ),
+            (
+                r#"NRAK-[A-Z0-9]{27}"#,
+                "New Relic Personal API Key",
+            ),
+            // OpenAI and Anthropic API keys - dev-tool secrets that increasingly ship in bundles.
+            (r#"sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}"#, "OpenAI API Key"),
+            (
+                r#"sk-ant-(?:api|admin)[0-9]{2}-[A-Za-z0-9_\-]{80,}"#,
+                "Anthropic API Key",
+            ),
+            // HuggingFace user access tokens.
+            (r#"hf_[A-Za-z0-9]{34,40}"#, "HuggingFace Token"),
+            // Cloudflare API tokens (40 char base62 with `-`/`_`).
+            (
+                r#"(?i)cf[_\-]?(?:api[_\-]?)?token["'\s:=]{1,10}["']([A-Za-z0-9_\-]{40})["']"#,
+                "Cloudflare Token",
+            ),
+            // Cloudflare Global API keys are 37 hex chars beside a context word.
+            (
+                r#"(?i)cloudflare[^\n]{0,30}["']([a-f0-9]{37})["']"#,
+                "Cloudflare Global Key",
+            ),
+
+            // ---- Private keys and JWTs (structural, high-signal) ----
+            // PEM-encoded private key headers - unambiguous.
+            (
+                r#"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----"#,
+                "Private Key",
+            ),
+            // PuTTY private key format.
+            (r#"PuTTY-User-Key-File-[23]"#, "PuTTY Private Key"),
+            // JWT bearer tokens (three b64url segments) - kept a bit strict to avoid FP.
+            (
+                r#"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"#,
+                "JWT",
+            ),
+
+            // ---- Connection strings & credentials embedded in URLs ----
+            // MongoDB Atlas / SRV connection strings with inline creds.
+            (
+                r#"mongodb(?:\+srv)?://[^\s"'<>]{3,64}:[^\s"'<>@]{3,128}@[A-Za-z0-9.\-]{3,}"#,
+                "MongoDB Connection String",
+            ),
+            // PostgreSQL connection with credentials.
+            (
+                r#"postgres(?:ql)?://[^\s"'<>]{1,64}:[^\s"'<>@]{1,128}@[A-Za-z0-9.\-]{3,}[:/][^\s"'<>]{1,64}"#,
+                "PostgreSQL Connection String",
+            ),
+            // MySQL / MariaDB.
+            (
+                r#"mysql://[^\s"'<>]{1,64}:[^\s"'<>@]{1,128}@[A-Za-z0-9.\-]{3,}[:/][^\s"'<>]{1,64}"#,
+                "MySQL Connection String",
+            ),
+            // Redis with password / rediss for TLS.
+            (
+                r#"redis[s]?://[^\s"'<>@:]{0,64}:[^\s"'<>@]{4,128}@[A-Za-z0-9.\-]{3,}"#,
+                "Redis Connection String",
+            ),
+            // Generic HTTP(S) URL with inline basic-auth credentials.
+            (
+                r#"https?://[A-Za-z0-9._%+\-]{1,64}:[^\s"'<>@/?#]{4,128}@[A-Za-z0-9.\-]{3,64}"#,
+                "URL with Credentials",
+            ),
+
+            // ---- Generic context-anchored secrets (kept last, tighter than before) ----
+            // Require quote-delimited value, minimum entropy length, and reject
+            // obvious placeholders elsewhere in post-processing.
+            (
+                r#"(?i)["']?api[_\-]?key["']?\s*[:=]\s*["']([A-Za-z0-9_\-]{24,})["']"#,
                 "API Key",
             ),
             (
-                r#"["\']?secret["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "Secret",
+                r#"(?i)["']?(?:client|consumer)[_\-]?secret["']?\s*[:=]\s*["']([A-Za-z0-9_\-/+=]{24,})["']"#,
+                "Client Secret",
             ),
             (
-                r#"["\']?password["\']?\s*[:=]\s*["\']([^"\']{4,})["\']"#,
-                "Password",
+                r#"(?i)["']?(?:auth|access|bearer)[_\-]?token["']?\s*[:=]\s*["']([A-Za-z0-9_\-\.]{24,})["']"#,
+                "Auth Token",
             ),
             (
-                r#"["\']?token["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "Token",
+                r#"(?i)["']?refresh[_\-]?token["']?\s*[:=]\s*["']([A-Za-z0-9_\-\.]{24,})["']"#,
+                "Refresh Token",
             ),
-            (r#"AKIA[0-9A-Z]{16}"#, "AWS Key"),
-            (r#"sk_live_[a-zA-Z0-9]{24,}"#, "Stripe Key"),
+            (
+                r#"(?i)["']?private[_\-]?key["']?\s*[:=]\s*["']([A-Za-z0-9/+=_\-]{40,})["']"#,
+                "Private Key Value",
+            ),
         ];
 
+        let mut seen: HashSet<String> = HashSet::new();
         for (pattern, name) in patterns {
             if let Ok(re) = Regex::new(pattern) {
                 for cap in re.captures_iter(content) {
                     let matched = cap.get(0).map(|m| m.as_str()).unwrap_or("");
-                    if matched.len() < 200 {
-                        // Avoid huge matches
-                        secrets.push(format!("{}: {}", name, Self::truncate(matched, 50)));
+                    if matched.is_empty() || matched.len() >= 200 {
+                        continue;
                     }
+                    // The extracted value (capture group 1) if present, else full match.
+                    let value = cap
+                        .get(1)
+                        .map(|m| m.as_str())
+                        .unwrap_or(matched);
+                    if Self::looks_like_placeholder(value) {
+                        continue;
+                    }
+                    // Dedupe on the (kind, first 32 chars of value) so identical
+                    // bundle-repeated secrets don't fill the evidence list.
+                    let key = format!(
+                        "{}:{}",
+                        name,
+                        &value[..value.len().min(32)]
+                    );
+                    if !seen.insert(key) {
+                        continue;
+                    }
+                    secrets.push(format!("{}: {}", name, Self::truncate(matched, 60)));
                 }
             }
         }
 
-        // Limit to first 10
-        secrets.truncate(10);
+        // Cap to keep evidence output readable.
+        secrets.truncate(20);
         secrets
+    }
+
+    /// Reject values that are obviously placeholders / examples / hashes-of-nothing.
+    /// Keeps false positive rate near zero for the generic context-anchored patterns.
+    fn looks_like_placeholder(value: &str) -> bool {
+        let lower = value.to_ascii_lowercase();
+        // Common placeholder tokens developers leave in code and templates.
+        const NEEDLES: &[&str] = &[
+            "your_", "your-", "yourapi", "yourkey", "yoursecret", "yourtoken",
+            "example", "sample", "changeme", "dummy", "placeholder",
+            "xxxx", "aaaa", "0000", "1234", "test_", "testkey", "testtoken",
+            "insert_", "replace_", "todo", "fixme", "n/a", "none",
+            "unknown", "null", "undefined", "process.env", "import.meta",
+            "{{", "}}", "${", "%s", "<%=",
+        ];
+        if NEEDLES.iter().any(|n| lower.contains(n)) {
+            return true;
+        }
+        // Single-character-repeated values (like "aaaaaaaaaaaaaaaa") - no entropy.
+        if !lower.is_empty() && lower.chars().all(|c| c == lower.chars().next().unwrap()) {
+            return true;
+        }
+        // Purely hex zeros / low-entropy.
+        if lower.chars().all(|c| c == '0' || c == 'x') {
+            return true;
+        }
+        false
     }
 
     /// Scan source content for additional secrets
@@ -480,6 +679,69 @@ impl SourceMapScanner {
             // Dev-server maps occasionally shipped to prod
             "/webpack-dev-server.js.map",
             "/static/js/devServer.js.map",
+            // Astro
+            "/_astro/client.js.map",
+            "/_astro/hoisted.js.map",
+            "/_astro/entry.js.map",
+            "/_astro/index.js.map",
+            // Qwik
+            "/build/q-runtime.js.map",
+            "/build/q-manifest.json.map",
+            "/build/q-core.js.map",
+            // SolidJS / Solid Start
+            "/_build/assets/index.js.map",
+            "/_build/assets/entry-client.js.map",
+            "/_solid/index.js.map",
+            // Fresh (Deno)
+            "/_frsh/js/main.js.map",
+            "/_fresh/js/main.js.map",
+            // Bun bundler
+            "/bun-app.js.map",
+            "/out.js.map",
+            "/build.js.map",
+            // Rspack / Turbopack
+            "/_rspack/main.js.map",
+            "/_rspack/runtime.js.map",
+            "/_turbo/main.js.map",
+            "/_turbo/pack/chunks/main.js.map",
+            // Blitz.js
+            "/.blitz/main.js.map",
+            "/.blitz/client.js.map",
+            // RedwoodJS
+            "/build/App.js.map",
+            "/web/dist/App.js.map",
+            "/web/dist/index.js.map",
+            // Docusaurus
+            "/assets/js/main.js.map",
+            "/assets/js/runtime~main.js.map",
+            // Storybook (often deployed with the app for QA)
+            "/storybook-static/main.iframe.bundle.js.map",
+            "/storybook-static/runtime~main.iframe.bundle.js.map",
+            "/storybook/main.iframe.bundle.js.map",
+            // Meteor
+            "/packages/meteor.js.map",
+            "/programs/web.browser/main.js.map",
+            // Elm
+            "/elm.js.map",
+            // Aurelia
+            "/dist/entry-bundle.js.map",
+            // Backbone / older jQuery-era leftovers
+            "/js/main.min.js.map",
+            "/js/app.min.js.map",
+            "/scripts/main.js.map",
+            "/scripts/app.js.map",
+            // Common developer-uploaded backups
+            "/backup/main.js.map",
+            "/old/main.js.map",
+            "/src/index.js.map",
+            "/src/main.js.map",
+            "/js/main.js.map.bak",
+            // Service worker source maps (SW code often ships auth/OTA logic)
+            "/sw.js.map",
+            "/service-worker.js.map",
+            "/serviceWorker.js.map",
+            "/firebase-messaging-sw.js.map",
+            "/OneSignalSDKWorker.js.map",
         ]
     }
 
