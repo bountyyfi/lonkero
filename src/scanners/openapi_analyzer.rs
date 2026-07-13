@@ -49,12 +49,25 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+/// Every hit is content-validated (parse_openapi_spec) before it becomes a finding,
+/// so path breadth here does not translate into false positives.
 const OPENAPI_PATHS: &[&str] = &[
+    // Generic
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api-docs.yml",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    // Versioned Swagger 2 (Springfox / springdoc / drf-yasg style)
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
@@ -63,27 +76,127 @@ const OPENAPI_PATHS: &[&str] = &[
     "/v3/swagger.json",
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    // Docs prefix
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/openapi.yaml",
+    "/docs.json",
+    "/docs.yaml",
+    "/documentation.json",
+    "/documentation/swagger.json",
+    "/documentation/openapi.json",
+    // Springdoc / Spring Boot (production defaults)
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
     "/openapi/v3/api-docs",
+    // Spring Boot Actuator
+    "/actuator/openapi",
+    "/actuator/openapi.json",
+    "/actuator/mappings",
+    // .well-known
+    "/.well-known/openapi",
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    "/.well-known/api-catalog",
+    // NestJS (default when SwaggerModule is enabled)
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    "/api/api-yaml",
+    // Hapi (hapi-swagger default)
+    "/documentation/json",
+    // FastAPI / drf-spectacular defaults
+    "/api/schema",
+    "/api/schema/",
+    "/api/schema/openapi.json",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    // Loopback / Strapi / Directus
+    "/explorer/swagger.json",
+    "/documentation/v1.0.0/openapi.json",
+    "/server/info",
+    // Laravel Scribe / L5-Swagger
+    "/docs/api-docs.json",
+    "/api/documentation.json",
+    // Postman collection surface (often left next to specs)
+    "/postman.json",
+    "/postman/collection.json",
+    "/collection.json",
+    // GraphQL introspection endpoints occasionally return OpenAPI-esque JSON;
+    // parse_openapi_spec will filter these out safely if not actually OpenAPI.
+    // (Left commented intentionally — GraphQL is covered by a dedicated scanner.)
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / OpenAPI viewer paths (HTML surface, informational)
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI stock paths
     "/swagger-ui.html",
-    "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui/index.html",
+    "/swagger-ui/swagger-ui.html",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui/",
+    "/swagger/ui/index.html",
+    "/api/swagger",
+    "/api/swagger/",
+    "/api/swagger-ui",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    // Docs directories
+    "/docs",
     "/docs/",
+    "/docs/index.html",
+    "/api-docs",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/api/documentation",
+    "/documentation",
+    "/documentation/",
+    // Framework-specific defaults
     "/redoc",
+    "/redoc/",
+    "/redoc/index.html",
+    "/api/redoc",
     "/rapidoc",
+    "/rapidoc/",
+    "/scalar",
+    "/scalar/",
+    "/stoplight",
+    // Django REST Framework / drf-spectacular
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // FastAPI defaults
+    "/docs/oauth2-redirect",
+    // Laravel Scribe / L5-Swagger
+    "/api/documentation",
+    "/docs/api",
+    // Strapi legacy docs
+    "/documentation/v1.0.0",
+    // Spring Boot / springdoc UI
+    "/swagger-ui/index.html?configUrl=/v3/api-docs/swagger-config",
+    // Hapi
+    "/documentation",
+    // Explorer variants
+    "/explorer",
+    "/explorer/",
+    "/api-explorer",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
