@@ -189,13 +189,50 @@ impl SourceMapScanner {
 
     /// Generate possible source map URLs for a JS file
     fn generate_map_urls(&self, js_url: &str) -> Vec<String> {
-        vec![
+        let mut candidates = vec![
             format!("{}.map", js_url),
             js_url.replace(".js", ".js.map"),
             js_url.replace(".min.js", ".js.map"),
             js_url.replace(".bundle.js", ".bundle.js.map"),
             format!("{}.map", js_url.replace(".min.js", ".js")),
-        ]
+        ];
+
+        // esbuild / Vite production suffix variants
+        if js_url.ends_with(".mjs") {
+            candidates.push(format!("{}.map", js_url));
+            candidates.push(js_url.replace(".mjs", ".mjs.map"));
+            candidates.push(js_url.replace(".mjs", ".js.map"));
+        }
+        if js_url.ends_with(".cjs") {
+            candidates.push(js_url.replace(".cjs", ".cjs.map"));
+            candidates.push(js_url.replace(".cjs", ".js.map"));
+        }
+        // Common min-suffix variants beyond .min.js
+        if js_url.ends_with(".prod.js") {
+            candidates.push(js_url.replace(".prod.js", ".prod.js.map"));
+            candidates.push(js_url.replace(".prod.js", ".js.map"));
+        }
+        if js_url.ends_with(".esm.js") {
+            candidates.push(js_url.replace(".esm.js", ".esm.js.map"));
+            candidates.push(js_url.replace(".esm.js", ".js.map"));
+        }
+        if js_url.ends_with(".umd.js") {
+            candidates.push(js_url.replace(".umd.js", ".umd.js.map"));
+        }
+        // Chunk hash patterns (foo.abc123.js -> foo.abc123.js.map)
+        if let Some(pos) = js_url.rfind(".js") {
+            let prefix = &js_url[..pos];
+            candidates.push(format!("{}.js.map", prefix));
+        }
+        // CSS bundles frequently accompany JS bundles
+        if js_url.ends_with(".css") {
+            candidates.push(format!("{}.map", js_url));
+        }
+
+        // Deduplicate while preserving order
+        let mut seen = HashSet::new();
+        candidates.retain(|c| seen.insert(c.clone()));
+        candidates
     }
 
     /// Extract sourceMappingURL from JS file
@@ -480,6 +517,121 @@ impl SourceMapScanner {
             // Dev-server maps occasionally shipped to prod
             "/webpack-dev-server.js.map",
             "/static/js/devServer.js.map",
+            // ============================================================
+            // Extended coverage: modern bundlers and frameworks that
+            // frequently ship source maps to production by default.
+            // ============================================================
+            // Astro
+            "/_astro/index.js.map",
+            "/_astro/hoisted.js.map",
+            "/_astro/client.js.map",
+            "/_astro/entry.js.map",
+            "/dist/_astro/index.js.map",
+            "/dist/client/_astro/index.js.map",
+            // Qwik
+            "/build/q-bundle.js.map",
+            "/build/q-manifest.js.map",
+            "/build/entry.js.map",
+            "/build/root.js.map",
+            "/dist/build/q-runtime.js.map",
+            // SolidJS / SolidStart
+            "/_build/assets/index.js.map",
+            "/_build/assets/entry-client.js.map",
+            "/.solid/client.js.map",
+            // Preact / Preact CLI
+            "/bundle.esm.js.map",
+            "/bundle.legacy.js.map",
+            "/preact-app.js.map",
+            "/client.js.map",
+            // Blitz.js
+            "/.blitz/client/main.js.map",
+            "/.blitz/server/main.js.map",
+            // RedwoodJS
+            "/dist/functions/graphql.js.map",
+            "/web/dist/index.js.map",
+            "/web/dist/main.js.map",
+            // Turbopack / Next 14+
+            "/_next/static/chunks/turbopack-runtime.js.map",
+            "/_next/static/chunks/app-pages-internals.js.map",
+            "/_next/static/chunks/main-app-turbopack.js.map",
+            "/_next/static/chunks/fallback/main.js.map",
+            "/_next/static/chunks/webpack-runtime.js.map",
+            "/_next/static/chunks/edge-runtime-webpack.js.map",
+            "/_next/static/chunks/react-server-dom-webpack-client.js.map",
+            "/_next/static/development/_buildManifest.js.map",
+            // Rspack (Bytedance)
+            "/rspack.js.map",
+            "/dist/rspack-runtime.js.map",
+            "/dist/rspack.main.js.map",
+            // esbuild direct output
+            "/out.js.map",
+            "/out/index.js.map",
+            "/dist/out.js.map",
+            "/build/out.js.map",
+            // SWC (used by Next / Vite via plugin)
+            "/dist/swc.js.map",
+            // Snowpack (legacy)
+            "/_dist_/index.js.map",
+            "/_dist_/App.js.map",
+            // Meteor
+            "/packages/modules.js.map",
+            "/packages/modules-runtime.js.map",
+            "/manifest.js.map",
+            // Backbone / RequireJS
+            "/js/main.js.map",
+            "/js/require.js.map",
+            "/js/vendor.js.map",
+            // Adobe AEM clientlibs
+            "/etc.clientlibs/clientlib-base.js.map",
+            "/etc.clientlibs/app-clientlib.js.map",
+            "/etc.clientlibs/clientlib-site.js.map",
+            // Shopify Hydrogen / Oxygen
+            "/dist/worker.js.map",
+            "/dist/client/index.js.map",
+            "/dist/server/entry.js.map",
+            // Storybook (dev leaks in prod-mirror deployments)
+            "/main.iframe.bundle.js.map",
+            "/preview.iframe.bundle.js.map",
+            "/runtime~main.iframe.bundle.js.map",
+            // Docusaurus
+            "/build/assets/js/main.js.map",
+            "/assets/js/main.js.map",
+            "/assets/js/runtime~main.js.map",
+            // MkDocs Material
+            "/assets/javascripts/bundle.js.map",
+            "/assets/javascripts/worker/search.js.map",
+            // Hugo / Jekyll pipelines
+            "/js/site.js.map",
+            "/assets/site.js.map",
+            "/assets/js/site.js.map",
+            // Kotlin/JS (Kotlin Multiplatform)
+            "/kotlin.js.map",
+            "/kotlinx-coroutines-core.js.map",
+            // Elm
+            "/elm.js.map",
+            "/dist/elm.js.map",
+            // ClojureScript
+            "/js/main.js.map",
+            "/js/cljs-runtime/goog.base.js.map",
+            "/js/cljs-runtime.js.map",
+            // ReasonML / ReScript
+            "/lib/js/src/App.bs.js.map",
+            "/lib/js/src/Index.bs.js.map",
+            // Common runtime maps
+            "/runtime.esm.js.map",
+            "/vendors~main.js.map",
+            "/commons~main.js.map",
+            "/vendors~app.js.map",
+            // CSS bundler maps (may leak Tailwind/JIT class names)
+            "/dist/tailwind.css.map",
+            "/assets/tailwind.css.map",
+            "/static/css/tailwind.css.map",
+            "/dist/bootstrap.css.map",
+            "/assets/bootstrap.css.map",
+            "/dist/material.css.map",
+            // WASM asset maps (uncommon but real)
+            "/pkg/index.js.map",
+            "/pkg/module.js.map",
         ]
     }
 

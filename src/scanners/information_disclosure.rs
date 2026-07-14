@@ -228,6 +228,252 @@ impl InformationDisclosureScanner {
             // Java / JSP
             "/WEB-INF/web.xml",
             "/META-INF/MANIFEST.MF",
+            // ================================================================
+            // Extended sensitive-file coverage.
+            // Each entry has a matching signature in detect_sensitive_content()
+            // to keep the false-positive rate low.
+            // ================================================================
+            // Cryptocurrency wallets - impact: direct financial loss
+            "/wallet.dat",
+            "/electrum-wallet",
+            "/keystore",
+            // Java / JVM keystores and cert material
+            "/keystore.jks",
+            "/cacerts.jks",
+            "/truststore.jks",
+            "/keystore.p12",
+            "/keystore.pfx",
+            "/server.p12",
+            "/server.pfx",
+            // Maven / Gradle credentials
+            "/.m2/settings.xml",
+            "/settings.xml",
+            "/gradle.properties",
+            "/.gradle/gradle.properties",
+            // PyPI / Python packaging credentials
+            "/.pypirc",
+            "/pip.conf",
+            "/.pip/pip.conf",
+            "/pyproject.toml",
+            "/Pipfile",
+            "/poetry.lock",
+            // Go modules private auth
+            "/.netrc",
+            "/GOPRIVATE",
+            // Ansible / config-mgmt secrets
+            "/ansible.cfg",
+            "/vault.yml",
+            "/vault_password_file",
+            "/group_vars/all.yml",
+            "/group_vars/all/vault.yml",
+            "/hosts.ini",
+            "/inventory.ini",
+            // Helm / Kubernetes values files with embedded secrets
+            "/values.yaml",
+            "/values-prod.yaml",
+            "/values-production.yaml",
+            "/secrets.yaml",
+            "/secret.yaml",
+            "/sealed-secret.yaml",
+            "/Chart.yaml",
+            // Serverless framework
+            "/serverless.yml",
+            "/serverless.yaml",
+            "/.serverless/serverless-state.json",
+            "/.serverless/cloudformation-template-update-stack.json",
+            // SAM / CDK
+            "/samconfig.toml",
+            "/template.yaml",
+            "/cdk.out/manifest.json",
+            // Additional CI/CD & pipelines
+            "/drone.yml",
+            "/.drone.yml",
+            "/wercker.yml",
+            "/appveyor.yml",
+            "/cloudbuild.yaml",
+            "/codemagic.yaml",
+            "/.github/workflows/deploy.yml",
+            "/.github/workflows/release.yml",
+            "/.github/workflows/ci.yml",
+            // Vagrantfile / provisioning
+            "/Vagrantfile",
+            // Additional WordPress and CMS variants
+            "/wp-config.txt",
+            "/wp-config.php.swp",
+            "/wp-config.php.save",
+            "/wp-config.php~",
+            "/wp-config.php.dist",
+            "/wp-content/debug.log",
+            "/wp-config-sample.php",
+            "/joomla/configuration.php",
+            "/joomla/configuration.php.bak",
+            "/administrator/logs/error.log",
+            "/typo3conf/LocalConfiguration.php",
+            "/typo3conf/AdditionalConfiguration.php",
+            // OctoberCMS / Craft / Ghost
+            "/config/production/database.php",
+            "/config/production/app.php",
+            "/config/db.php",
+            "/config/config.production.json",
+            "/craft/config/db.php",
+            // Rails / Ruby
+            "/config/secrets.yml",
+            "/config/database.yml",
+            "/config/application.yml",
+            "/config/settings.yml",
+            "/.rbenv-vars",
+            "/Gemfile.lock",
+            // Node.js additional
+            "/.node-version",
+            "/.nvmrc",
+            "/pnpm-lock.yaml",
+            "/yarn.lock",
+            "/lerna.json",
+            "/nx.json",
+            // Elixir / Phoenix
+            "/config/prod.secret.exs",
+            "/config/releases.exs",
+            // .NET additional
+            "/appsettings.Development.json",
+            "/appsettings.Staging.json",
+            "/appsettings.Local.json",
+            "/secrets.json",
+            "/user.config",
+            "/machine.config",
+            "/publish-settings.xml",
+            "/PublishProfiles/FolderProfile.pubxml",
+            // Java additional
+            "/WEB-INF/applicationContext.xml",
+            "/WEB-INF/spring-config.xml",
+            "/WEB-INF/classes/hibernate.cfg.xml",
+            "/WEB-INF/classes/application.properties",
+            "/WEB-INF/classes/database.properties",
+            "/WEB-INF/classes/log4j.properties",
+            "/WEB-INF/classes/log4j2.xml",
+            // Grails / Play
+            "/grails-app/conf/application.yml",
+            "/conf/application.conf",
+            // Symfony
+            "/config/parameters.yml",
+            "/app/config/parameters.yml",
+            "/.env.local",
+            "/.env.dev",
+            "/.env.test",
+            // Symfony debug front controllers
+            "/app_dev.php",
+            "/config.php",
+            // GraphQL introspection endpoint alternates commonly exposed
+            "/graphql/schema",
+            "/graphql.schema.json",
+            "/graphql/schema.graphql",
+            // Prisma / DB ORMs
+            "/prisma/schema.prisma",
+            "/prisma/migrations/migration_lock.toml",
+            // Debug/inspection - misc frameworks
+            "/debug/vars",
+            "/debug/pprof",
+            "/debug/pprof/goroutine",
+            "/debug/pprof/heap",
+            "/debug/pprof/profile",
+            // Fastify / Nest.js
+            "/api-docs-json",
+            "/api-json",
+            "/api/health",
+            // Additional Spring Boot Actuator
+            "/actuator/liquibase",
+            "/actuator/flyway",
+            "/actuator/caches",
+            "/actuator/conditions",
+            "/actuator/prometheus",
+            "/actuator/logfile",
+            "/actuator/refresh",
+            "/actuator/bindings",
+            // Consul / Vault UI
+            "/v1/sys/health",
+            "/v1/status/leader",
+            "/v1/agent/self",
+            "/ui/vault/",
+            // Additional secret managers
+            "/.chef/knife.rb",
+            "/.chef/config.rb",
+            "/knife.rb",
+            "/berks-cookbooks/",
+            "/data_bags/",
+            // SMB / Windows
+            "/desktop.ini",
+            // Editor swap files
+            "/.swo",
+            "/.swp",
+            "/.orig",
+            "/.rej",
+            "/.merge_conflict",
+            // Vim swap / backup common paths
+            "/index.php.swp",
+            "/config.php.swp",
+            "/admin.php.swp",
+            // JetBrains additional
+            "/.idea/deployment.xml",
+            "/.idea/webServers.xml",
+            "/.idea/misc.xml",
+            "/.idea/dataSources.local.xml",
+            "/.idea/artifacts/",
+            // VSCode additional
+            "/.vscode/launch.json",
+            "/.vscode/settings.json",
+            "/.vscode/tasks.json",
+            // Rocket.Chat / Mattermost configs
+            "/config.default.json",
+            "/mattermost.json",
+            "/rocketchat.json",
+            // Common HeidiSQL / DBeaver exports
+            "/portable_data.xml",
+            "/DataFiles.xml",
+            // Storage of certificate signing requests / private material
+            "/csr.pem",
+            "/server.csr",
+            "/ca.pem",
+            "/ca-key.pem",
+            "/tls.key",
+            "/tls.crt",
+            // Splunk / Grafana / observability
+            "/etc/splunk/etc/system/local/authentication.conf",
+            "/etc/grafana/grafana.ini",
+            // MinIO/S3-compat config
+            "/.mc/config.json",
+            "/.mc/share/uploads.json",
+            "/.mc/share/downloads.json",
+            // pass (password store)
+            "/.password-store/",
+            // Common env-file variants
+            "/.env.example",
+            "/.env.sample",
+            "/.env.template",
+            "/.env.dist",
+            "/.env.dev",
+            "/env.js",
+            "/env.json",
+            "/config.env",
+            "/config.env.js",
+            // NuxtJS
+            "/.nuxt/dist/server/server.js",
+            "/nuxt.config.js",
+            "/nuxt.config.ts",
+            // Framework diagnostic pages
+            "/rails/info/routes",
+            "/rails/info/properties",
+            "/rails/mailers",
+            "/__debug__/",
+            "/error/exception",
+            // Sentry / New Relic project files
+            "/.sentryclirc",
+            "/newrelic.yml",
+            "/newrelic.ini",
+            // NGINX / Apache config leaks
+            "/nginx.conf",
+            "/httpd.conf",
+            "/apache2.conf",
+            "/sites-enabled/default",
+            "/conf.d/default.conf",
         ];
         let tests_run = sensitive_files.len();
 
@@ -669,6 +915,47 @@ impl InformationDisclosureScanner {
             "/.idea/datasources.local.xml",
             "/.vscode/sftp.json",
             "/sftp-config.json",
+            // Extended critical paths - direct credential/key material
+            "/wallet.dat",
+            "/electrum-wallet",
+            "/keystore.jks",
+            "/cacerts.jks",
+            "/truststore.jks",
+            "/keystore.p12",
+            "/keystore.pfx",
+            "/server.p12",
+            "/server.pfx",
+            "/ca-key.pem",
+            "/tls.key",
+            "/.m2/settings.xml",
+            "/gradle.properties",
+            "/.gradle/gradle.properties",
+            "/.pypirc",
+            "/pip.conf",
+            "/.pip/pip.conf",
+            "/vault_password_file",
+            "/group_vars/all.yml",
+            "/group_vars/all/vault.yml",
+            "/config/secrets.yml",
+            "/config/database.yml",
+            "/config/prod.secret.exs",
+            "/config/releases.exs",
+            "/appsettings.development.json",
+            "/appsettings.staging.json",
+            "/appsettings.local.json",
+            "/secrets.json",
+            "/.chef/knife.rb",
+            "/.mc/config.json",
+            "/.sentryclirc",
+            "/newrelic.yml",
+            "/newrelic.ini",
+            "/wp-config.txt",
+            "/wp-config.php.swp",
+            "/wp-config.php.save",
+            "/wp-config.php.dist",
+            "/joomla/configuration.php.bak",
+            "/typo3conf/localconfiguration.php",
+            "/typo3conf/additionalconfiguration.php",
         ];
         for cp in critical_paths {
             if f.ends_with(cp) || f == *cp {
@@ -949,6 +1236,255 @@ impl InformationDisclosureScanner {
                 || lower.contains("api_key")
                 || lower.contains("_env"))
                 && (body.contains(":") || body.contains("="));
+        }
+
+        // ================================================================
+        // Extended content signatures (low-false-positive by design)
+        // ================================================================
+
+        // Bitcoin / crypto wallets - binary signatures
+        if fname_lower.ends_with("/wallet.dat") {
+            let bytes = body.as_bytes();
+            // Berkeley DB magic (0x00053162 big-endian or 0x62310500 little-endian)
+            // Also allow bare binary heuristic for large payloads.
+            return (bytes.len() >= 4
+                && ((bytes[0] == 0x00 && bytes[1] == 0x05 && bytes[2] == 0x31 && bytes[3] == 0x62)
+                    || (bytes[0] == 0x62 && bytes[1] == 0x31 && bytes[2] == 0x05 && bytes[3] == 0x00)))
+                || body.contains("bitcoin")
+                || body.contains("wkey");
+        }
+
+        // Java/JVM keystores - binary magic 0xFEEDFEED (JKS) or PKCS#12 ASN.1
+        if fname_lower.ends_with(".jks") {
+            let bytes = body.as_bytes();
+            return bytes.len() >= 4
+                && bytes[0] == 0xFE && bytes[1] == 0xED
+                && bytes[2] == 0xFE && bytes[3] == 0xED;
+        }
+        if fname_lower.ends_with(".p12") || fname_lower.ends_with(".pfx") {
+            let bytes = body.as_bytes();
+            // PKCS#12 files start with an ASN.1 SEQUENCE (0x30) and version tag
+            return bytes.len() >= 4 && bytes[0] == 0x30
+                && (bytes[1] == 0x82 || bytes[1] == 0x81 || bytes[1] == 0x80);
+        }
+
+        // Maven settings.xml with credentials
+        if fname_lower.ends_with("/settings.xml")
+            || fname_lower.ends_with("/.m2/settings.xml")
+        {
+            return body.contains("<settings")
+                && (body.contains("<server>")
+                    && (body.contains("<password>")
+                        || body.contains("<privateKey>")
+                        || body.contains("<passphrase>")));
+        }
+
+        // Gradle properties with credentials
+        if fname_lower.ends_with("/gradle.properties")
+            || fname_lower.ends_with("/.gradle/gradle.properties")
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("password")
+                || lower.contains("token")
+                || lower.contains("apikey")
+                || lower.contains("signing.key"))
+                && body.contains("=");
+        }
+
+        // PyPI upload credentials
+        if fname_lower.ends_with("/.pypirc") {
+            return body.contains("[pypi]")
+                || body.contains("[distutils]")
+                || (body.contains("username") && body.contains("password"));
+        }
+
+        // pip config with index URLs (potential creds in URL)
+        if fname_lower.ends_with("/pip.conf")
+            || fname_lower.ends_with("/.pip/pip.conf")
+        {
+            return body.contains("[global]") || body.contains("index-url")
+                || body.contains("extra-index-url");
+        }
+
+        // Ansible vault password / vault-encrypted files
+        if fname_lower.ends_with("/vault_password_file") {
+            let trimmed = body.trim();
+            // Vault password files are typically short single-line secrets;
+            // reject HTML error pages (contain angle brackets or long content).
+            return !trimmed.is_empty()
+                && trimmed.len() < 256
+                && !trimmed.contains('<')
+                && !trimmed.contains('>');
+        }
+        if fname_lower.ends_with("/vault.yml")
+            || fname_lower.ends_with("/group_vars/all/vault.yml")
+            || fname_lower.ends_with("/group_vars/all.yml")
+        {
+            return body.contains("$ANSIBLE_VAULT;")
+                || (body.contains(":") && {
+                    let lower = body.to_lowercase();
+                    lower.contains("password") || lower.contains("api_key")
+                        || lower.contains("secret") || lower.contains("token")
+                });
+        }
+        if fname_lower.ends_with("/ansible.cfg") {
+            return body.contains("[defaults]") || body.contains("inventory")
+                || body.contains("vault_password_file");
+        }
+        if fname_lower.ends_with("/hosts.ini") || fname_lower.ends_with("/inventory.ini") {
+            let lower = body.to_lowercase();
+            return (body.contains("[") && body.contains("]"))
+                && (lower.contains("ansible_host")
+                    || lower.contains("ansible_user")
+                    || lower.contains("ansible_ssh"));
+        }
+
+        // Helm values / K8s secret manifests with real credential material
+        if fname_lower.ends_with("/values.yaml")
+            || fname_lower.ends_with("/values.yml")
+            || fname_lower.ends_with("/values-prod.yaml")
+            || fname_lower.ends_with("/values-production.yaml")
+            || fname_lower.ends_with("/secrets.yaml")
+            || fname_lower.ends_with("/secret.yaml")
+            || fname_lower.ends_with("/sealed-secret.yaml")
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("apiversion:")
+                || lower.contains("kind: secret")
+                || lower.contains("kind: sealedsecret")
+                || body.contains("stringData:")
+                || body.contains("data:"))
+                && (lower.contains("password")
+                    || lower.contains("token")
+                    || lower.contains("apikey")
+                    || lower.contains("api_key")
+                    || lower.contains("secret"));
+        }
+
+        // Serverless framework state (has cloudformation params and env)
+        if fname_lower.contains("/.serverless/serverless-state.json")
+            || fname_lower.contains("/.serverless/cloudformation-template")
+        {
+            return body.contains("\"service\":") && body.contains("\"provider\":")
+                || body.contains("AWS::Lambda::Function");
+        }
+
+        // SAM / CDK
+        if fname_lower.ends_with("/samconfig.toml") {
+            return body.contains("[default.deploy") || body.contains("stack_name");
+        }
+        if fname_lower.contains("/cdk.out/manifest.json") {
+            return body.contains("\"version\":") && body.contains("\"artifacts\":");
+        }
+
+        // Rails secrets.yml / database.yml
+        if fname_lower.ends_with("/config/secrets.yml") {
+            return body.contains("secret_key_base") || body.contains("production:")
+                && body.contains(":");
+        }
+        if fname_lower.ends_with("/config/database.yml") {
+            let lower = body.to_lowercase();
+            return (body.contains("production:") || body.contains("adapter:"))
+                && (lower.contains("password") || lower.contains("username"));
+        }
+
+        // Phoenix / Elixir
+        if fname_lower.ends_with("/config/prod.secret.exs")
+            || fname_lower.ends_with("/config/releases.exs")
+        {
+            return body.contains("System.get_env")
+                || body.contains("secret_key_base")
+                || (body.contains("config :") && body.contains("password:"));
+        }
+
+        // Chef knife
+        if fname_lower.ends_with("/.chef/knife.rb")
+            || fname_lower.ends_with("/knife.rb")
+        {
+            return body.contains("chef_server_url") || body.contains("client_key")
+                || body.contains("node_name");
+        }
+
+        // MinIO client config
+        if fname_lower.ends_with("/.mc/config.json") {
+            return body.contains("\"aliases\":") || body.contains("\"accessKey\":")
+                || body.contains("\"secretKey\":");
+        }
+
+        // Sentry CLI config
+        if fname_lower.ends_with("/.sentryclirc") {
+            return body.contains("[auth]") || body.contains("token=")
+                || body.contains("[defaults]");
+        }
+
+        // New Relic
+        if fname_lower.ends_with("/newrelic.yml") || fname_lower.ends_with("/newrelic.ini") {
+            return body.contains("license_key") || body.contains("app_name");
+        }
+
+        // NGINX / Apache config
+        if fname_lower.ends_with("/nginx.conf") {
+            return body.contains("worker_processes") || body.contains("http {")
+                || body.contains("server {");
+        }
+        if fname_lower.ends_with("/httpd.conf") || fname_lower.ends_with("/apache2.conf") {
+            return body.contains("ServerRoot") || body.contains("<VirtualHost")
+                || body.contains("LoadModule");
+        }
+
+        // TypO3 / Joomla / OctoberCMS
+        if fname_lower.ends_with("/typo3conf/localconfiguration.php")
+            || fname_lower.ends_with("/typo3conf/additionalconfiguration.php")
+        {
+            return body.contains("<?php") && body.contains("'DB'")
+                && (body.contains("'password'") || body.contains("'username'"));
+        }
+
+        // Debug/pprof endpoints - Go runtime
+        if fname_lower.contains("/debug/pprof") {
+            return body.contains("Types of profiles available")
+                || body.contains("goroutine profile:")
+                || body.contains("full goroutine stack dump")
+                || body.starts_with("HTTP/") // profile binary starts differently, HTML index otherwise
+                || body.contains("<a href=\"heap");
+        }
+        if fname_lower.contains("/debug/vars") {
+            return body.contains("\"cmdline\"") && body.contains("\"memstats\"");
+        }
+
+        // Prisma schema
+        if fname_lower.ends_with("/prisma/schema.prisma") {
+            return body.contains("datasource ") && body.contains("provider =")
+                || body.contains("generator client");
+        }
+
+        // Nuxt config
+        if fname_lower.ends_with("/nuxt.config.js")
+            || fname_lower.ends_with("/nuxt.config.ts")
+        {
+            return body.contains("export default") && body.contains("nuxt");
+        }
+
+        // Rails info routes
+        if fname_lower.ends_with("/rails/info/routes") {
+            return body.contains("Helper") && body.contains("HTTP Verb")
+                && body.contains("Path / Url");
+        }
+
+        // Editor swap files - Vim has magic bytes b0 62 30 (\260b0)
+        if fname_lower.ends_with(".swp") || fname_lower.ends_with(".swo") {
+            let bytes = body.as_bytes();
+            return bytes.len() >= 3
+                && bytes[0] == 0xB0 && bytes[1] == 0x62 && bytes[2] == 0x30;
+        }
+
+        // Splunk / Grafana on-disk configs
+        if fname_lower.ends_with("/authentication.conf") {
+            return body.contains("[authentication]") || body.contains("authType");
+        }
+        if fname_lower.ends_with("/grafana.ini") {
+            return body.contains("[server]") || body.contains("[security]")
+                || body.contains("[auth]");
         }
 
         // Use pattern-based detection instead of relying on response similarity
