@@ -49,41 +49,129 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Every path is fetched and passed through `parse_openapi_spec`, which only
+/// returns `Some` on a valid Swagger/OpenAPI document — so adding a path that
+/// happens to 200 with unrelated JSON produces no finding. That property is
+/// what makes it safe to be aggressive with framework-specific defaults below.
 const OPENAPI_PATHS: &[&str] = &[
+    // Spec-root defaults
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/swagger.yaml",
+    "/openapi.yaml",
+    "/openapi.yml",
+    "/swagger.yml",
+    // Swashbuckle (ASP.NET Core) defaults – path is `swagger/<docName>/swagger.json`.
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/v4/swagger.json",
+    "/swagger/api/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // springdoc / springfox — Spring Boot conventions.
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v2/api-docs",
+    "/v2/api-docs.yaml",
+    "/openapi/v3/api-docs",
+    "/api/v3/api-docs",
+    "/actuator/openapi",
+    // NestJS
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    // Loopback
+    "/explorer/swagger.json",
+    // Ktor / Micronaut
+    "/swagger",
+    "/swagger-ui.json",
+    // Versioned API roots
     "/v1/swagger.json",
+    "/v1/openapi.json",
+    "/v1/api-docs",
     "/v2/swagger.json",
+    "/v2/openapi.json",
     "/v3/swagger.json",
+    "/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/swagger.json",
+    "/api/v2/openapi.json",
+    "/api/v3/swagger.json",
+    "/api/v3/openapi.json",
+    // Container-prefixed API subtrees
     "/api/swagger.json",
-    "/api/openapi.json",
+    "/api/swagger.yaml",
+    "/api/openapi.yaml",
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
+    "/documentation/swagger.json",
+    "/documentation/openapi.json",
+    // Ruby (Grape / Rswag)
+    "/api-docs/swagger.json",
+    // Well-known
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    "/.well-known/api-catalog",
+    // Common misconfig – spec left in public asset directory
+    "/static/swagger.json",
+    "/static/openapi.json",
+    "/assets/swagger.json",
+    "/assets/openapi.json",
+    "/public/swagger.json",
+    "/public/openapi.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI paths.
+///
+/// The scanner further requires the response body to contain a UI marker
+/// (`swagger-ui`, `swagger ui`, or `redoc`) before flagging — so paths that
+/// happen to 200 with a generic marketing page don't produce findings.
 const SWAGGER_UI_PATHS: &[&str] = &[
-    "/swagger-ui.html",
-    "/swagger-ui/index.html",
-    "/swagger-ui/",
+    // Swashbuckle (ASP.NET Core) / Springdoc / Springfox
+    "/swagger",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger-ui.html",
+    "/swagger-ui/",
+    "/swagger-ui/index.html",
+    "/webjars/swagger-ui/index.html",
+    // Container-prefixed
+    "/api/swagger",
+    "/api/swagger/",
+    "/api/swagger-ui/",
     "/api/swagger-ui.html",
-    "/docs/",
-    "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/docs",
+    "/docs/",
+    "/documentation",
+    "/documentation/",
+    // ReDoc / Rapidoc / Scalar / Stoplight / Elements
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/scalar",
+    "/scalar/",
+    "/reference",
+    "/reference/",
+    "/elements",
+    "/elements/",
+    // Common misconfig
+    "/api-docs/",
+    "/openapi",
+    "/openapi/",
+    "/explorer",
+    "/explorer/",
 ];
 
 /// Sensitive data patterns to check in examples and defaults

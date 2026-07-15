@@ -57,18 +57,55 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Try common favicon locations.
+        //
+        // The vanilla root paths cover 90% of sites. The remaining entries target the
+        // non-default locations used by admin panels, portals, and CMSes where the
+        // interesting fingerprints (Jenkins, cPanel, Portainer, etc.) actually live —
+        // stock installs frequently serve the app favicon from `/static/`, `/assets/`,
+        // or a framework-specific asset directory rather than from `/favicon.ico`.
         let favicon_paths = vec![
+            // Root defaults
             "/favicon.ico",
             "/favicon.png",
+            "/favicon-32x32.png",
+            "/favicon-16x16.png",
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            // Common asset directories
+            "/static/favicon.ico",
+            "/static/img/favicon.ico",
+            "/static/images/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/img/favicon.ico",
+            "/assets/images/favicon.ico",
+            "/img/favicon.ico",
+            "/images/favicon.ico",
+            "/public/favicon.ico",
+            "/media/favicon.ico",
+            "/dist/favicon.ico",
+            "/build/favicon.ico",
+            // Framework-specific
+            "/_next/static/favicon.ico",
+            "/_nuxt/favicon.ico",
+            // CMS-specific
+            "/wp-content/uploads/favicon.ico",
+            "/sites/default/files/favicon.ico",
+            "/misc/favicon.ico",
+            // Portal / console paths (where admin favicons often sit behind proxies)
+            "/admin/favicon.ico",
+            "/console/favicon.ico",
+            "/manage/favicon.ico",
+            "/portal/favicon.ico",
+            "/app/favicon.ico",
+            "/ui/favicon.ico",
+            "/web/favicon.ico",
         ];
 
-        // Also check for link tags in HTML
+        // Also check for link tags and manifests in HTML.
         tests_run += 1;
         if let Ok(response) = self.http_client.get(url).await {
-            if let Some(favicon_url) = self.extract_favicon_from_html(&response.body, url) {
+            for favicon_url in self.extract_favicon_urls_from_html(&response.body, url) {
                 if let Some(vuln) = self.check_favicon(&favicon_url, &mut tests_run).await {
                     vulnerabilities.push(vuln);
                 }
@@ -205,31 +242,82 @@ impl FaviconHashScanner {
         h1
     }
 
-    /// Extract favicon URL from HTML link tags
+    /// Extract favicon URL from HTML link tags (legacy single-URL helper).
+    #[allow(dead_code)]
     fn extract_favicon_from_html(&self, html: &str, base_url: &str) -> Option<String> {
-        // Look for <link rel="icon" or <link rel="shortcut icon"
-        let re =
-            Regex::new(r#"<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']"#)
-                .ok()?;
+        self.extract_favicon_urls_from_html(html, base_url).into_iter().next()
+    }
 
-        if let Some(cap) = re.captures(html) {
-            if let Some(href) = cap.get(1) {
-                return Some(self.resolve_url(href.as_str(), base_url));
+    /// Extract all icon-like URLs referenced from the HTML head.
+    ///
+    /// Real applications advertise several icons: `<link rel="icon">`, `<link
+    /// rel="shortcut icon">`, `<link rel="apple-touch-icon">`, `<link rel="mask-icon">`
+    /// (Safari pinned tab), and `<meta name="msapplication-TileImage">` for Windows
+    /// tiles. Any one of them can be the canonical branded icon, and the branded one
+    /// is what fingerprints the technology — we collect every hint so the caller can
+    /// hash them all rather than gambling on the first `<link>` tag.
+    fn extract_favicon_urls_from_html(&self, html: &str, base_url: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // <link rel="...icon..." href="...">  (rel before href)
+        if let Ok(re) = Regex::new(
+            r#"(?i)<link[^>]*rel=["'][^"']*(?:shortcut\s+icon|icon|apple-touch-icon(?:-precomposed)?|mask-icon|fluid-icon)[^"']*["'][^>]*href=["']([^"']+)["']"#,
+        ) {
+            for cap in re.captures_iter(html) {
+                if let Some(href) = cap.get(1) {
+                    let resolved = self.resolve_url(href.as_str(), base_url);
+                    if seen.insert(resolved.clone()) {
+                        out.push(resolved);
+                    }
+                }
             }
         }
 
-        // Try alternate format: href before rel
-        let re2 =
-            Regex::new(r#"<link[^>]*href=["']([^"']+)["'][^>]*rel=["'](?:shortcut )?icon["']"#)
-                .ok()?;
-
-        if let Some(cap) = re2.captures(html) {
-            if let Some(href) = cap.get(1) {
-                return Some(self.resolve_url(href.as_str(), base_url));
+        // <link ... href="..." rel="...icon...">  (href before rel)
+        if let Ok(re) = Regex::new(
+            r#"(?i)<link[^>]*href=["']([^"']+)["'][^>]*rel=["'][^"']*(?:shortcut\s+icon|icon|apple-touch-icon(?:-precomposed)?|mask-icon|fluid-icon)[^"']*["']"#,
+        ) {
+            for cap in re.captures_iter(html) {
+                if let Some(href) = cap.get(1) {
+                    let resolved = self.resolve_url(href.as_str(), base_url);
+                    if seen.insert(resolved.clone()) {
+                        out.push(resolved);
+                    }
+                }
             }
         }
 
-        None
+        // <meta name="msapplication-TileImage" content="...">
+        if let Ok(re) = Regex::new(
+            r#"(?i)<meta[^>]*name=["']msapplication-TileImage["'][^>]*content=["']([^"']+)["']"#,
+        ) {
+            for cap in re.captures_iter(html) {
+                if let Some(href) = cap.get(1) {
+                    let resolved = self.resolve_url(href.as_str(), base_url);
+                    if seen.insert(resolved.clone()) {
+                        out.push(resolved);
+                    }
+                }
+            }
+        }
+
+        // <link rel="manifest" href="..."> — the manifest lists more icons but we
+        // don't fetch it here; the calling code can add it to a follow-up pass.
+        if let Ok(re) = Regex::new(
+            r#"(?i)<link[^>]*rel=["']manifest["'][^>]*href=["']([^"']+)["']"#,
+        ) {
+            for cap in re.captures_iter(html) {
+                if let Some(href) = cap.get(1) {
+                    let resolved = self.resolve_url(href.as_str(), base_url);
+                    if seen.insert(resolved.clone()) {
+                        out.push(resolved);
+                    }
+                }
+            }
+        }
+
+        out
     }
 
     /// Get known favicon signatures
@@ -619,6 +707,47 @@ mod tests {
         let favicon = scanner.extract_favicon_from_html(html, "https://example.com");
         assert!(favicon.is_some());
         assert!(favicon.unwrap().contains("favicon.ico"));
+    }
+
+    #[test]
+    fn test_favicon_extraction_collects_all_hints() {
+        // A realistic head block references several distinct icon URLs.
+        // The extractor must return every one so the scanner can hash them all —
+        // the branded fingerprint often lives in the apple-touch-icon or tile
+        // image rather than the root /favicon.ico stub.
+        let html = r##"
+            <html>
+            <head>
+                <link rel="icon" type="image/png" sizes="32x32" href="/assets/icon-32.png">
+                <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple.png">
+                <link rel="mask-icon" href="/assets/mask.svg" color="#000">
+                <meta name="msapplication-TileImage" content="/assets/tile.png">
+                <link rel="manifest" href="/manifest.json">
+            </head>
+            </html>
+        "##;
+        let scanner = FaviconHashScanner::new(Arc::new(
+            crate::http_client::HttpClient::new(5000, 3).unwrap(),
+        ));
+        let urls = scanner.extract_favicon_urls_from_html(html, "https://example.com");
+        assert!(urls.iter().any(|u| u.ends_with("/assets/icon-32.png")));
+        assert!(urls.iter().any(|u| u.ends_with("/assets/apple.png")));
+        assert!(urls.iter().any(|u| u.ends_with("/assets/mask.svg")));
+        assert!(urls.iter().any(|u| u.ends_with("/assets/tile.png")));
+        assert!(urls.iter().any(|u| u.ends_with("/manifest.json")));
+    }
+
+    #[test]
+    fn test_favicon_extraction_deduplicates() {
+        let html = r#"
+            <link rel="icon" href="/favicon.ico">
+            <link rel="shortcut icon" href="/favicon.ico">
+        "#;
+        let scanner = FaviconHashScanner::new(Arc::new(
+            crate::http_client::HttpClient::new(5000, 3).unwrap(),
+        ));
+        let urls = scanner.extract_favicon_urls_from_html(html, "https://example.com");
+        assert_eq!(urls.len(), 1);
     }
 
     #[test]
