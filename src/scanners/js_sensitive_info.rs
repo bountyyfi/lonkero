@@ -1221,6 +1221,228 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // Hugging Face - distinctive "hf_" prefix + 34 alphanumeric = 37 chars
+                CompiledPattern {
+                    name: "Hugging Face User Access Token".to_string(),
+                    regex: Regex::new(r#"\bhf_[a-zA-Z]{34}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Hugging Face user access token found - grants read/write access to \
+                        private models, datasets, and Spaces on the account. Can be abused for \
+                        inference billing and to exfiltrate private ML artifacts.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Groq - distinctive gsk_ prefix
+                CompiledPattern {
+                    name: "Groq API Key".to_string(),
+                    regex: Regex::new(r#"\bgsk_[A-Za-z0-9]{52}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Groq API key found - allows unlimited LLM inference calls that bill the \
+                        account owner. High risk of billing abuse.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Perplexity - distinctive pplx- prefix
+                CompiledPattern {
+                    name: "Perplexity API Key".to_string(),
+                    regex: Regex::new(r#"\bpplx-[A-Za-z0-9]{40,64}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Perplexity API key found - billing abuse via search/LLM API.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // xAI Grok - distinctive xai- prefix, fixed length
+                CompiledPattern {
+                    name: "xAI Grok API Key".to_string(),
+                    regex: Regex::new(r#"\bxai-[A-Za-z0-9]{80}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "xAI (Grok) API key found - billing abuse via Grok LLM API.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks Personal Access Token - dapi + 32 hex
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"\bdapi[a-f0-9]{32}(?:-\d)?\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token found - grants API access to the \
+                        workspace, jobs, clusters, notebooks and secrets scopes for the token owner.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Replicate - r8_ prefix
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"\br8_[A-Za-z0-9]{37,45}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token found - allows model inference billed to the \
+                        account owner.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Fireworks AI - fw_ prefix
+                CompiledPattern {
+                    name: "Fireworks AI API Key".to_string(),
+                    regex: Regex::new(r#"\bfw_[A-Za-z0-9]{22,32}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Fireworks AI API key found - LLM/inference billing abuse.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PostHog Personal Key - phx_ prefix (private)
+                CompiledPattern {
+                    name: "PostHog Personal API Key".to_string(),
+                    regex: Regex::new(r#"\bphx_[A-Za-z0-9]{43}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PostHog personal API key found - grants full account access to \
+                        projects, events, insights and feature flags.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Xata API key - xau_ prefix
+                CompiledPattern {
+                    name: "Xata API Key".to_string(),
+                    regex: Regex::new(r#"\bxau_[A-Za-z0-9]{37,45}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Xata API key found - grants database read/write access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Brevo / SendinBlue - xkeysib- + hex + - + alnum
+                CompiledPattern {
+                    name: "Brevo/SendinBlue API Key".to_string(),
+                    regex: Regex::new(r#"\bxkeysib-[a-f0-9]{64}-[A-Za-z0-9]{16}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Brevo/SendinBlue transactional email API key found - allows sending \
+                        emails from the account's domain, enabling phishing.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Alibaba Cloud Access Key ID - LTAI prefix
+                CompiledPattern {
+                    name: "Alibaba Cloud Access Key ID".to_string(),
+                    regex: Regex::new(r#"\bLTAI[A-Za-z0-9]{16,24}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Alibaba Cloud (Aliyun) access key ID found - paired with a secret \
+                        grants full cloud account access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Tencent Cloud SecretId - AKID prefix
+                CompiledPattern {
+                    name: "Tencent Cloud SecretId".to_string(),
+                    regex: Regex::new(r#"\bAKID[A-Za-z0-9]{13,32}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tencent Cloud SecretId found - paired with a secret key grants \
+                        full cloud account access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Yandex OAuth Token - y0_ prefix
+                CompiledPattern {
+                    name: "Yandex OAuth Token".to_string(),
+                    regex: Regex::new(r#"\by0_[A-Za-z0-9_-]{55,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Yandex OAuth token found - grants access to Yandex services \
+                        (Cloud, Disk, Passport) for the account owner.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // EasyPost API key - EZTK (test) or EZAK (live)
+                CompiledPattern {
+                    name: "EasyPost API Key".to_string(),
+                    regex: Regex::new(r#"\bEZ(?:AK|TK)[A-Za-z0-9]{54}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "EasyPost API key found - allows creating shipping labels and \
+                        accessing address data on the account.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Amazon MWS Auth Token - amzn.mws. prefix with UUID
+                CompiledPattern {
+                    name: "Amazon MWS Auth Token".to_string(),
+                    regex: Regex::new(r#"\bamzn\.mws\.[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Amazon Marketplace Web Service auth token found - grants seller \
+                        account API access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adafruit IO - aio_ prefix
+                CompiledPattern {
+                    name: "Adafruit IO Key".to_string(),
+                    regex: Regex::new(r#"\baio_[A-Za-z0-9]{28}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Adafruit IO key found - grants access to IoT feeds on the account.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Anthropic Admin Key - sk-ant-admin
+                CompiledPattern {
+                    name: "Anthropic Admin API Key".to_string(),
+                    regex: Regex::new(r#"\bsk-ant-admin[0-9]{2}-[A-Za-z0-9_-]{80,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Anthropic ADMIN API key found - organization-level control over \
+                        workspaces, members, invites and API keys. Higher blast radius than a normal \
+                        API key.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Anthropic Session Key - sk-ant-sid
+                CompiledPattern {
+                    name: "Anthropic Session Key".to_string(),
+                    regex: Regex::new(r#"\bsk-ant-sid[0-9]{2}-[A-Za-z0-9_-]{80,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Anthropic session ID key found - authenticates as a console user \
+                        session; broader than an API key.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Fly.io machine token - "FlyV1 fm2_" prefix
+                CompiledPattern {
+                    name: "Fly.io Machine Token".to_string(),
+                    regex: Regex::new(r#"FlyV1\s+fm2_[A-Za-z0-9_,/=+-]{80,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Fly.io token found - allows management of Fly.io apps and secrets \
+                        for the org.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GCP OAuth Refresh Token - starts with 1// followed by 0 and long b64url
+                CompiledPattern {
+                    name: "GCP OAuth Refresh Token".to_string(),
+                    regex: Regex::new(r#"\b1//0[A-Za-z0-9_-]{60,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Google OAuth 2.0 refresh token found - can be exchanged for \
+                        long-lived access to Google APIs on behalf of the user.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Turso auth token (JWT with turso context)
+                CompiledPattern {
+                    name: "Turso Auth Token".to_string(),
+                    regex: Regex::new(r#"(?i)turso[_-]?(?:auth[_-]?)?token\s*[=:]\s*['\"]eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Turso database auth token found - grants full SQL access to the \
+                        libSQL database.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Convex deploy key
+                CompiledPattern {
+                    name: "Convex Deploy Key".to_string(),
+                    regex: Regex::new(r#"(?i)convex[_-]?(?:deploy[_-]?)?key\s*[=:]\s*['\"][A-Za-z0-9_|-]{40,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Convex deploy key found - allows redeploying backend functions \
+                        and accessing production data.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // OpenAI Service Account key (sk-svcacct-...)
+                CompiledPattern {
+                    name: "OpenAI Service Account Key".to_string(),
+                    regex: Regex::new(r#"\bsk-svcacct-[A-Za-z0-9_-]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI service account API key found - project-scoped credential \
+                        for billing abuse.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // OpenAI Project key (sk-proj-...)
+                CompiledPattern {
+                    name: "OpenAI Project Key".to_string(),
+                    regex: Regex::new(r#"\bsk-proj-[A-Za-z0-9_-]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI project-scoped API key found - allows LLM/embedding calls \
+                        billed to the project owner.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Kubernetes Service Account Token (JWT with kubernetes.io/serviceaccount)
+                CompiledPattern {
+                    name: "Kubernetes Service Account Token".to_string(),
+                    regex: Regex::new(r#"eyJhbGciOi[A-Za-z0-9_-]{4,}\.eyJ[A-Za-z0-9_-]*a3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudA[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Kubernetes service account JWT found - grants in-cluster API \
+                        access with the bound service account's roles. High blast radius.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {
