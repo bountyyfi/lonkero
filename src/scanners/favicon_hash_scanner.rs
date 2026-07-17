@@ -462,6 +462,337 @@ impl FaviconHashScanner {
                 description: "Nagios monitoring system",
                 severity: Severity::Low,
             },
+            // Additional high-value fingerprints - admin, secrets, and data-plane UIs
+            FaviconSignature {
+                hash: 1993258599,
+                technology: "Adminer",
+                description: "Adminer database management tool - often exposed unauthenticated and \
+                    is a common entry point for full DB compromise",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -2013897620,
+                technology: "phpPgAdmin",
+                description: "phpPgAdmin PostgreSQL administration interface",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1567909955,
+                technology: "HashiCorp Vault",
+                description: "HashiCorp Vault UI - central secrets store; unauthenticated access \
+                    is critical (sealed/unsealed status can leak via unauth endpoints)",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1499968083,
+                technology: "HashiCorp Consul",
+                description: "HashiCorp Consul UI - service registry and KV store; often unauth by \
+                    default and exposes service topology + secrets in KV",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1420683008,
+                technology: "HashiCorp Nomad",
+                description: "HashiCorp Nomad UI - workload scheduler; unauthenticated access can \
+                    expose job specs and allow arbitrary workload submission",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1058140245,
+                technology: "MinIO Console",
+                description: "MinIO S3-compatible object storage console - default creds \
+                    (minioadmin:minioadmin) are extremely common",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1717336840,
+                technology: "Portainer",
+                description: "Portainer Docker/Kubernetes management UI - if not initialized within \
+                    5min of first boot, allows attacker to claim admin",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1279946909,
+                technology: "Rancher",
+                description: "Rancher Kubernetes management platform - full cluster control",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1051885198,
+                technology: "Kubernetes Dashboard",
+                description: "Kubernetes Dashboard - historically shipped with cluster-admin \
+                    ServiceAccount; unauth exposure = full cluster compromise (CVE-2018-1002105 class)",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1521640213,
+                technology: "Argo CD",
+                description: "Argo CD GitOps continuous delivery UI - can push arbitrary manifests \
+                    to the cluster if creds obtained",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1737502172,
+                technology: "Argo Workflows",
+                description: "Argo Workflows UI - can execute arbitrary container workloads",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 850018313,
+                technology: "Prometheus",
+                description: "Prometheus metrics server - /api/v1/targets and /metrics leak infra \
+                    topology, container names, service labels, and often internal IPs",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1699047426,
+                technology: "Alertmanager",
+                description: "Prometheus Alertmanager - alert routing exposes internal service \
+                    names, on-call routing, and webhook URLs (Slack/PagerDuty)",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1298109625,
+                technology: "Nexus Repository",
+                description: "Sonatype Nexus artifact repository - default admin creds \
+                    (admin:admin123) common; leads to internal package compromise",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1857273226,
+                technology: "JFrog Artifactory",
+                description: "JFrog Artifactory - internal package registry; /api/repositories often \
+                    unauth on legacy versions and reveals internal package names",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -2036864329,
+                technology: "Splunk",
+                description: "Splunk Enterprise - default admin creds (admin:changeme) common on \
+                    fresh installs; access to indexed logs = massive data exposure",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -378324656,
+                technology: "Apache Airflow",
+                description: "Apache Airflow - task orchestration; DAGs often contain hardcoded \
+                    credentials and Variables/Connections store secrets",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1706449340,
+                technology: "RabbitMQ Management",
+                description: "RabbitMQ Management UI - default guest:guest works only from \
+                    localhost, but reverse-proxied exposures are common",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 664486148,
+                technology: "Kong Manager",
+                description: "Kong API Gateway admin UI - full route/plugin/consumer control \
+                    including auth configuration",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1854781041,
+                technology: "Traefik Dashboard",
+                description: "Traefik proxy dashboard - reveals routing topology and backend \
+                    services; often exposed without auth",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1450597758,
+                technology: "Rundeck",
+                description: "Rundeck job automation - default admin:admin common; jobs often \
+                    run as root and store credentials",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1717884847,
+                technology: "TeamCity",
+                description: "JetBrains TeamCity CI - CVE-2023-42793 style auth bypasses have \
+                    exposed thousands of instances to RCE",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1330270998,
+                technology: "Atlassian Bamboo",
+                description: "Atlassian Bamboo CI/CD server",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1266936073,
+                technology: "Concourse CI",
+                description: "Concourse CI - pipelines contain credentials and can run arbitrary \
+                    container workloads",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1274830312,
+                technology: "Gitea",
+                description: "Gitea self-hosted Git service - often internal-only and exposes \
+                    private repositories if reachable",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1965614496,
+                technology: "Gogs",
+                description: "Gogs self-hosted Git service - self-registration often left enabled",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1440739283,
+                technology: "Bitwarden/Vaultwarden",
+                description: "Bitwarden/Vaultwarden password manager - self-registration + weak \
+                    password policy commonly left enabled",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -297069493,
+                technology: "Superset",
+                description: "Apache Superset BI dashboards - CVE-2023-27524 default SECRET_KEY \
+                    allowed session forgery; also stores warehouse credentials",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1749729186,
+                technology: "Metabase",
+                description: "Metabase BI - CVE-2023-38646 pre-auth RCE affected thousands; \
+                    stores DB connection creds",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1450098056,
+                technology: "Redash",
+                description: "Redash BI/SQL query tool - stores warehouse credentials and query \
+                    results",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1904044820,
+                technology: "Apache Solr Admin",
+                description: "Apache Solr admin UI - Log4Shell (CVE-2021-44228) and multiple RCEs \
+                    make unauth exposure critical",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1907520601,
+                technology: "Apache Kafka UI (Kafdrop)",
+                description: "Kafka topic browser - exposes topic names and message payloads which \
+                    frequently contain PII and secrets",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1961485178,
+                technology: "Docker Registry UI",
+                description: "Docker Registry v2 UI - /v2/_catalog often unauth and reveals \
+                    internal image names; images may leak build-time secrets",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1301701136,
+                technology: "JupyterHub/Notebook",
+                description: "Jupyter Notebook - if reachable without token, allows arbitrary \
+                    Python execution (RCE)",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1720647404,
+                technology: "MLflow",
+                description: "MLflow tracking server - CVE-2023-6014/6015 arbitrary file read; \
+                    also exposes model artifacts and training data paths",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1866988296,
+                technology: "OpenSearch Dashboards",
+                description: "OpenSearch Dashboards (Elasticsearch fork) - access to indexed logs",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -395030163,
+                technology: "Longhorn",
+                description: "Longhorn Kubernetes storage UI - can attach/detach volumes with \
+                    unauthenticated access",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1729263850,
+                technology: "Uptime Kuma",
+                description: "Uptime Kuma monitoring - status pages leak internal endpoint URLs",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: 1258881000,
+                technology: "PhotoPrism",
+                description: "PhotoPrism self-hosted photo library - default admin:photoprism common",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1547817921,
+                technology: "Ollama",
+                description: "Ollama LLM server - /api/tags exposes locally-loaded models; API is \
+                    unauth by default and allows arbitrary generation",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1701695064,
+                technology: "n8n",
+                description: "n8n workflow automation - stores credentials for many third-party \
+                    services; self-registration often left enabled",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1594487022,
+                technology: "GeoServer",
+                description: "GeoServer - CVE-2024-36401 pre-auth RCE affected many instances",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1926799690,
+                technology: "Ivanti Connect Secure",
+                description: "Ivanti Connect Secure VPN - repeated pre-auth RCEs (CVE-2023-46805, \
+                    CVE-2024-21887) make internet-exposed instances high-risk",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 743365239,
+                technology: "Citrix ADC / NetScaler",
+                description: "Citrix NetScaler - CitrixBleed (CVE-2023-4966) session hijack and \
+                    CVE-2019-19781 (Shitrix) history",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1893486547,
+                technology: "F5 BIG-IP",
+                description: "F5 BIG-IP management interface - CVE-2020-5902 / CVE-2022-1388 pre-auth RCEs",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 890708983,
+                technology: "SonicWall",
+                description: "SonicWall management interface",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1595699875,
+                technology: "Cisco ASA",
+                description: "Cisco ASA VPN/firewall - CVE-2018-0101 pre-auth RCE + ongoing SSL VPN issues",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1997160437,
+                technology: "SolarWinds Orion",
+                description: "SolarWinds Orion - SUNBURST supply-chain compromise history; \
+                    management interfaces should never be internet-facing",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1017316606,
+                technology: "PRTG Network Monitor",
+                description: "PRTG - CVE-2023-32781 command injection; also exposes network topology",
+                severity: Severity::Medium,
+            },
         ]
     }
 

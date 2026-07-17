@@ -1221,6 +1221,251 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // === Additional high-value tokens (distinctive fixed prefixes / structural formats) ===
+                // Slack Bot/User/Refresh tokens - distinctive xox[a-z]- prefixes; the "Slack Webhook"
+                // entry above only matches webhook URLs, not tokens themselves
+                CompiledPattern {
+                    name: "Slack Bot Token".to_string(),
+                    // xoxb-<team>-<user>-<secret> - workspace-wide bot access
+                    regex: Regex::new(r#"xoxb-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack bot token found - workspace-wide API access as the bot user".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack User Token".to_string(),
+                    // xoxp-<team>-<user>-<install>-<secret> - full user impersonation
+                    regex: Regex::new(r#"xoxp-\d{10,13}-\d{10,13}-\d{10,13}-[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack user token found - impersonates the user across the workspace".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack App Configuration Token".to_string(),
+                    regex: Regex::new(r#"xoxe\.xoxp-\d+-[A-Za-z0-9-]{100,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack app configuration token found - allows manifest edits to any app the user administers".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack Legacy Workspace Token".to_string(),
+                    regex: Regex::new(r#"xox[aor]-\d+-\d+-\d+-[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack legacy token (xoxa/xoxo/xoxr) found - broad workspace access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // AWS Session/temporary tokens - always start with ASIA and use a session token
+                CompiledPattern {
+                    name: "AWS Temporary Access Key (ASIA)".to_string(),
+                    regex: Regex::new(r#"ASIA[0-9A-Z]{16}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "AWS STS temporary access key found - usually paired with a session token; \
+                        exposure implies a leaked credential chain, often from EC2 metadata or role assumption".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Cognito Identity Pool IDs are structural and 100% high-signal
+                CompiledPattern {
+                    name: "AWS Cognito Identity Pool ID".to_string(),
+                    // e.g. us-east-1:12345678-1234-1234-1234-123456789012
+                    regex: Regex::new(r#"(?:us|eu|ap|sa|ca|me|af)-(?:north|south|east|west|central|northeast|northwest|southeast|southwest)-\d:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "AWS Cognito Identity Pool ID found - if the pool allows unauthenticated \
+                        identities it can grant IAM role access to arbitrary internet users".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // AWS resource ARNs - useful for pivoting
+                CompiledPattern {
+                    name: "AWS IAM Role/User ARN".to_string(),
+                    regex: Regex::new(r#"arn:aws:iam::\d{12}:(?:role|user|group|policy)/[a-zA-Z0-9+=,.@_/-]{1,64}"#).unwrap(),
+                    severity: Severity::Low,
+                    description: "AWS IAM ARN found - reveals account ID and role/user names for social engineering / role assumption attempts".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Databricks personal access token
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"\bdapi[a-f0-9]{32}(?:-\d)?\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token found - allows arbitrary notebook execution and \
+                        access to attached data lakes".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Snowflake password/URL exposure - JDBC URLs uniquely embed account identifiers
+                CompiledPattern {
+                    name: "Snowflake JDBC URL with Credentials".to_string(),
+                    regex: Regex::new(r#"jdbc:snowflake://[a-zA-Z0-9_.-]+\.snowflakecomputing\.com/?\?[^\s'"<>]*(?:password|private_key|user)=[^\s&'"<>]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Snowflake JDBC URL with embedded credentials found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PyPI upload token - unmistakable structure
+                CompiledPattern {
+                    name: "PyPI Upload Token".to_string(),
+                    // Real tokens start with pypi-AgEIcHlwaS5vcmc (base64 of macaroon header)
+                    regex: Regex::new(r#"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{70,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PyPI upload token found - allows attacker to publish malicious versions of the org's packages (supply-chain compromise)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // NPM registry auth token in .npmrc format (distinct from npm_ personal tokens)
+                CompiledPattern {
+                    name: "NPM .npmrc Auth Token".to_string(),
+                    regex: Regex::new(r#"//[a-zA-Z0-9.-]+/:_authToken=[A-Za-z0-9_/+=.-]{20,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "npm registry _authToken (.npmrc format) found - can publish packages under the org's scope".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord Bot Token - three base64 segments separated by dots
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    // Snowflake user id (17-19 digits, base64: 24 chars) . timestamp . hmac
+                    regex: Regex::new(r#"[MN][A-Za-z\d]{23}\.[\w-]{6}\.[\w-]{27,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token found - full control over the bot including any server it is in".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Segment source write key with context
+                CompiledPattern {
+                    name: "Segment Source Write Key (context)".to_string(),
+                    regex: Regex::new(r#"(?i)(?:segment|write)[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-zA-Z0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Segment write key found - can inject arbitrary events into the analytics pipeline".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // DocuSign integration key + user pattern
+                CompiledPattern {
+                    name: "DocuSign Integration Key".to_string(),
+                    regex: Regex::new(r#"(?i)docusign[_-]?(?:integration[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "DocuSign integration key found - envelope signing and template access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Sumologic Collector URL
+                CompiledPattern {
+                    name: "Sumo Logic HTTP Collector URL".to_string(),
+                    regex: Regex::new(r#"https://endpoint\d+\.collection\.[a-z0-9.-]+\.sumologic\.com/receiver/v1/http/[A-Za-z0-9=]+"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Sumo Logic HTTP collector URL found - allows arbitrary log injection into the org's SIEM".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Datadog client tokens (RUM) - clientToken format is distinct from api/app keys
+                CompiledPattern {
+                    name: "Datadog RUM Client Token".to_string(),
+                    regex: Regex::new(r#"\bpub[a-f0-9]{32}\b"#).unwrap(),
+                    severity: Severity::Low,
+                    description: "Datadog RUM client token found (public; leaks project topology)".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // GitHub App installation tokens (ghs_) - separate from ghp/gho/ghu/ghr
+                CompiledPattern {
+                    name: "GitHub App Installation Token".to_string(),
+                    regex: Regex::new(r#"\bghs_[A-Za-z0-9]{36,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub App installation access token found - full access to installed repositories".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adafruit IO key (specific header context)
+                CompiledPattern {
+                    name: "Adafruit IO Key".to_string(),
+                    regex: Regex::new(r#"(?i)(?:adafruit|aio)[_-]?(?:io[_-]?)?key\s*[=:]\s*['\"]aio_[a-zA-Z0-9]{28}['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Adafruit IO key found - IoT MQTT access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // OpenAI project-scoped keys (newer format)
+                CompiledPattern {
+                    name: "OpenAI Project API Key".to_string(),
+                    regex: Regex::new(r#"sk-proj-[A-Za-z0-9_-]{48,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI project-scoped API key found - billing abuse risk".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Groq / Together / Perplexity / Fireworks
+                CompiledPattern {
+                    name: "Groq API Key".to_string(),
+                    regex: Regex::new(r#"gsk_[A-Za-z0-9]{52}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Groq API key found - LLM inference billing abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Together AI API Key".to_string(),
+                    regex: Regex::new(r#"(?i)together[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{64}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Together AI API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Perplexity API Key".to_string(),
+                    regex: Regex::new(r#"pplx-[A-Za-z0-9]{48,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Perplexity API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Fireworks AI API Key".to_string(),
+                    regex: Regex::new(r#"fw_[A-Za-z0-9]{24,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Fireworks AI API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "HuggingFace User Access Token".to_string(),
+                    regex: Regex::new(r#"hf_[A-Za-z]{34,40}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "HuggingFace access token found - can push/pull private models and datasets".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"r8_[A-Za-z0-9]{37,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token found - inference billing abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // JWT signing secrets in obvious context (not the JWT tokens themselves)
+                CompiledPattern {
+                    name: "Django SECRET_KEY".to_string(),
+                    regex: Regex::new(r#"SECRET_KEY\s*=\s*['\"][^'\"]{40,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Django SECRET_KEY exposed - allows session forgery, password-reset token forgery, and cookie tampering".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Flask/Werkzeug secret_key".to_string(),
+                    regex: Regex::new(r#"(?i)(?:app\.secret_key|SESSION_SECRET|FLASK_SECRET)\s*=\s*['\"][^'\"]{20,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Flask secret_key exposed - session cookie forgery".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Rails secret_key_base".to_string(),
+                    regex: Regex::new(r#"(?i)secret_key_base\s*[=:]\s*['\"][a-f0-9]{128}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Rails secret_key_base exposed - CVE-2019-5420 style RCE via signed cookie tampering".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "ASP.NET MachineKey".to_string(),
+                    regex: Regex::new(r#"<machineKey[^>]*(?:validationKey|decryptionKey)\s*=\s*['\"][A-F0-9]{40,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "ASP.NET machineKey found - ViewState deserialization = RCE".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "JWT Signing Secret".to_string(),
+                    regex: Regex::new(r#"(?i)(?:jwt|jsonwebtoken)[_-]?secret\s*[=:]\s*['\"][^'\"]{20,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "JWT signing secret found - allows attacker to forge any JWT (impersonation, privilege escalation)".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "SAML Signing Private Key Path".to_string(),
+                    regex: Regex::new(r#"(?i)(?:saml|idp)[_-]?(?:private|signing)[_-]?key\s*[=:]\s*['\"]-----BEGIN"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "SAML/IdP signing private key inline - allows assertion forgery for full SSO impersonation".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {
