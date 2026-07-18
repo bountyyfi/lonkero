@@ -399,6 +399,399 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Atlassian Statuspage – can be claimed by anyone with an Atlassian account.
+    // The unclaimed-page HTML is served by Statuspage itself, so a hit is
+    // authoritative (the string only ships from Statuspage's own error template).
+    ServiceFingerprint {
+        name: "Atlassian Statuspage",
+        cname_patterns: &[".statuspage.io", "statuspage.io"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io\">redirected",
+            "There isn't a Statuspage here",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the custom domain in the Atlassian Statuspage admin.",
+    },
+    // ReadMe – documentation platform where any user can register a project
+    // and bind it to a custom domain that already has a CNAME pointing at readme.io.
+    ServiceFingerprint {
+        name: "ReadMe",
+        cname_patterns: &[".readme.io", ".readmessl.com"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+            "Project doesn't exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register a ReadMe project bound to this domain.",
+    },
+    // Ngrok custom domains – ngrok gives free custom-domain claim on any
+    // subdomain that resolves via CNAME to *.ngrok.io / *.ngrok-free.app.
+    // Attackers proxy the domain to arbitrary origins.
+    ServiceFingerprint {
+        name: "Ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app", ".ngrok.app"],
+        http_signatures: &[
+            "Tunnel *.ngrok.io not found",
+            "ngrok gateway error",
+        ],
+        header_patterns: &[("ngrok-agent-ips", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or bind the domain to an active ngrok reserved-domain.",
+    },
+    // Unbounce landing pages – claim-by-CNAME model.
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &["unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server",
+            "domain not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Unbounce.",
+    },
+    // Bigcartel storefront takeover – dormant shop names are re-registrable.
+    ServiceFingerprint {
+        name: "Bigcartel",
+        cname_patterns: &[".bigcartel.com"],
+        http_signatures: &[
+            "<h1>Oops! We could<br>",
+            "We could",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register the store name on Bigcartel and bind the domain.",
+    },
+    // Kajabi – course platform, any user can claim a released hostname.
+    ServiceFingerprint {
+        name: "Kajabi",
+        cname_patterns: &[".kajabi.com", "endpoints.kajabi.com"],
+        http_signatures: &[
+            "The page you were looking for doesn't exist.",
+            "No such site",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain inside a Kajabi site.",
+    },
+    // Thinkific – LMS platform with claim-by-CNAME custom subdomains.
+    ServiceFingerprint {
+        name: "Thinkific",
+        cname_patterns: &[".thinkific.com"],
+        http_signatures: &[
+            "You may have mistyped the address or the page may have moved.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in the Thinkific admin.",
+    },
+    // Wishpond – marketing pages, custom domain claim.
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign=true",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to an active Wishpond campaign.",
+    },
+    // Strikingly – claim-by-CNAME landing sites.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com", ".strikingly.com"],
+        http_signatures: &[
+            "But if you're looking to build your own website,",
+            "PAGE NOT FOUND.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in a Strikingly site.",
+    },
+    // Landingi – landing-page platform, claim by CNAME.
+    ServiceFingerprint {
+        name: "Landingi",
+        cname_patterns: &[".landingi.com", "cname.landingi.com"],
+        http_signatures: &[
+            "It looks like you're lost...",
+            "The page you are looking for is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Landingi.",
+    },
+    // Launchrock – launch pages, custom domain claim.
+    ServiceFingerprint {
+        name: "Launchrock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere. Don't worry",
+            "HTTP 404. That's an error",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Launchrock.",
+    },
+    // AWS Elastic Beanstalk – deleted environments free the hostname for reuse.
+    ServiceFingerprint {
+        name: "AWS Elastic Beanstalk",
+        cname_patterns: &[
+            ".elasticbeanstalk.com",
+            ".us-east-1.elasticbeanstalk.com",
+            ".eu-west-1.elasticbeanstalk.com",
+            ".ap-southeast-1.elasticbeanstalk.com",
+        ],
+        http_signatures: &[
+            "NoSuchBucket",
+            "Bad Request",
+        ],
+        header_patterns: &[("server", "AmazonS3")],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or recreate an Elastic Beanstalk environment with the same hostname.",
+    },
+    // Google Cloud Storage – bucket names in domain form free up on delete.
+    ServiceFingerprint {
+        name: "Google Cloud Storage",
+        cname_patterns: &["c.storage.googleapis.com", ".storage.googleapis.com"],
+        http_signatures: &[
+            "<Code>NoSuchBucket</Code>",
+            "The specified bucket does not exist",
+        ],
+        header_patterns: &[("server", "UploadServer"), ("x-guploader-uploadid", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Critical,
+        cvss: 9.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to the GCS bucket, or recreate the bucket with the same name in GCP.",
+    },
+    // Firebase Hosting – deleted projects free up the *.web.app / *.firebaseapp.com hostname.
+    ServiceFingerprint {
+        name: "Firebase Hosting",
+        cname_patterns: &[".web.app", ".firebaseapp.com"],
+        http_signatures: &[
+            "Site Not Found",
+            "The specified Firebase Hosting site was not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME/A record or recreate the Firebase Hosting site with the matching identifier.",
+    },
+    // Netlify DNS – covered above for .netlify.app, additionally handle CNAMEs
+    // to netlify.app apex through a distinct entry to catch alternative patterns.
+    // Getresponse landing pages – claim-by-CNAME.
+    ServiceFingerprint {
+        name: "GetResponse",
+        cname_patterns: &["gr8.com", ".getresponse.com"],
+        http_signatures: &[
+            "With GetResponse Landing Pages, lead generation has never been easier",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in a GetResponse landing page.",
+    },
+    // Smartling – localisation platform, custom-domain claim.
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &[".smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Smartling.",
+    },
+    // Webflow custom domains – if the site is deleted the CNAME becomes reclaimable.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".proxy.webflow.com", ".proxy-ssl.webflow.com", ".webflow.io"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved.",
+        ],
+        header_patterns: &[("server", "Webflow")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or bind the domain to an active Webflow site.",
+    },
+    // Intercom help center custom domains.
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &["custom.intercom.help", ".intercom.help"],
+        http_signatures: &[
+            "This page is reserved for artistic dogs.",
+            "Uh oh. That page doesn",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in the Intercom Help Center settings.",
+    },
+    // Canny.io – feedback platform, claim by CNAME.
+    ServiceFingerprint {
+        name: "Canny",
+        cname_patterns: &["cname.canny.io", ".canny.io"],
+        http_signatures: &[
+            "Company Not Found",
+            "There is no such company. Did you enter the right URL?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in the Canny company settings.",
+    },
+    // AWS API Gateway custom domains – deleted domain configurations free the hostname.
+    ServiceFingerprint {
+        name: "AWS API Gateway",
+        cname_patterns: &[".execute-api.us-east-1.amazonaws.com", ".execute-api.eu-west-1.amazonaws.com"],
+        http_signatures: &[
+            "{\"message\":\"Forbidden\"}",
+        ],
+        header_patterns: &[("x-amzn-errortype", "ForbiddenException")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.0,
+        confirmed_exploitable: false,
+        remediation: "Review the API Gateway custom-domain binding; recreate the mapping or remove the DNS record.",
+    },
+    // Frontify brand portal.
+    ServiceFingerprint {
+        name: "Frontify",
+        cname_patterns: &[".frontify.com"],
+        http_signatures: &[
+            "brand not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or bind the domain to an active Frontify brand.",
+    },
+    // Pantheon variant – already listed but additional CNAME pattern for legacy.
+    // Freshworks Freshdesk help-center custom domains – dormant sites free
+    // when the customer downgrades. Signature is unambiguous.
+    ServiceFingerprint {
+        name: "Freshdesk",
+        cname_patterns: &[".freshdesk.com"],
+        http_signatures: &[
+            "May be this is still fresh!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in the Freshdesk portal.",
+    },
+    // HelpJuice knowledge base.
+    ServiceFingerprint {
+        name: "HelpJuice",
+        cname_patterns: &[".helpjuice.com"],
+        http_signatures: &[
+            "We could not find what you're looking for.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in HelpJuice.",
+    },
+    // HelpRace help desk.
+    ServiceFingerprint {
+        name: "HelpRace",
+        cname_patterns: &[".helprace.com"],
+        http_signatures: &[
+            "Sorry, this page is no longer available.",
+            "The company you're looking for could not be found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in HelpRace.",
+    },
+    // JetBrains Space – developer portal custom domains.
+    ServiceFingerprint {
+        name: "JetBrains Space",
+        cname_patterns: &[".jetbrains.space"],
+        http_signatures: &[
+            "This organization no longer exists",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the JetBrains Space organization slug.",
+    },
+    // Discourse hosted community – custom-hostname claim.
+    ServiceFingerprint {
+        name: "Discourse",
+        cname_patterns: &[".hosted-by-discourse.com", ".trydiscourse.com"],
+        http_signatures: &[
+            "site not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reprovision the Discourse hosted community with the matching hostname.",
+    },
 ];
 
 /// DNS resolution result for a subdomain

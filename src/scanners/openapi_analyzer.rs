@@ -49,41 +49,184 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI / Swagger / API-spec documents are served.
+///
+/// Ordering is deliberate: cheap high-signal defaults first, framework-specific
+/// paths grouped together after. All entries return a machine-readable document
+/// (JSON or YAML) — HTML UI paths live in `SWAGGER_UI_PATHS` below.
+///
+/// A hit here is unambiguous: the parser downstream validates that the response
+/// is a spec by requiring `swagger`, `openapi`, `asyncapi` or a top-level `paths`
+/// field, so a coincidental JSON body cannot masquerade as a spec.
 const OPENAPI_PATHS: &[&str] = &[
+    // Historic defaults
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api/api-docs",
+    "/api/api-docs.json",
+    // Springfox / Springdoc default paths
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // Versioned spec locations
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    // Nested under /api or /docs
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/v1/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/swagger.json",
+    "/api/v2/openapi.json",
+    "/api/v3/swagger.json",
+    "/api/v3/openapi.json",
+    "/api/docs/swagger.json",
+    "/api/docs/openapi.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
+    "/docs/openapi.yaml",
+    "/docs/spec",
+    "/docs/spec.json",
+    // FastAPI / Starlette
+    "/openapi",
+    "/openapi.json",
     "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    // Django REST Framework (drf-spectacular / drf-yasg)
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    // Golang go-swagger / gin-swagger
+    "/swagger/doc.json",
+    "/swagger/index.json",
+    "/swagger/swagger.json",
+    // NestJS / Node.js
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    "/api/api-yaml",
+    // gRPC-Gateway
+    "/openapiv2/api.swagger.json",
+    "/openapiv2/api.swagger.yaml",
+    // Well-known locations
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    "/.well-known/openapi",
+    "/.well-known/api-catalog",
+    // AsyncAPI (event-driven APIs — same disclosure blast radius)
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/api/asyncapi.json",
+    "/api/asyncapi.yaml",
+    // Postman collection served from origin (leaks env & auth examples)
+    "/postman-collection.json",
+    "/collection.json",
+    "/postman.json",
+    // WSDL (SOAP) — same class of disclosure for legacy stacks
+    "/service.svc?wsdl",
+    "/service.asmx?wsdl",
+    "/api?wsdl",
+    "/soap?wsdl",
+    "/services?wsdl",
+    // RAML / API Blueprint
+    "/api.raml",
+    "/apiary.apib",
+    "/api.apib",
 ];
 
-/// Common Swagger UI paths
+/// Common HTML "try-it-out" UI paths for API specs.
+///
+/// A live UI here almost always renders a downstream spec — the parser will
+/// follow it via the standard `<link rel="swagger">` / `swagger-config` chain.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI 2.x / 3.x defaults
     "/swagger-ui.html",
-    "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui/index.html",
+    "/swagger-ui/dist/index.html",
     "/swagger/",
+    "/swagger",
+    "/swagger/index.html",
+    "/swagger/ui",
+    "/swagger/ui/index",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/swagger",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    // Django REST Framework built-in browsable API
+    "/api/",
+    "/api/v1/",
+    "/api/v2/",
+    // FastAPI defaults
+    "/docs",
     "/docs/",
+    "/redoc",
+    "/redoc/",
+    // Kong Insomnia / RapidDoc
+    "/rapidoc",
+    "/rapidoc.html",
+    // Stoplight
+    "/stoplight",
+    "/stoplight/",
+    "/reference",
+    "/reference/",
+    // Legacy / generic
     "/api-docs/",
     "/api/docs",
-    "/redoc",
-    "/rapidoc",
+    "/api/docs/",
+    "/documentation",
+    "/documentation/",
+    "/help",
+    "/help/",
+    // NestJS Swagger default
+    "/api",
+    // Explorer variants
+    "/explorer",
+    "/explorer/",
+    "/api/explorer",
+    "/api-explorer",
+    "/api-explorer/",
+    // gRPC-Gateway / grpc-web
+    "/openapiv2/",
+    // OData $metadata (leaks entire entity model, comparable to a spec)
+    "/odata/$metadata",
+    "/api/odata/$metadata",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
