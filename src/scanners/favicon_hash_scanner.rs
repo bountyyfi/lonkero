@@ -298,12 +298,6 @@ impl FaviconHashScanner {
                 description: "Default Ruby on Rails favicon",
                 severity: Severity::Info,
             },
-            FaviconSignature {
-                hash: 81586312,
-                technology: "Spring Boot",
-                description: "Default Spring Boot favicon - check for exposed actuator endpoints",
-                severity: Severity::Low,
-            },
             // CMS
             FaviconSignature {
                 hash: -335242539,
@@ -462,6 +456,172 @@ impl FaviconHashScanner {
                 description: "Nagios monitoring system",
                 severity: Severity::Low,
             },
+            // ================================================================
+            // High-signal admin / DevOps panels — all hashes below are public
+            // mmh3(base64(favicon)) values documented in Nuclei
+            // favicon-detections templates and Shodan community catalogs.
+            // ================================================================
+            // Database admin panels — direct DB access if left open.
+            FaviconSignature {
+                hash: 1408562555,
+                technology: "Adminer",
+                description: "Adminer database administration UI (SQL/MySQL/PostgreSQL/MSSQL). \
+                              Confirm auth is enforced; open panels grant full DB access.",
+                severity: Severity::High,
+            },
+            // Container orchestration
+            FaviconSignature {
+                hash: -1394798055,
+                technology: "Portainer",
+                description: "Portainer container management UI. Unauthenticated instances \
+                              typically expose root-equivalent access to the Docker daemon.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1699060050,
+                technology: "Kubernetes Dashboard",
+                description: "Kubernetes Dashboard exposed. If service-account tokens are cached, \
+                              full cluster control is reachable from the browser.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1595799944,
+                technology: "Rancher",
+                description: "Rancher multi-cluster management UI. Misconfigured instances \
+                              can expose cluster-admin credentials and shell access.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1717626440,
+                technology: "Node-RED",
+                description: "Node-RED flow editor. Without authentication, arbitrary \
+                              server-side code execution is available through function nodes.",
+                severity: Severity::High,
+            },
+            // CI/CD & DevOps
+            FaviconSignature {
+                hash: -1962062032,
+                technology: "Apache Airflow",
+                description: "Apache Airflow scheduler UI. Open instances allow triggering \
+                              or defining arbitrary DAGs, often with server-side code execution.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1971800150,
+                technology: "Argo CD",
+                description: "Argo CD GitOps controller. Exposed instances can push \
+                              cluster changes and reveal repository credentials.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1519389803,
+                technology: "Metabase",
+                description: "Metabase analytics dashboard. Historically vulnerable \
+                              (CVE-2023-38646 pre-auth RCE); verify version and auth.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 620944576,
+                technology: "Rundeck",
+                description: "Rundeck job scheduler UI. Exposed instances may allow \
+                              running arbitrary scripts on registered nodes.",
+                severity: Severity::High,
+            },
+            // Artifact / package repositories — supply-chain risk.
+            FaviconSignature {
+                hash: 1298816983,
+                technology: "Sonatype Nexus Repository",
+                description: "Sonatype Nexus Repository Manager. Unauthenticated writes \
+                              or CVE-2024-4956 path traversal often exposed credentials.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -2043818566,
+                technology: "JFrog Artifactory",
+                description: "JFrog Artifactory. Public read access may expose internal \
+                              build artifacts, npm/PyPI/Maven packages, and configuration.",
+                severity: Severity::Medium,
+            },
+            // Observability & log dashboards
+            FaviconSignature {
+                hash: 2007530674,
+                technology: "Splunk",
+                description: "Splunk Enterprise login page. Default credentials \
+                              (admin/changeme) still work on many installations.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1785010732,
+                technology: "Prometheus",
+                description: "Prometheus monitoring UI. Exposed metrics endpoints \
+                              frequently leak internal service names, hostnames, and versions.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1105083927,
+                technology: "Netdata",
+                description: "Netdata real-time monitoring dashboard. Exposed instances \
+                              disclose process lists, network flows, and host telemetry.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1949398120,
+                technology: "Apache Zeppelin",
+                description: "Apache Zeppelin notebook. Public paragraphs can execute \
+                              arbitrary code against the connected interpreters.",
+                severity: Severity::High,
+            },
+            // Secrets management
+            FaviconSignature {
+                hash: -670855399,
+                technology: "HashiCorp Vault",
+                description: "HashiCorp Vault UI. Confirm the instance is sealed and \
+                              network-restricted; unseal keys and root tokens must not be reachable.",
+                severity: Severity::High,
+            },
+            // Network / hardware management interfaces — physical / OOB access.
+            FaviconSignature {
+                hash: -967132020,
+                technology: "Cisco ASA",
+                description: "Cisco ASA / AnyConnect VPN admin. Historically targeted \
+                              (CVE-2020-3452, CVE-2018-0296) for credential and config leaks.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1961610003,
+                technology: "Dell iDRAC",
+                description: "Dell iDRAC out-of-band management. Exposed iDRACs grant \
+                              BIOS-level access to the host — treat as critical.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 782226051,
+                technology: "HP iLO",
+                description: "HP iLO out-of-band management. Exposed iLOs grant BIOS-level \
+                              access to the host — treat as critical.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1265477051,
+                technology: "Supermicro IPMI",
+                description: "Supermicro IPMI/BMC. Long history of hard-coded credential \
+                              and firmware CVEs; exposure equates to server takeover.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1591257837,
+                technology: "Citrix ADC / NetScaler",
+                description: "Citrix ADC/NetScaler Gateway. Targeted by CVE-2023-4966 \
+                              (session hijack) and CVE-2019-19781 (RCE).",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1928914040,
+                technology: "Ivanti / Pulse Connect Secure",
+                description: "Ivanti Connect Secure / Pulse Secure VPN. Repeatedly \
+                              exploited (CVE-2023-46805, CVE-2024-21887); patch and verify.",
+                severity: Severity::High,
+            },
         ]
     }
 
@@ -480,6 +640,8 @@ impl FaviconHashScanner {
         sig: FaviconSignature,
     ) -> Vulnerability {
         let cvss = match &sig.severity {
+            Severity::Critical => 9.1,
+            Severity::High => 7.5,
             Severity::Medium => 5.3,
             Severity::Low => 3.1,
             _ => 0.0,
