@@ -57,12 +57,52 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Try common favicon locations. Many admin/internal apps expose their
+        // default icon under a framework-specific path even when the root is
+        // hidden behind a reverse proxy or SPA shell.
         let favicon_paths = vec![
+            // Canonical
             "/favicon.ico",
             "/favicon.png",
+            "/favicon.svg",
+            "/favicon-16x16.png",
+            "/favicon-32x32.png",
+            "/favicon-96x96.png",
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            "/apple-touch-icon-120x120.png",
+            "/apple-touch-icon-180x180.png",
+            "/mstile-144x144.png",
+            "/mstile-150x150.png",
+            "/safari-pinned-tab.svg",
+            "/android-chrome-192x192.png",
+            "/android-chrome-512x512.png",
+            // Framework / CMS defaults - path itself is a strong technology hint
+            "/static/favicon.ico",
+            "/static/img/favicon.ico",
+            "/static/images/favicon.ico",
+            "/static/assets/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/img/favicon.ico",
+            "/assets/images/favicon.ico",
+            "/public/favicon.ico",
+            "/images/favicon.ico",
+            "/img/favicon.ico",
+            "/dist/favicon.ico",
+            "/build/favicon.ico",
+            "/_next/static/favicon.ico",
+            "/_nuxt/favicon.ico",
+            // Admin / management console default mounts
+            "/admin/favicon.ico",
+            "/admin/static/favicon.ico",
+            "/manager/favicon.ico",
+            "/manager/html/favicon.ico",
+            "/wp-admin/images/favicon.ico",
+            "/user/login/favicon.ico",
+            "/system/favicon.ico",
+            "/console/favicon.ico",
+            "/dashboard/favicon.ico",
+            "/portal/favicon.ico",
         ];
 
         // Also check for link tags in HTML
@@ -205,12 +245,16 @@ impl FaviconHashScanner {
         h1
     }
 
-    /// Extract favicon URL from HTML link tags
+    /// Extract favicon URL from HTML link tags.
+    /// Covers the common `rel` variants a browser will honor for the tab icon:
+    /// `icon`, `shortcut icon`, `alternate icon`, `mask-icon`, `apple-touch-icon`,
+    /// `apple-touch-icon-precomposed`, `fluid-icon`, `SHORTCUT ICON`, etc.
     fn extract_favicon_from_html(&self, html: &str, base_url: &str) -> Option<String> {
-        // Look for <link rel="icon" or <link rel="shortcut icon"
-        let re =
-            Regex::new(r#"<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']"#)
-                .ok()?;
+        // `rel` before `href`
+        let re = Regex::new(
+            r#"(?i)<link[^>]*\brel\s*=\s*["'](?:shortcut icon|alternate icon|icon|mask-icon|apple-touch-icon(?:-precomposed)?|fluid-icon)["'][^>]*\bhref\s*=\s*["']([^"']+)["']"#,
+        )
+        .ok()?;
 
         if let Some(cap) = re.captures(html) {
             if let Some(href) = cap.get(1) {
@@ -218,10 +262,11 @@ impl FaviconHashScanner {
             }
         }
 
-        // Try alternate format: href before rel
-        let re2 =
-            Regex::new(r#"<link[^>]*href=["']([^"']+)["'][^>]*rel=["'](?:shortcut )?icon["']"#)
-                .ok()?;
+        // `href` before `rel`
+        let re2 = Regex::new(
+            r#"(?i)<link[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*\brel\s*=\s*["'](?:shortcut icon|alternate icon|icon|mask-icon|apple-touch-icon(?:-precomposed)?|fluid-icon)["']"#,
+        )
+        .ok()?;
 
         if let Some(cap) = re2.captures(html) {
             if let Some(href) = cap.get(1) {

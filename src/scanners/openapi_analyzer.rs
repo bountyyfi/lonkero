@@ -51,6 +51,7 @@ mod uuid {
 
 /// Common paths where OpenAPI specs are served
 const OPENAPI_PATHS: &[&str] = &[
+    // Canonical Swagger/OpenAPI JSON
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,10 +71,94 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // YAML equivalents at conventional locations
+    "/openapi.yml",
+    "/swagger.yml",
+    "/api-docs.yml",
+    "/api/openapi.yaml",
+    "/api/openapi.yml",
+    "/api/swagger.yaml",
+    "/api/swagger.yml",
+    "/docs/openapi.yaml",
+    "/docs/openapi.yml",
+    "/docs/swagger.yaml",
+    "/docs/swagger.yml",
+    "/spec/openapi.json",
+    "/spec/swagger.json",
+    "/spec/openapi.yaml",
+    "/spec/swagger.yaml",
+    "/schema/openapi.json",
+    "/schema/swagger.json",
+    // Springdoc / Springfox conventions
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/v2/api-docs-ext",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    "/api-docs/v1",
+    "/api-docs/v2",
+    "/api-docs/v3",
+    // FastAPI / Starlette / Django-Rest-Framework conventions
+    "/openapi",
+    "/api/openapi",
+    "/api/schema",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/openapi",
+    "/schema.json",
+    "/schema.yaml",
+    // ASP.NET / NSwag
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // Well-known conventions
+    "/.well-known/openapi",
+    "/.well-known/openapi.yaml",
+    "/.well-known/api",
+    "/.well-known/api.json",
+    // Common backend framework doc paths
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/internal/openapi.json",
+    "/internal/swagger.json",
+    "/private/openapi.json",
+    "/private/swagger.json",
+    "/admin/openapi.json",
+    "/admin/swagger.json",
+    // Postman collection exports occasionally shipped publicly
+    "/postman.json",
+    "/postman_collection.json",
+    "/collection.json",
+    "/postman/collection.json",
+    "/docs/postman.json",
+    "/docs/postman_collection.json",
+    // Insomnia workspace / OpenAPI exports
+    "/insomnia.json",
+    "/insomnia_export.json",
+    "/docs/insomnia.json",
+    // RAML / API Blueprint occasionally used alongside OpenAPI
+    "/api.raml",
+    "/apiary.apib",
+    "/blueprint.apib",
+    // AsyncAPI (event-driven, high value for internal event streams)
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/asyncapi.yml",
+    "/asyncapi/asyncapi.json",
 ];
 
 /// Common Swagger UI paths
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Classic Swagger UI
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
@@ -84,6 +169,58 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Versioned Swagger UI
+    "/swagger-ui/v1/",
+    "/swagger-ui/v2/",
+    "/swagger-ui/v3/",
+    "/v1/swagger-ui/",
+    "/v2/swagger-ui/",
+    "/v3/swagger-ui/",
+    "/api/v1/swagger-ui.html",
+    "/api/v2/swagger-ui.html",
+    "/api/v3/swagger-ui.html",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    // FastAPI defaults (docs=Swagger UI, redoc=ReDoc)
+    "/docs",
+    "/redoc/",
+    "/api/redoc",
+    "/api/v1/redoc",
+    "/api/v2/redoc",
+    // ReDoc / RapiDoc / Elements common mounts
+    "/redoc.html",
+    "/api/redoc.html",
+    "/docs/redoc",
+    "/elements",
+    "/api/elements",
+    "/stoplight",
+    // Django REST framework
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // GraphQL playgrounds and interactive UIs (often reveal full schema)
+    "/graphiql",
+    "/graphiql/",
+    "/graphql/graphiql",
+    "/graphql-playground",
+    "/graphql/playground",
+    "/playground",
+    "/graphql/voyager",
+    "/voyager",
+    "/altair",
+    "/graphql/altair",
+    "/graphql-explorer",
+    "/graphql/console",
+    // Internal / admin variants
+    "/internal/docs",
+    "/internal/swagger",
+    "/internal/swagger-ui/",
+    "/admin/docs",
+    "/admin/swagger",
+    "/admin/swagger-ui/",
+    "/dev/docs",
+    "/dev/swagger",
+    "/staging/docs",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -1287,12 +1424,19 @@ impl OpenApiAnalyzer {
                 Ok(response) => {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
-                        if body_lower.contains("swagger-ui")
+                        let is_openapi_ui = body_lower.contains("swagger-ui")
                             || body_lower.contains("swagger ui")
                             || body_lower.contains("redoc")
                             || body_lower.contains("rapidoc")
                             || body_lower.contains("api documentation")
-                        {
+                            || body_lower.contains("stoplight-elements")
+                            || body_lower.contains("elements-api");
+                        let is_graphql_ui = body_lower.contains("graphiql")
+                            || body_lower.contains("graphql playground")
+                            || body_lower.contains("graphql-playground")
+                            || body_lower.contains("graphql voyager")
+                            || body_lower.contains("altair graphql");
+                        if is_openapi_ui {
                             vulnerabilities.push(self.create_vulnerability(
                                 "OpenAPI Documentation UI Exposed",
                                 base_url,
@@ -1302,6 +1446,16 @@ impl OpenApiAnalyzer {
                                 &ui_url,
                             ));
                             break; // Only report one UI exposure
+                        } else if is_graphql_ui {
+                            vulnerabilities.push(self.create_vulnerability(
+                                "GraphQL IDE Exposed",
+                                base_url,
+                                &format!("An interactive GraphQL IDE (GraphiQL/Playground/Voyager/Altair) is publicly reachable at {}. These UIs typically enable introspection and let attackers enumerate the full schema, mutations, and admin operations.", ui_url),
+                                Severity::Medium,
+                                "CWE-200",
+                                &ui_url,
+                            ));
+                            break;
                         }
                     }
                 }
@@ -1402,6 +1556,9 @@ impl OpenApiAnalyzer {
             }
             "OpenAPI Documentation UI Exposed" => {
                 "Restrict access to API documentation in production environments. Consider requiring authentication for documentation access or hosting it on internal networks only.".to_string()
+            }
+            "GraphQL IDE Exposed" => {
+                "Disable GraphiQL, GraphQL Playground, Voyager, and Altair in production. If interactive documentation is required, gate it behind authentication and disable introspection for unauthenticated clients.".to_string()
             }
             _ => {
                 "Review your OpenAPI specification for security best practices. Consult OWASP API Security Top 10 and the OpenAPI Specification security guidelines.".to_string()

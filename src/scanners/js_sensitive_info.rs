@@ -1221,6 +1221,258 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // Slack tokens - the xox* family has a fixed vendor prefix and
+                // three dash-separated segments, so the pattern is strict and
+                // does not need a variable-name anchor.
+                CompiledPattern {
+                    name: "Slack Bot Token".to_string(),
+                    regex: Regex::new(r#"xoxb-\d{10,}-\d{10,}-[A-Za-z0-9]{20,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack bot token found - allows workspace API access on the bot's behalf".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack User Token".to_string(),
+                    regex: Regex::new(r#"xoxp-\d{10,}-\d{10,}-\d{10,}-[A-Za-z0-9]{20,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack user token found - impersonates the token owner across the workspace".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack App-Level Token".to_string(),
+                    regex: Regex::new(r#"xapp-\d+-[A-Z0-9]{8,}-\d{10,}-[a-f0-9]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack app-level (xapp-) token found - grants Socket Mode / Events API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack Configuration Token".to_string(),
+                    regex: Regex::new(r#"xoxe\.xox[pb]-\d+-\d{10,}-\d{10,}-\d{10,}-[a-f0-9]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack configuration/refresh token (xoxe.*) found - can mint new access tokens".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack Legacy Token".to_string(),
+                    regex: Regex::new(r#"xox[aros]-\d+-\d+-\d+-[a-f0-9]{32,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack legacy (xoxa/xoxr/xoxo/xoxs) token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub fine-grained PAT ("github_pat_..." with a fixed 22-char
+                // suffix + underscore + 59-char payload) is distinct from the
+                // classic ghp_/gho_/ghu_/ghs_/ghr_ family already covered.
+                CompiledPattern {
+                    name: "GitHub Fine-Grained PAT".to_string(),
+                    regex: Regex::new(r#"github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub fine-grained personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Google Cloud OAuth 2.0 client secret has a fixed
+                // `GOCSPX-` prefix followed by exactly 28 URL-safe chars.
+                CompiledPattern {
+                    name: "Google OAuth Client Secret".to_string(),
+                    regex: Regex::new(r#"GOCSPX-[A-Za-z0-9_-]{28}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Google OAuth 2.0 client secret found (GOCSPX-) - must never be exposed to browsers".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GCP API keys (`AIza...`) are already covered; add the
+                // service-account email which is often paired with an
+                // adjacent private key file.
+                CompiledPattern {
+                    name: "GCP Service Account Email".to_string(),
+                    regex: Regex::new(r#"[a-z0-9][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}\.iam\.gserviceaccount\.com"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "GCP service account email found - pairs with a private key for silent auth".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // AWS session/user identifiers not previously covered.
+                // AKIA is covered; ASIA prefixes short-lived STS creds and
+                // AIDA identifies IAM users in IAM policies/logs.
+                CompiledPattern {
+                    name: "AWS Temporary Access Key (ASIA)".to_string(),
+                    regex: Regex::new(r#"\bASIA[0-9A-Z]{16}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "AWS temporary (STS) access key ID found - typically paired with a session token".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "AWS IAM User Unique ID (AIDA)".to_string(),
+                    regex: Regex::new(r#"\bAIDA[0-9A-Z]{16}\b"#).unwrap(),
+                    severity: Severity::Low,
+                    description: "AWS IAM user unique ID (AIDA...) found - discloses internal IAM principal identifier".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                CompiledPattern {
+                    name: "AWS Session Token".to_string(),
+                    regex: Regex::new(r#"(?i)aws[_-]?session[_-]?token\s*[=:]\s*['\"][A-Za-z0-9/+=]{100,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "AWS session token assignment found - short-lived credential exposed client-side".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Twilio Account SID (AC + 32 hex) pairs with an Auth Token
+                // to grant full account access; the SID by itself is a strong
+                // indicator that the paired secret is nearby.
+                CompiledPattern {
+                    name: "Twilio Account SID".to_string(),
+                    // Assignment-anchored: bare "AC[hex]{32}" collides with
+                    // arbitrary lowercase hex strings that happen to begin
+                    // with "AC", so require a Twilio/SID-shaped variable name.
+                    regex: Regex::new(r#"(?i)(?:twilio[_-]?)?account[_-]?sid\s*[=:]\s*['\"]AC[a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Twilio Account SID (AC...) found - grants full account access if paired with the Auth Token".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // OpenAI now issues project- and service-account-scoped keys
+                // (`sk-proj-...`, `sk-svcacct-...`) that the generic OpenAI
+                // pattern misses.
+                CompiledPattern {
+                    name: "OpenAI Project API Key".to_string(),
+                    regex: Regex::new(r#"sk-proj-[A-Za-z0-9_-]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI project-scoped API key (sk-proj-) found - billable and inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "OpenAI Service Account Key".to_string(),
+                    regex: Regex::new(r#"sk-svcacct-[A-Za-z0-9_-]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI service-account API key (sk-svcacct-) found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // HuggingFace user access tokens (`hf_...`) grant repo and
+                // inference API access; the prefix is distinctive.
+                CompiledPattern {
+                    name: "HuggingFace Access Token".to_string(),
+                    // HF tokens are alphanumeric (letters + digits), commonly
+                    // 37 chars after `hf_`. Accept 34-40 to cover length drift.
+                    regex: Regex::new(r#"\bhf_[A-Za-z0-9]{34,40}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HuggingFace user access token (hf_) found - repo and inference API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"\br8_[A-Za-z0-9]{36,40}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token (r8_) found - billable model inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Groq API Key".to_string(),
+                    regex: Regex::new(r#"\bgsk_[A-Za-z0-9]{52}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Groq API key (gsk_) found - billable inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "xAI (Grok) API Key".to_string(),
+                    // xAI keys are ~80 chars; accept 60+ to tolerate variants.
+                    regex: Regex::new(r#"\bxai-[A-Za-z0-9]{60,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "xAI Grok API key (xai-) found - billable inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Perplexity API Key".to_string(),
+                    regex: Regex::new(r#"\bpplx-[A-Za-z0-9]{48,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Perplexity API key (pplx-) found - billable inference access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PyPI upload tokens have a fixed `pypi-AgEIcHlwaS5vcmc` prefix
+                // (base64 of "pypi.org") and are highly abusable for supply-chain attacks.
+                CompiledPattern {
+                    name: "PyPI Upload Token".to_string(),
+                    regex: Regex::new(r#"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{70,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PyPI upload token (pypi-) found - can publish malicious package versions".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "RubyGems API Key".to_string(),
+                    regex: Regex::new(r#"\brubygems_[a-f0-9]{48}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "RubyGems API key (rubygems_) found - can publish malicious gem versions".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks personal access tokens (`dapi` + 32 hex).
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"\bdapi[a-f0-9]{32}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token (dapi) found - workspace API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adobe I/O client secrets are prefixed `p8e-`.
+                CompiledPattern {
+                    name: "Adobe I/O Client Secret".to_string(),
+                    regex: Regex::new(r#"\bp8e-[A-Za-z0-9_-]{32,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Adobe I/O client secret (p8e-) found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Fly.io tokens start with `fo1_` (org/user) and are commonly
+                // pasted into scripts/CI where they should never appear.
+                CompiledPattern {
+                    name: "Fly.io Deploy Token".to_string(),
+                    regex: Regex::new(r#"\bfo1_[A-Za-z0-9_-]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Fly.io deploy/user token (fo1_) found - infrastructure control".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Render / Railway / Deno Deploy tokens - assignment-anchored
+                // to avoid matching unrelated identifiers.
+                CompiledPattern {
+                    name: "Render API Key".to_string(),
+                    regex: Regex::new(r#"(?i)render[_-]?(?:api[_-]?)?(?:key|token)\s*[=:]\s*['\"]rnd_[A-Za-z0-9]{28,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Render API key (rnd_) found - deploy/manage services".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Deno Deploy Access Token".to_string(),
+                    regex: Regex::new(r#"\bddp_[A-Za-z0-9]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Deno Deploy access token (ddp_) found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Sentry legacy `sntryu_`/`sntryo_` user/organization tokens.
+                CompiledPattern {
+                    name: "Sentry User/Org Token".to_string(),
+                    regex: Regex::new(r#"\bsntry(?:u|o)_[a-f0-9]{64}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Sentry user/org token (sntryu_/sntryo_) found - project & release management access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord bot tokens have a canonical three-segment format
+                // (base64 user id . creation time . HMAC). Documented widely
+                // and distinctive enough to avoid false positives.
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    regex: Regex::new(r#"\b[MN][A-Za-z\d]{23,25}\.[\w-]{6}\.[\w-]{27,38}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token found - full bot API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Confluent Cloud (Kafka managed) API key format
+                CompiledPattern {
+                    name: "Confluent Cloud API Key".to_string(),
+                    regex: Regex::new(r#"(?i)confluent[_-]?(?:cloud[_-]?)?(?:api[_-]?)?key\s*[=:]\s*['\"][A-Z0-9]{16}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Confluent Cloud API key found - Kafka cluster access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Fauna / Turso / Neon DB tokens
+                CompiledPattern {
+                    name: "Fauna Server Key".to_string(),
+                    regex: Regex::new(r#"\bfn[AB][A-Za-z0-9_-]{56,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "FaunaDB server/admin key (fnA*/fnB*) found - full database access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {
