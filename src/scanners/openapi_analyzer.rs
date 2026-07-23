@@ -49,45 +49,168 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+/// Every hit is content-validated by `parse_openapi_spec`, so extra paths only
+/// generate a request, never a false-positive finding.
 const OPENAPI_PATHS: &[&str] = &[
+    // Canonical
     "/swagger.json",
+    "/swagger.yaml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    // Versioned Swagger (Springfox / springdoc / .NET Swashbuckle / NestJS)
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/docs/v3",
+    "/swagger/v1/api-docs",
+    "/swagger/v2/api-docs",
+    "/swagger/v3/api-docs",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    "/swagger-config",
+    // Versioned OpenAPI
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    // Sub-mounted variants
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/v1/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/swagger.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/docs.json",
+    "/api/docs/openapi.json",
+    "/api/docs/swagger.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/openapi.yaml",
+    // Frameworks
     "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/openapi/v1/openapi.json",
+    "/openapi/v2/openapi.json",
+    "/api-docs/v1/openapi.json",
+    "/api-docs/v2/openapi.json",
+    // FastAPI defaults
+    "/openapi.json",
+    "/api/v1/openapi.json",
+    // Django REST framework / drf-spectacular
+    "/api/schema/",
+    // Loopback / NestJS
+    "/explorer/swagger.json",
+    "/api-explorer/swagger.json",
+    "/api/api-docs",
+    // Actuator (Spring) exposing OpenAPI
+    "/actuator/openapi",
+    "/actuator/openapi/v3",
+    // Apigee / Kong developer portal exposures
+    "/portal/api/documentation",
+    "/api-portal/openapi.json",
+    // Postman collection JSON sometimes shipped as static asset
+    "/postman.json",
+    "/postman_collection.json",
+    "/collection.postman.json",
+    // Stoplight / Redocly bundled specs
+    "/reference.json",
+    "/reference.yaml",
+    // GraphQL persisted / schema exports occasionally sitting next to REST specs
+    "/graphql.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API-explorer paths.
+/// Content-validated (`swagger-ui`, `redoc`, `rapidoc`, `api documentation`)
+/// before reporting, so extra paths cannot widen false positives.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui/",
+    "/swagger/ui/index",
+    "/swagger-ui/oauth2-redirect.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    // Redoc / RapiDoc / Stoplight / Bruno / Kong
+    "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/api/redoc/",
+    "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/elements",
+    "/elements.html",
+    "/stoplight",
+    "/stoplight/",
     "/docs/",
+    "/docs/index.html",
+    "/documentation",
+    "/documentation/",
     "/api-docs/",
     "/api/docs",
-    "/redoc",
-    "/rapidoc",
+    "/api/documentation",
+    "/api/reference",
+    "/api/explorer",
+    "/apiexplorer",
+    "/api-explorer",
+    "/explorer",
+    "/reference",
+    "/reference/",
+    // GraphiQL / GraphQL Playground / Voyager - often ship next to OpenAPI
+    // and expose the same API surface. Content-validated below.
+    "/graphiql",
+    "/graphiql/",
+    "/playground",
+    "/api/graphiql",
+    "/api/playground",
+    "/graphql/graphiql",
+    "/graphql/playground",
+    "/graphql/voyager",
+    "/voyager",
+    "/altair",
+    "/api/altair",
 ];
 
-/// Sensitive data patterns to check in examples and defaults
+/// Sensitive-data detection patterns applied to string values in
+/// examples/defaults/descriptions of the parsed OpenAPI spec.
+///
+/// All vendor-prefixed patterns are anchored on structural prefixes and
+/// length checks to keep false positives near zero even when the spec
+/// happens to contain unrelated tokens of similar length.
 const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
+    // Generic keyed assignments
     (
         r#"(?i)password\s*[:=]\s*["'][^"']+["']"#,
         "hardcoded password",
@@ -110,14 +233,100 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
         r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
         "email address",
     ),
+    // AWS - structural prefixes only
     (
-        r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']AKIA[A-Z0-9]{16}["']"#,
-        "AWS access key",
+        r"\bAKIA[0-9A-Z]{16}\b",
+        "AWS access key (AKIA)",
+    ),
+    (
+        r"\bASIA[0-9A-Z]{16}\b",
+        "AWS temporary access key (ASIA)",
     ),
     (
         r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["'][A-Za-z0-9/+=]{40}["']"#,
         "AWS secret key",
     ),
+    // Google / GCP
+    (
+        r"\bAIza[0-9A-Za-z_\-]{35}\b",
+        "Google API key",
+    ),
+    (
+        r"\bya29\.[0-9A-Za-z_\-]{20,}\b",
+        "Google OAuth access token",
+    ),
+    (
+        r#""type"\s*:\s*"service_account""#,
+        "GCP service account JSON",
+    ),
+    // GitHub token classes
+    (r"\bghp_[A-Za-z0-9]{36}\b", "GitHub personal access token"),
+    (r"\bgho_[A-Za-z0-9]{36}\b", "GitHub OAuth token"),
+    (r"\bghu_[A-Za-z0-9]{36}\b", "GitHub user-to-server token"),
+    (r"\bghs_[A-Za-z0-9]{36}\b", "GitHub server-to-server token"),
+    (r"\bghr_[A-Za-z0-9]{36}\b", "GitHub refresh token"),
+    (
+        r"\bgithub_pat_[0-9A-Za-z_]{80,}\b",
+        "GitHub fine-grained PAT",
+    ),
+    // GitLab / Bitbucket
+    (r"\bglpat-[0-9A-Za-z_\-]{20}\b", "GitLab personal access token"),
+    // Slack
+    (
+        r"\bxox[abpr]-[0-9]+-[0-9]+-[0-9A-Za-z\-]{20,}\b",
+        "Slack token",
+    ),
+    (
+        r"https://hooks\.slack\.com/services/T[0-9A-Z]{6,}/B[0-9A-Z]{6,}/[0-9A-Za-z]{20,}",
+        "Slack incoming webhook URL",
+    ),
+    // Stripe (live)
+    (r"\bsk_live_[0-9A-Za-z]{20,}\b", "Stripe live secret key"),
+    (r"\brk_live_[0-9A-Za-z]{20,}\b", "Stripe restricted key"),
+    // Vendor-prefixed API tokens
+    (r"\bSG\.[0-9A-Za-z_\-]{16,}\.[0-9A-Za-z_\-]{16,}\b", "SendGrid API key"),
+    (r"\bsk-ant-[0-9A-Za-z\-_]{20,}\b", "Anthropic API key"),
+    (r"\bsk-[A-Za-z0-9]{32,}\b", "OpenAI-style API key"),
+    (r"\bhf_[A-Za-z0-9]{20,}\b", "Hugging Face token"),
+    (r"\bnpm_[A-Za-z0-9]{36}\b", "npm publish token"),
+    (r"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{20,}\b", "PyPI upload token"),
+    (r"\bdckr_pat_[A-Za-z0-9_\-]{20,}\b", "Docker Hub personal access token"),
+    (r"\bdop_v1_[A-Fa-f0-9]{60,}\b", "DigitalOcean personal access token"),
+    (r"\bshpat_[a-fA-F0-9]{32}\b", "Shopify access token"),
+    (r"\bshpss_[a-fA-F0-9]{32}\b", "Shopify shared secret"),
+    (r"\bshpca_[a-fA-F0-9]{32}\b", "Shopify custom app token"),
+    (r"\bshppa_[a-fA-F0-9]{32}\b", "Shopify private app token"),
+    (r"\bsq0[a-z]{3}-[0-9A-Za-z_\-]{22,}\b", "Square token"),
+    (r"\bkey-[a-f0-9]{32}\b", "Mailgun API key"),
+    (
+        r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]{20,}",
+        "Discord webhook URL",
+    ),
+    (r"\bhttps://[a-z0-9]+@[a-z0-9\-]+\.ingest\.sentry\.io/[0-9]+", "Sentry DSN"),
+    // Twilio - anchored SID pair, low FP
+    (r"\bAC[a-f0-9]{32}\b", "Twilio Account SID"),
+    (r"\bSK[a-f0-9]{32}\b", "Twilio API key SID"),
+    // Azure storage / SAS
+    (
+        r#""AccountKey"\s*[:=]\s*"?[A-Za-z0-9+/=]{80,}"?"#,
+        "Azure storage account key",
+    ),
+    (
+        r#"\?sv=\d{4}-\d{2}-\d{2}&[^\s'"]*sig=[A-Za-z0-9%]{20,}"#,
+        "Azure SAS token",
+    ),
+    // Private keys embedded in examples
+    (r"-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----", "PEM private key block"),
+    // JWT
+    (r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b", "JWT"),
+    // Laravel app key
+    (r"\bbase64:[A-Za-z0-9+/=]{43,}\b", "Laravel APP_KEY (base64:)"),
+    // DB connection strings with embedded credentials
+    (
+        r#"(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:@\s'"]+:[^@\s'"]+@[^\s'"/]+"#,
+        "DB URI with embedded credentials",
+    ),
+    // Networking / environment leaks
     (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "internal IP address"),
     (
         r"(?i)(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}",
@@ -137,25 +346,171 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Admin/debug endpoint patterns
+/// Admin/debug endpoint patterns.
+/// Matched against paths declared inside the parsed OpenAPI spec (trusted
+/// content) — so extra patterns only widen findings on genuinely-documented
+/// sensitive endpoints, never on external URLs.
 const ADMIN_PATTERNS: &[&str] = &[
+    // Broad admin surfaces
     r"(?i)/admin",
-    r"(?i)/debug",
-    r"(?i)/internal",
+    r"(?i)/administration",
+    r"(?i)/backoffice",
+    r"(?i)/back-office",
+    r"(?i)/superuser",
+    r"(?i)/root",
+    r"(?i)/sudo",
     r"(?i)/management",
-    r"(?i)/actuator",
-    r"(?i)/metrics",
-    r"(?i)/health",
-    r"(?i)/status",
-    r"(?i)/config",
-    r"(?i)/settings",
+    r"(?i)/manage",
+    r"(?i)/internal",
+    r"(?i)/private",
     r"(?i)/system",
+    r"(?i)/sys/",
+    r"(?i)/settings",
+    r"(?i)/config",
+    r"(?i)/configuration",
+    // Debug / diagnostics
+    r"(?i)/debug",
+    r"(?i)/diag",
+    r"(?i)/diagnostic",
+    r"(?i)/trace",
+    r"(?i)/env",
+    r"(?i)/dump",
+    r"(?i)/heapdump",
+    r"(?i)/threaddump",
     r"(?i)/console",
     r"(?i)/shell",
+    r"(?i)/terminal",
     r"(?i)/exec",
     r"(?i)/eval",
+    r"(?i)/run",
+    r"(?i)/execute",
+    r"(?i)/command",
+    r"(?i)/query",
     r"(?i)/test",
     r"(?i)/_",
+    // Spring Boot Actuator (each endpoint is separately high-signal)
+    r"(?i)/actuator",
+    r"(?i)/actuator/env",
+    r"(?i)/actuator/heapdump",
+    r"(?i)/actuator/threaddump",
+    r"(?i)/actuator/beans",
+    r"(?i)/actuator/mappings",
+    r"(?i)/actuator/httptrace",
+    r"(?i)/actuator/loggers",
+    r"(?i)/actuator/liquibase",
+    r"(?i)/actuator/flyway",
+    r"(?i)/actuator/shutdown",
+    r"(?i)/actuator/restart",
+    r"(?i)/actuator/refresh",
+    r"(?i)/actuator/scheduledtasks",
+    r"(?i)/actuator/quartz",
+    r"(?i)/actuator/jolokia",
+    r"(?i)/actuator/gateway/routes",
+    r"(?i)/actuator/hystrix",
+    r"(?i)/actuator/configprops",
+    r"(?i)/actuator/prometheus",
+    r"(?i)/actuator/caches",
+    r"(?i)/actuator/auditevents",
+    // Metrics / health / status
+    r"(?i)/metrics",
+    r"(?i)/prometheus",
+    r"(?i)/health",
+    r"(?i)/healthcheck",
+    r"(?i)/livez",
+    r"(?i)/readyz",
+    r"(?i)/status",
+    r"(?i)/stats",
+    r"(?i)/info",
+    r"(?i)/version",
+    r"(?i)/build",
+    r"(?i)/beans",
+    r"(?i)/mappings",
+    r"(?i)/loggers",
+    r"(?i)/logfile",
+    r"(?i)/logs",
+    r"(?i)/audit",
+    // User / auth management
+    r"(?i)/users\b",
+    r"(?i)/users/all",
+    r"(?i)/users/export",
+    r"(?i)/impersonate",
+    r"(?i)/switch-user",
+    r"(?i)/su\b",
+    r"(?i)/masquerade",
+    r"(?i)/oauth/(clients|apps|tokens)",
+    r"(?i)/apikeys",
+    r"(?i)/api[-_]?keys",
+    r"(?i)/tokens\b",
+    r"(?i)/token/revoke",
+    r"(?i)/credentials\b",
+    r"(?i)/secrets\b",
+    r"(?i)/vault\b",
+    r"(?i)/kms\b",
+    r"(?i)/keystore",
+    r"(?i)/certificate",
+    r"(?i)/certs\b",
+    // Feature-flag / kill-switch / maintenance
+    r"(?i)/flags\b",
+    r"(?i)/feature[-_]?flags",
+    r"(?i)/kill[-_]?switch",
+    r"(?i)/maintenance",
+    // Backup / export / migration surfaces
+    r"(?i)/backup",
+    r"(?i)/restore",
+    r"(?i)/export",
+    r"(?i)/import",
+    r"(?i)/dump\b",
+    r"(?i)/migrate",
+    r"(?i)/migration",
+    r"(?i)/snapshot",
+    // Support / support-tool surfaces (impersonation risk)
+    r"(?i)/support[/-]?tool",
+    r"(?i)/support[/-]?login",
+    r"(?i)/support[/-]?access",
+    // Cache / queue / worker controls
+    r"(?i)/cache/(clear|flush|purge|invalidate)",
+    r"(?i)/redis/(flush|keys)",
+    r"(?i)/memcache",
+    r"(?i)/queue/(purge|drain)",
+    r"(?i)/jobs/(retry|delete)",
+    r"(?i)/tasks/(kill|cancel)",
+    // DB / SQL surfaces exposed via docs
+    r"(?i)/db\b",
+    r"(?i)/database",
+    r"(?i)/sql\b",
+    r"(?i)/execsql",
+    r"(?i)/raw[-_]?query",
+    r"(?i)/adminer",
+    r"(?i)/phpmyadmin",
+    // Docker / Kubernetes surface names sometimes surviving in specs
+    r"(?i)/containers/",
+    r"(?i)/pods\b",
+    r"(?i)/namespaces\b",
+    // Well-known dev framework consoles surviving into specs
+    r"(?i)/h2-console",
+    r"(?i)/wp-admin",
+    r"(?i)/xmlrpc\.php",
+    r"(?i)/rails/info",
+    r"(?i)/rails/db",
+    r"(?i)/_debugbar",
+    r"(?i)/telescope",
+    r"(?i)/horizon",
+    r"(?i)/sidekiq",
+    r"(?i)/flower",
+    r"(?i)/rq\b",
+    r"(?i)/rabbitmq",
+    // File-manager / upload surfaces (arbitrary read/write risk)
+    r"(?i)/upload\b",
+    r"(?i)/files/(upload|delete)",
+    r"(?i)/filemanager",
+    r"(?i)/kcfinder",
+    r"(?i)/elfinder",
+    r"(?i)/tinybrowser",
+    r"(?i)/tinymce",
+    // Webhook / callback registration (SSRF pivot risk)
+    r"(?i)/webhooks?/(register|create)",
+    r"(?i)/subscribe/(?:url|callback)",
+    r"(?i)/callback[-_]?url",
 ];
 
 /// Dangerous HTTP methods that should require authentication
@@ -1287,10 +1642,18 @@ impl OpenApiAnalyzer {
                 Ok(response) => {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
+                        // Strict content validators: only report when the
+                        // response body actually renders a known API-doc UI.
+                        // Prevents 200-shell SPAs from becoming findings.
                         if body_lower.contains("swagger-ui")
                             || body_lower.contains("swagger ui")
                             || body_lower.contains("redoc")
                             || body_lower.contains("rapidoc")
+                            || body_lower.contains("stoplight")
+                            || body_lower.contains("elements-api")
+                            || body_lower.contains("graphiql")
+                            || body_lower.contains("graphql playground")
+                            || body_lower.contains("graphql-voyager")
                             || body_lower.contains("api documentation")
                         {
                             vulnerabilities.push(self.create_vulnerability(
