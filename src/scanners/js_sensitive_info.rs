@@ -1221,6 +1221,264 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // Slack tokens (structural prefix + fixed body — near-zero FP)
+                CompiledPattern {
+                    name: "Slack Bot Token (xoxb)".to_string(),
+                    regex: Regex::new(r#"\bxoxb-\d{10,13}-\d{10,13}-[A-Za-z0-9]{24,32}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack bot token (xoxb-*) found - grants workspace bot access to messages, channels, and files.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack User Token (xoxp)".to_string(),
+                    regex: Regex::new(r#"\bxoxp-\d{10,13}-\d{10,13}-\d{10,13}-[A-Za-z0-9]{32}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack user OAuth token (xoxp-*) found - impersonates the granting user across the workspace.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack App-Level Token (xapp)".to_string(),
+                    regex: Regex::new(r#"\bxapp-\d-[A-Z0-9]{10,13}-\d{10,13}-[A-Za-z0-9]{64}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack app-level token (xapp-*) found - required for Socket Mode and admin apps.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack Refresh Token (xoxe.xoxp / xoxe.xoxb)".to_string(),
+                    regex: Regex::new(r#"\bxoxe\.xox[bp]-\d-[A-Za-z0-9-]{100,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack rotating-token refresh secret (xoxe.*) found - mints fresh access tokens.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack Legacy Workspace Token (xoxa/xoxr/xoxs)".to_string(),
+                    regex: Regex::new(r#"\bxox[ars]-[A-Za-z0-9-]{20,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack legacy workspace / admin token found - broad workspace access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // HashiCorp Vault (structural, distinctive prefix)
+                CompiledPattern {
+                    name: "HashiCorp Vault Service Token (hvs.)".to_string(),
+                    regex: Regex::new(r#"\bhvs\.[A-Za-z0-9_-]{90,100}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HashiCorp Vault service token (hvs.*) found - reads/writes secrets under the token's policies.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "HashiCorp Vault Batch Token (hvb.)".to_string(),
+                    regex: Regex::new(r#"\bhvb\.[A-Za-z0-9_-]{90,100}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HashiCorp Vault batch token (hvb.*) found - non-persistent Vault access under the token's policies.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks
+                CompiledPattern {
+                    name: "Databricks Personal Access Token (dapi)".to_string(),
+                    regex: Regex::new(r#"\bdapi[a-f0-9]{32}(?:-\d+)?\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token (dapi*) found - grants the user's workspace access including notebooks, clusters, and secrets.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Twilio Account SID (paired with Auth Token in Basic-Auth abuse)
+                CompiledPattern {
+                    name: "Twilio Account SID".to_string(),
+                    regex: Regex::new(r#"\bAC[a-f0-9]{32}\b"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Twilio Account SID (AC*) found - combined with an Auth Token grants full account access; a leaked SID next to any 32-hex value in the same bundle is critical.".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Firebase Cloud Messaging server key (legacy format still widely leaked)
+                CompiledPattern {
+                    name: "Firebase Cloud Messaging Server Key".to_string(),
+                    regex: Regex::new(r#"\bAAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{134}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Firebase Cloud Messaging server key found - lets an attacker send push notifications to every device registered with the project.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // AWS temporary access key
+                CompiledPattern {
+                    name: "AWS Temporary Access Key (ASIA)".to_string(),
+                    regex: Regex::new(r#"\bASIA[0-9A-Z]{16}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "AWS STS temporary access key (ASIA*) found - typically paired with a session token, still confers the assumed role's permissions until expiry.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PyPI upload token (Warehouse macaroon)
+                CompiledPattern {
+                    name: "PyPI Upload Token".to_string(),
+                    regex: Regex::new(r#"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{70,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PyPI API upload token found - can publish or yank package releases under the owning account.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // RubyGems API key
+                CompiledPattern {
+                    name: "RubyGems API Key".to_string(),
+                    regex: Regex::new(r#"\brubygems_[a-f0-9]{48}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "RubyGems API key found - publishes or yanks gems under the owning account.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Grafana Cloud
+                CompiledPattern {
+                    name: "Grafana Cloud API Token (glc_)".to_string(),
+                    regex: Regex::new(r#"\bglc_[A-Za-z0-9+/]{40,}={0,2}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Grafana Cloud API token (glc_*) found - manages Grafana Cloud stacks, metrics, and logs.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Grafana Service Account Token (glsa_)".to_string(),
+                    regex: Regex::new(r#"\bglsa_[A-Za-z0-9]{32}_[a-f0-9]{8}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Grafana service-account token (glsa_*) found - dashboards, datasources, and alerting under the service account's role.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Grafana Provisioned API Key (eyJrIjoi)".to_string(),
+                    // Legacy Grafana API keys are base64-encoded JSON that always starts with {"k":"...
+                    // which base64-encodes to `eyJrIjoi` followed by the API key body.
+                    // JWTs start with `eyJhbGciO`/`eyJ0eXAiO` so this prefix does not collide.
+                    regex: Regex::new(r#"\beyJrIjoi[A-Za-z0-9+/]{50,}={0,2}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Grafana legacy API key (eyJrIjoi... base64 JSON) found - grants the key's role scope on the instance.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Amazon MWS (still present in seller integrations)
+                CompiledPattern {
+                    name: "Amazon MWS Auth Token".to_string(),
+                    regex: Regex::new(r#"\bamzn\.mws\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Amazon MWS auth token found - accesses seller orders, inventory, and reports.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Terraform Cloud / Enterprise user token
+                CompiledPattern {
+                    name: "Terraform Cloud/Enterprise API Token".to_string(),
+                    regex: Regex::new(r#"\b[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_=-]{60,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Terraform Cloud/Enterprise API token (*.atlasv1.*) found - controls workspaces, state, and variables in the organization.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord Bot Token — structural: base64 user-id (starts with M/N/O/T), dot, base64 timestamp, dot, HMAC body
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    regex: Regex::new(r#"\b[MNOT][A-Za-z0-9_-]{23,27}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,38}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token found - acts as the bot user across every guild it belongs to.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // OpenAI project & session keys — modern format sk-proj-* / sk-svcacct-* / sk-admin-*
+                CompiledPattern {
+                    name: "OpenAI Project Key (sk-proj-)".to_string(),
+                    regex: Regex::new(r#"\bsk-proj-[A-Za-z0-9_-]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI project key (sk-proj-*) found - can be exploited for billing abuse against the owning project.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "OpenAI Service Account Key (sk-svcacct-)".to_string(),
+                    regex: Regex::new(r#"\bsk-svcacct-[A-Za-z0-9_-]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI service-account key (sk-svcacct-*) found - grants service-account-scoped access to the project.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "OpenAI Admin Key (sk-admin-)".to_string(),
+                    regex: Regex::new(r#"\bsk-admin-[A-Za-z0-9_-]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI admin key (sk-admin-*) found - organization-wide management access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Anthropic admin key (sk-ant-admin*) — different scope than the standard sk-ant-api* already covered
+                CompiledPattern {
+                    name: "Anthropic Admin Key (sk-ant-admin)".to_string(),
+                    regex: Regex::new(r#"\bsk-ant-admin[0-9]{2}-[A-Za-z0-9_-]{80,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Anthropic admin key (sk-ant-admin*) found - organization-scoped management access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub App installation / user tokens (ghs_, ghu_) — extend the ghp/gho/etc. rule to explicit installation classes
+                CompiledPattern {
+                    name: "GitHub App Installation Token (ghs_)".to_string(),
+                    regex: Regex::new(r#"\bghs_[A-Za-z0-9]{36,255}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub App installation access token (ghs_*) found - short-lived but grants every permission granted to the installation.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "GitHub User-to-Server Token (ghu_)".to_string(),
+                    regex: Regex::new(r#"\bghu_[A-Za-z0-9]{36,255}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub user-to-server token (ghu_*) found - acts as the user against every repo the installation can reach.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub fine-grained PAT (github_pat_ prefix, 2-segment structure)
+                CompiledPattern {
+                    name: "GitHub Fine-Grained PAT (github_pat_)".to_string(),
+                    regex: Regex::new(r#"\bgithub_pat_[A-Za-z0-9_]{22}_[A-Za-z0-9]{59}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub fine-grained personal access token (github_pat_*) found - repo-scoped API access under the owning user.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Amazon Marketplace / Login-With-Amazon (LWA) tokens — verified structural prefix
+                CompiledPattern {
+                    name: "Amazon Login-With-Amazon Access Token (Atza)".to_string(),
+                    regex: Regex::new(r#"\bAtza\|[A-Za-z0-9_-]{200,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Amazon Login-With-Amazon (LWA) access token (Atza|*) found - calls Amazon API endpoints as the granting user.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Amazon Login-With-Amazon Refresh Token (Atzr)".to_string(),
+                    regex: Regex::new(r#"\bAtzr\|[A-Za-z0-9_-]{200,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Amazon Login-With-Amazon (LWA) refresh token (Atzr|*) found - mints fresh access tokens for the granting user.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // JFrog access token (structural prefix + fixed body length)
+                CompiledPattern {
+                    name: "JFrog Access Token".to_string(),
+                    regex: Regex::new(r#"\bcmVmdGtuOjAxOj[A-Za-z0-9+/]{60,}={0,2}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "JFrog access token (base64 `reftkn:01:*`) found - reads and writes Artifactory/Xray under the token's scope.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Segment.io write key (contextual only — the raw key body is too generic)
+                CompiledPattern {
+                    name: "Segment Write Key".to_string(),
+                    regex: Regex::new(r#"(?i)segment[_-]?(?:write[_-]?)?key\s*[=:]\s*['\"][A-Za-z0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Segment.io write key found - can be used to inject arbitrary tracking events into the account.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Cloudflare account/global tokens with explicit prefix (v3 tokens do not have one, but the CF_API_TOKEN=... rule already covers those; here we key on the newer `cft-` short-lived prefix used by Access service tokens)
+                CompiledPattern {
+                    name: "Cloudflare Access Service Token".to_string(),
+                    regex: Regex::new(r#"(?i)CF-Access-Client-Secret\s*[:=]\s*['\"]?[a-f0-9]{64}['\"]?"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Cloudflare Access service-token client secret (CF-Access-Client-Secret) found - bypasses Access policies on protected applications.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // NPM automation token (npmjs.org) has a fixed length — already covered — add automation/publish class npm_...
+                // Skipped: existing `npm_` rule already catches these.
+                // Coveralls repo token
+                CompiledPattern {
+                    name: "Coveralls Repo Token".to_string(),
+                    regex: Regex::new(r#"(?i)coveralls[_-]?(?:repo[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9]{36,44}['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Coveralls repo token found - lets an attacker forge coverage reports for the project.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Buildkite agent token
+                CompiledPattern {
+                    name: "Buildkite Agent Token".to_string(),
+                    regex: Regex::new(r#"(?i)buildkite[_-]?agent[_-]?token\s*[=:]\s*['\"][a-f0-9]{40}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Buildkite agent token found - registers a rogue build agent in the organization that executes CI pipelines.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {

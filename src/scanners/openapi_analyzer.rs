@@ -49,8 +49,13 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// Hits are only reported after `parse_openapi_spec()` successfully parses the
+/// response body as a valid OpenAPI 2/3 document, so noisy filenames that
+/// happen to return 200 with unrelated content never surface as findings.
 const OPENAPI_PATHS: &[&str] = &[
+    // Historically supported
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,6 +75,56 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Springdoc / springfox (Spring Boot) — deterministic v2/v3 spec paths
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    // Springdoc grouped-openapi (`/v3/api-docs/{group}`) — cover most common group names
+    "/v3/api-docs/public",
+    "/v3/api-docs/internal",
+    "/v3/api-docs/admin",
+    // ASP.NET Core (Swashbuckle) — spec route templates
+    "/swagger/v1/swagger.yaml",
+    "/swagger/v2/swagger.yaml",
+    "/swagger/v3/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // FastAPI / Starlette defaults, and Redoc counterpart
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/redoc/openapi.json",
+    // Django REST framework — drf-spectacular / drf-yasg
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    // NestJS Swagger module (default /api spec download)
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    // Kong / Insomnia / API portals
+    "/kong/openapi.json",
+    "/portal/openapi.json",
+    // Generic apidocs/ locations seen in Java, Go, Node deployments
+    "/apidocs/swagger.json",
+    "/api-docs/v1/swagger.json",
+    "/api-docs/v2/swagger.json",
+    "/api-docs/v3/swagger.json",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/openapi",
+    "/api/openapi.yaml",
+    // Cloud provider stage-prefixed defaults (API Gateway, Lambda proxies)
+    "/prod/swagger.json",
+    "/prod/openapi.json",
+    "/stage/swagger.json",
+    "/stage/openapi.json",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +139,32 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // FastAPI defaults (docs is a real Swagger UI when running FastAPI/Starlette)
+    "/docs",
+    "/api/docs/",
+    "/redoc/",
+    "/api/redoc",
+    "/api/redoc/",
+    // Spring / Springdoc UI locations
+    "/swagger-ui",
+    "/webjars/swagger-ui/index.html",
+    // ASP.NET Core (Swashbuckle default hosts UI under /swagger)
+    "/swagger",
+    "/swagger/index.html",
+    "/swagger/ui/",
+    // Rapidoc / Redoc alternate hosting
+    "/rapidoc.html",
+    "/redoc.html",
+    "/redoc/index.html",
+    // Django REST framework — drf-spectacular UI mounts
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    "/schema/swagger-ui/",
+    "/schema/redoc/",
+    // NestJS default: SwaggerModule mounts UI at /api (with spec at /api-json).
+    // Body-content check for "swagger-ui"/"redoc"/etc. keeps this from firing on
+    // generic /api JSON endpoints.
+    "/api",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
