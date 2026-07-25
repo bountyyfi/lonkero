@@ -612,22 +612,69 @@ impl WordPressSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
+        // Extra wp-config variants from real-world panels (cPanel/DirectAdmin/Plesk
+        // often auto-save these on edit) and editor-generated artifacts. Each is
+        // qualified below by the presence of DB_NAME/DB_PASSWORD/AUTH_KEY etc., so
+        // a plain HTML 404 masquerading as 200 cannot false-positive.
         let config_files = vec![
             ("/wp-config.php", "Main WordPress configuration"),
             ("/wp-config.php.bak", "Configuration backup"),
+            ("/wp-config.php.bkp", "Configuration backup"),
+            ("/wp-config.php.backup", "Configuration backup"),
+            ("/wp-config.php_backup", "Configuration backup"),
+            ("/wp-config-backup.php", "Configuration backup"),
             ("/wp-config.php.old", "Old configuration"),
+            ("/wp-config.php.old.txt", "Old configuration as text"),
+            ("/wp-config.old.php", "Old configuration (alt name)"),
+            ("/wp-config.php.original", "Pre-install original"),
+            ("/wp-config-original.php", "Pre-install original (alt)"),
             ("/wp-config.php.txt", "Configuration as text"),
+            ("/wp-config.php.html", "Configuration as HTML"),
+            ("/wp-config.php.inc", "Configuration as PHP include"),
+            ("/wp-config.php.php", "Double-extension config"),
+            ("/wp-config.php-BAK", "cPanel-style backup"),
             ("/wp-config.php~", "Editor backup"),
             ("/wp-config.php.save", "Editor save"),
+            ("/wp-config.php.save.1", "Nano numbered save"),
             ("/wp-config.php.swp", "Vim swap file"),
+            ("/wp-config.php.swo", "Vim secondary swap"),
+            ("/wp-config.php.swn", "Vim tertiary swap"),
             ("/wp-config.bak", "Configuration backup"),
+            ("/wp-config.old", "Configuration backup"),
             ("/wp-config.txt", "Configuration as text"),
+            ("/wp-config.copy", "Configuration copy"),
+            ("/wp-config.dist", "Distribution config"),
+            ("/wp-config-local.php", "Local override config"),
+            ("/wp-config-dev.php", "Dev config"),
+            ("/wp-config-staging.php", "Staging config"),
+            ("/wp-config-production.php", "Production config"),
             (
                 "/wp-config-sample.php",
                 "Sample configuration (version disclosure)",
             ),
             ("/.wp-config.php.swp", "Hidden vim swap"),
+            ("/.wp-config.php.swo", "Hidden vim secondary swap"),
+            ("/.wp-config.php.un~", "Vim undo file"),
+            (".wp-config.php.bak", "Hidden config backup"),
             ("/wp-config.php.orig", "Original backup"),
+            // cPanel "File Manager" and DirectAdmin generate these on rename/edit
+            ("/wp-config.php.1", "cPanel rename artifact"),
+            ("/wp-config.php.2", "cPanel rename artifact"),
+            ("/wp-config.php.7z", "Compressed config"),
+            ("/wp-config.php.gz", "Compressed config"),
+            ("/wp-config.php.zip", "Compressed config"),
+            ("/wp-config.php.tar", "Archived config"),
+            ("/wp-config.php.tar.gz", "Archived config"),
+            ("/wp-config.php.rar", "Archived config"),
+            // Nested wp-config locations from popular hosting setups
+            ("/config/wp-config.php", "Nested config directory"),
+            ("/backup/wp-config.php", "Backup dir config"),
+            ("/backup/wp-config.php.bak", "Backup dir config bak"),
+            ("/wordpress/wp-config.php", "Subdirectory install config"),
+            ("/wp/wp-config.php", "Subdirectory install config"),
+            ("/blog/wp-config.php", "Subdirectory install config"),
+            ("/old/wp-config.php", "Legacy dir config"),
+            ("/site/wp-config.php", "Nested site config"),
         ];
 
         for (file, description) in config_files {
@@ -691,12 +738,72 @@ impl WordPressSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
+        // Every path either targets a documented plugin log location or a WP core
+        // convention. Response is qualified with PHP-log content markers below so
+        // an SPA 200 shell cannot false-positive.
         let debug_files = vec![
+            // WordPress core debug log
             "/wp-content/debug.log",
+            "/wp-content/debug-old.log",
+            "/wp-content/debug.log.old",
+            "/wp-content/debug.log.txt",
             "/debug.log",
             "/wp-content/uploads/debug.log",
+            "/wp-content/uploads/error_log",
             "/error_log",
             "/wp-content/error_log",
+            "/wp-content/uploads/error.log",
+            "/wp-content/error.log",
+            "/wp-content/logs/debug.log",
+            "/wp-content/logs/error.log",
+            "/wp-content/logs/php_error.log",
+            "/wp-content/php_error.log",
+            "/wp-content/php-error.log",
+            "/php_error.log",
+            "/php-errors.log",
+            "/php_errors.log",
+            // WooCommerce log directory (very common - contains order/payment tracebacks)
+            "/wp-content/uploads/wc-logs/",
+            "/wp-content/uploads/wc-logs/fatal-errors.log",
+            "/wp-content/uploads/wc-logs/critical.log",
+            // Elementor error log
+            "/wp-content/uploads/elementor/log/log.txt",
+            "/wp-content/uploads/elementor/log/log.txt.old",
+            // Contact Form 7 debug
+            "/wp-content/uploads/wpcf7_uploads/",
+            // WPForms
+            "/wp-content/uploads/wpforms/logs/",
+            // Advanced Custom Fields
+            "/wp-content/uploads/acf-json/",
+            // Gravity Forms
+            "/wp-content/uploads/gravity_forms/logs/",
+            // WP-Cron heartbeat log (some plugins write here)
+            "/wp-content/uploads/wp-cron.log",
+            // Litespeed / W3TC / WP Rocket debug
+            "/wp-content/litespeed/debug/debug.log",
+            "/wp-content/plugins/w3-total-cache/debug.log",
+            "/wp-content/cache/wp-rocket-debug.log",
+            // Yoast SEO
+            "/wp-content/uploads/wpseo-debug.log",
+            // Site Health / WP Debugging plugin
+            "/wp-content/uploads/site-health-manager/",
+            // Better WP Security / iThemes
+            "/wp-content/uploads/ithemes-security/logs/",
+            "/wp-content/uploads/ithemes-security-events.log",
+            // Wordfence logs
+            "/wp-content/wflogs/",
+            "/wp-content/wflogs/rules.php",
+            "/wp-content/wflogs/config.php",
+            "/wp-content/wflogs/attack-data.php",
+            // Really Simple Security (formerly Really Simple SSL)
+            "/wp-content/uploads/really-simple-security/logs/",
+            // WP Mail SMTP / FluentSMTP logs
+            "/wp-content/uploads/wp-mail-smtp/",
+            "/wp-content/uploads/fluent-smtp/",
+            // Cron trigger log
+            "/wp-content/uploads/cron.log",
+            // Old wp-cli command log
+            "/wp-cli.log",
         ];
 
         for file in debug_files {
@@ -939,23 +1046,136 @@ impl WordPressSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
+        // Paths cover the top backup plugins on WordPress.org (measured by active
+        // installs). Every entry either targets a well-known plugin export dir or
+        // is a bare-name convention. The response is qualified with SQL signatures
+        // (or directory-listing markers) so a 200 on a SPA shell can't false-fire.
         let backup_patterns = vec![
+            // Generic SQL dump names
             "/backup.sql",
             "/backup.sql.gz",
             "/backup.sql.zip",
+            "/backup.sql.bz2",
+            "/backup.sql.tar",
+            "/backup.sql.tar.gz",
             "/db.sql",
+            "/db.sql.gz",
             "/database.sql",
+            "/database.sql.gz",
             "/dump.sql",
+            "/dump.sql.gz",
+            "/mysqldump.sql",
+            "/mysqldump.sql.gz",
+            "/latest.sql",
+            "/prod.sql",
+            "/production.sql",
+            "/staging.sql",
+            "/live.sql",
+            "/wp.sql",
+            "/wp-backup.sql",
+            "/wp_backup.sql",
+            "/wpdb.sql",
+            "/wordpress.sql",
+            "/wordpress.sql.gz",
+            "/wordpress_backup.sql",
+            "/site.sql",
+            "/site-backup.sql",
+            "/site_backup.sql",
+            "/website.sql",
+            "/website-backup.sql",
+            "/backup-db.sql",
+            "/backup_db.sql",
+            "/backup-2024.sql",
+            "/backup-2025.sql",
+            "/backup-2026.sql",
+            "/dbdump.sql",
+            "/db_dump.sql",
+            "/db-dump.sql",
+            "/.sql",
+            // Standard backup directories
             "/wp-content/backup.sql",
             "/wp-content/backups/",
+            "/wp-content/backup/",
+            "/wp-content/uploads/backup.sql",
+            "/wp-content/uploads/backup/",
+            "/wp-content/uploads/backups/",
+            "/wp-content/uploads/wp-backup/",
             "/backups/",
             "/backup/",
             "/bak/",
-            "/.sql",
-            "/wordpress.sql",
-            "/site.sql",
-            "/wp-content/uploads/backup.sql",
-            "/wp-content/updraft/", // UpdraftPlus backup location
+            "/old/",
+            "/_backups/",
+            "/.backup/",
+            "/.backups/",
+            // UpdraftPlus (~3M active installs)
+            "/wp-content/updraft/",
+            "/wp-content/updraft-old/",
+            "/wp-content/uploads/updraft/",
+            "/wp-content/plugins/updraftplus/",
+            // BackWPup (~700k active installs) - writes to wp-content/uploads/backwpup-*
+            "/wp-content/uploads/backwpup/",
+            "/wp-content/uploads/backwpup-backups/",
+            "/wp-content/uploads/backwpup-logs/",
+            // Duplicator (~1M active installs) - creates <hash>_archive.zip + <hash>_installer.php
+            "/wp-content/backups-dup-lite/",
+            "/wp-content/backups-dup-pro/",
+            "/installer.php",
+            "/installer-backup.php",
+            "/installer-log.txt",
+            "/dup-installer/",
+            "/dup-installer.log",
+            "/dup-installer-data__*.sql",
+            "/wp-snapshots/",
+            // WPvivid Backup
+            "/wp-content/wpvividbackups/",
+            "/wp-content/uploads/wpvividbackups/",
+            // BackupBuddy / Solid Backups
+            "/wp-content/uploads/backupbuddy_backups/",
+            "/wp-content/uploads/backupbuddy_temp/",
+            "/importbuddy.php",
+            "/importbuddy/",
+            // All-In-One WP Migration (~5M active installs)
+            "/wp-content/ai1wm-backups/",
+            "/wp-content/plugins/all-in-one-wp-migration/storage/",
+            // XCloner
+            "/wp-content/xcloner-plugin/",
+            "/wp-content/uploads/xcloner-plugin/",
+            "/wp-content/uploads/backup-xcloner/",
+            // WP Time Capsule
+            "/wp-content/uploads/wp-time-capsule/",
+            // MigrateGuru / BlogVault temp
+            "/wp-content/uploads/blogvault-restore-files/",
+            "/wp-content/uploads/migrate-guru-import/",
+            // WPBackitup
+            "/wp-content/wpbackitup_backups/",
+            // Backup Migration
+            "/wp-content/backup-migration/",
+            "/wp-content/uploads/backup-migration/",
+            // WP-DB-Backup
+            "/wp-content/backup-db/",
+            "/wp-content/db-backup/",
+            "/wp-content/database-backup/",
+            // Common archive-of-site names
+            "/wp.zip",
+            "/wp.tar.gz",
+            "/wp-content.zip",
+            "/wp-content.tar.gz",
+            "/wordpress.zip",
+            "/wordpress.tar.gz",
+            "/site.zip",
+            "/site.tar.gz",
+            "/website.zip",
+            "/www.zip",
+            "/www.tar.gz",
+            "/public_html.zip",
+            "/public_html.tar.gz",
+            "/htdocs.zip",
+            // Named dated archives
+            "/wp-content-backup.zip",
+            "/wp_content_backup.zip",
+            "/wp-backup.zip",
+            "/wpbackup.zip",
+            "/wp_backup.tar.gz",
         ];
 
         for pattern in backup_patterns {

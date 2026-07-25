@@ -50,6 +50,12 @@ impl ContainerScanner {
             tests_run += tests;
         }
 
+        if vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_orchestrator_exposure(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
         Ok((vulnerabilities, tests_run))
     }
 
@@ -63,13 +69,34 @@ impl ContainerScanner {
 
         debug!("Testing for Docker API exposure");
 
+        // Only enumerating READ endpoints - no container create/exec/stop probes.
+        // Every path is one that returns Docker-shaped JSON so the response check
+        // (see `is_docker_api_response`) can positively identify the daemon and
+        // reject unrelated services that happen to answer 200 on `/info`.
         let docker_endpoints = vec![
             ("/v1.40/containers/json", "Docker API v1.40"),
             ("/v1.41/containers/json", "Docker API v1.41"),
+            ("/v1.42/containers/json", "Docker API v1.42"),
+            ("/v1.43/containers/json", "Docker API v1.43"),
+            ("/v1.44/containers/json", "Docker API v1.44"),
+            ("/v1.45/containers/json", "Docker API v1.45"),
+            ("/v1.46/containers/json", "Docker API v1.46"),
+            ("/v1.47/containers/json", "Docker API v1.47"),
+            ("/containers/json?all=true", "Docker API (all containers)"),
             ("/containers/json", "Docker API"),
             ("/images/json", "Docker Images API"),
+            ("/networks", "Docker Networks API"),
+            ("/volumes", "Docker Volumes API"),
+            ("/secrets", "Docker Swarm Secrets API"),
+            ("/configs", "Docker Swarm Configs API"),
+            ("/services", "Docker Swarm Services API"),
+            ("/nodes", "Docker Swarm Nodes API"),
+            ("/tasks", "Docker Swarm Tasks API"),
+            ("/swarm", "Docker Swarm Info"),
+            ("/plugins", "Docker Plugins API"),
             ("/info", "Docker Info"),
             ("/version", "Docker Version"),
+            ("/system/df", "Docker System DF"),
             ("/_ping", "Docker Ping"),
             ("/events", "Docker Events"),
         ];
@@ -163,17 +190,45 @@ impl ContainerScanner {
 
         debug!("Testing for Kubernetes API exposure");
 
+        // Enumerating read-only listing endpoints; response body is validated by
+        // `is_kubernetes_response` to require `kind` + `apiVersion` markers so a
+        // non-k8s service answering 200 on `/version` cannot be misidentified.
         let k8s_endpoints = vec![
             ("/api/v1", "Kubernetes API"),
+            ("/api", "Kubernetes API Root"),
             ("/api/v1/namespaces", "K8s Namespaces"),
+            ("/api/v1/nodes", "K8s Nodes"),
             ("/api/v1/pods", "K8s Pods"),
             ("/api/v1/secrets", "K8s Secrets"),
+            ("/api/v1/configmaps", "K8s ConfigMaps"),
             ("/api/v1/services", "K8s Services"),
+            ("/api/v1/serviceaccounts", "K8s ServiceAccounts"),
+            ("/api/v1/persistentvolumes", "K8s PersistentVolumes"),
+            ("/apis/apps/v1/deployments", "K8s Deployments"),
+            ("/apis/apps/v1/daemonsets", "K8s DaemonSets"),
+            ("/apis/apps/v1/statefulsets", "K8s StatefulSets"),
+            ("/apis/batch/v1/jobs", "K8s Jobs"),
+            ("/apis/batch/v1/cronjobs", "K8s CronJobs"),
+            ("/apis/networking.k8s.io/v1/ingresses", "K8s Ingresses"),
+            ("/apis/networking.k8s.io/v1/networkpolicies", "K8s NetworkPolicies"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterroles", "K8s ClusterRoles"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "K8s ClusterRoleBindings"),
+            ("/apis/policy/v1/poddisruptionbudgets", "K8s PodDisruptionBudgets"),
+            ("/apis/storage.k8s.io/v1/storageclasses", "K8s StorageClasses"),
             ("/apis", "K8s APIs"),
             ("/healthz", "K8s Health"),
+            ("/livez", "K8s Liveness"),
+            ("/readyz", "K8s Readiness"),
             ("/version", "K8s Version"),
             ("/metrics", "K8s Metrics"),
             ("/swagger.json", "K8s Swagger"),
+            ("/openapi/v2", "K8s OpenAPI v2"),
+            ("/openapi/v3", "K8s OpenAPI v3"),
+            // kubelet read-only ports commonly forgotten on the internet
+            ("/pods", "Kubelet Pods"),
+            ("/stats/summary", "Kubelet Stats Summary"),
+            ("/runningpods", "Kubelet Running Pods"),
+            ("/configz", "Kubelet Config"),
         ];
 
         for (endpoint, api_name) in k8s_endpoints {
@@ -280,12 +335,30 @@ impl ContainerScanner {
 
         debug!("Testing for container registry exposure");
 
+        // Registry endpoints for standard OCI registry + Harbor + JFrog Artifactory
+        // + GitLab Container Registry. Response validated via `is_registry_response`
+        // (requires Docker-Distribution-Api-Version header or repositories/tags JSON).
         let registry_endpoints = vec![
             ("/v2/", "Docker Registry v2"),
+            ("/v2/_catalog?n=1000", "Registry Catalog"),
             ("/v2/_catalog", "Registry Catalog"),
             ("/v2/library/", "Registry Library"),
             ("/v1/repositories/", "Registry Repositories"),
             ("/v1/_ping", "Registry Ping"),
+            // Harbor
+            ("/api/v2.0/projects", "Harbor Projects API"),
+            ("/api/v2.0/health", "Harbor Health"),
+            ("/api/v2.0/systeminfo", "Harbor System Info"),
+            ("/api/v2.0/statistics", "Harbor Statistics"),
+            // JFrog Artifactory
+            ("/artifactory/api/repositories", "JFrog Artifactory Repositories"),
+            ("/artifactory/api/system/ping", "JFrog Artifactory Ping"),
+            ("/artifactory/api/search/artifact", "JFrog Artifactory Search"),
+            // GitLab Container Registry
+            ("/jwt/auth", "GitLab Registry JWT Auth"),
+            // Quay
+            ("/api/v1/discovery", "Quay Discovery API"),
+            ("/api/v1/repository", "Quay Repositories"),
         ];
 
         for (endpoint, registry_name) in registry_endpoints {
@@ -396,19 +469,52 @@ impl ContainerScanner {
 
         debug!("Testing for container secrets exposure");
 
+        // File paths only reachable via path-traversal / SSRF misconfig. A hit here
+        // is qualified by `detect_container_secret` which requires structural
+        // markers (JWT prefix, PEM headers, docker auth JSON key). Casual matches
+        // against strings like "AWS_" alone are filtered by requiring the body to
+        // parse as one of those specific artifact shapes.
         let secret_paths = vec![
             "/run/secrets/",
             "/.dockerenv",
             "/proc/self/environ",
             "/proc/1/environ",
+            "/proc/self/cgroup",
+            "/proc/1/cgroup",
+            "/proc/self/mountinfo",
+            "/proc/1/mountinfo",
             "/var/run/secrets/kubernetes.io/serviceaccount/token",
             "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
             "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+            "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+            "/var/run/secrets/tokens/",
             "/.kube/config",
+            "/root/.kube/config",
             "/root/.docker/config.json",
             "/home/*/.docker/config.json",
             "/etc/docker/daemon.json",
             "/etc/kubernetes/",
+            "/etc/kubernetes/admin.conf",
+            "/etc/kubernetes/kubelet.conf",
+            "/etc/kubernetes/controller-manager.conf",
+            "/etc/kubernetes/scheduler.conf",
+            "/etc/kubernetes/pki/ca.crt",
+            "/etc/kubernetes/pki/apiserver.crt",
+            "/etc/kubernetes/pki/apiserver-kubelet-client.key",
+            "/etc/kubernetes/pki/etcd/ca.crt",
+            "/etc/kubernetes/pki/etcd/server.key",
+            "/etc/rancher/k3s/k3s.yaml",
+            "/etc/rancher/rke2/rke2.yaml",
+            "/var/lib/rancher/k3s/server/token",
+            "/var/lib/rancher/k3s/server/agent-token",
+            "/var/lib/rancher/k3s/server/node-token",
+            // Container runtime state
+            "/var/lib/docker/config.json",
+            "/etc/containerd/config.toml",
+            // Cloud-init / user-data on EC2, GCE, Azure that ends up baked into images
+            "/var/lib/cloud/instance/user-data.txt",
+            "/etc/cloud/cloud.cfg",
+            "/etc/cloud/cloud.cfg.d/",
         ];
 
         for secret_path in secret_paths {
@@ -521,21 +627,51 @@ impl ContainerScanner {
     }
 
     fn detect_container_secret(&self, body: &str) -> Option<String> {
-        let patterns = vec![
-            (r"eyJhbGciOi", "Kubernetes Service Account Token"),
+        // Two-tier detection: high-confidence structural markers first (a match here
+        // is basically guaranteed to be the real artifact), then env-var patterns
+        // that are only accepted when paired with a credential-value assignment.
+        // Env var *names* alone show up in innocuous documentation and shell dumps,
+        // so we require `NAME=<value with quotes or a plausible token>` context.
+        let structural = [
+            (r"eyJhbGciOi[A-Za-z0-9_\-]{4,}\.eyJ[A-Za-z0-9_\-]{20,}", "Kubernetes Service Account Token (JWT)"),
             (r"-----BEGIN CERTIFICATE-----", "TLS Certificate"),
             (r"-----BEGIN RSA PRIVATE KEY-----", "RSA Private Key"),
+            (r"-----BEGIN EC PRIVATE KEY-----", "EC Private Key"),
+            (r"-----BEGIN OPENSSH PRIVATE KEY-----", "OpenSSH Private Key"),
             (r"-----BEGIN PRIVATE KEY-----", "Private Key"),
-            (r#""auths"\s*:"#, "Docker Registry Auth"),
-            (r"DOCKER_", "Docker Environment Variable"),
-            (r"KUBE_", "Kubernetes Environment Variable"),
-            (r"KUBERNETES_", "Kubernetes Environment Variable"),
-            (r"AWS_", "AWS Credential"),
-            (r"AZURE_", "Azure Credential"),
-            (r"GCP_", "GCP Credential"),
+            (r#""auths"\s*:\s*\{"#, "Docker Registry Auth (config.json)"),
+            (r#""credHelpers"\s*:\s*\{"#, "Docker credHelpers"),
+            (r#""credsStore"\s*:\s*""#, "Docker credsStore"),
+            // K3s / RKE2 join tokens have a very specific shape.
+            (r"K10[a-f0-9]{64}::server:[a-f0-9]{32}", "K3s/RKE2 Cluster Join Token"),
+            // kubeconfig markers - all three fields together only appear in kubeconfigs.
+            (r"clusters:[\s\S]{0,4096}contexts:[\s\S]{0,4096}users:", "kubeconfig Structure"),
         ];
 
-        for (pattern, secret_type) in patterns {
+        for (pattern, secret_type) in structural {
+            if let Ok(re) = Regex::new(pattern) {
+                if re.is_match(body) {
+                    return Some(secret_type.to_string());
+                }
+            }
+        }
+
+        // Env-file style leaks (/proc/*/environ, cloud-init user-data). Require
+        // `KEY=value` shape with a non-trivial value; bare mentions of the prefix
+        // in documentation would otherwise trigger false positives.
+        let env_patterns = [
+            (r#"AWS_SECRET_ACCESS_KEY\s*=\s*[A-Za-z0-9+/]{30,}"#, "AWS Secret Access Key"),
+            (r#"AWS_SESSION_TOKEN\s*=\s*[A-Za-z0-9+/=]{100,}"#, "AWS Session Token"),
+            (r#"AWS_ACCESS_KEY_ID\s*=\s*AKIA[0-9A-Z]{16}"#, "AWS Access Key ID"),
+            (r#"AZURE_CLIENT_SECRET\s*=\s*[A-Za-z0-9._~\-]{20,}"#, "Azure Client Secret"),
+            (r#"AZURE_TENANT_ID\s*=\s*[a-f0-9\-]{36}"#, "Azure Tenant ID"),
+            (r#"GOOGLE_APPLICATION_CREDENTIALS\s*=\s*/"#, "GCP ADC Path"),
+            (r#"DOCKER_AUTH_CONFIG\s*=\s*\{"#, "Docker Auth Config Env Var"),
+            (r#"KUBECONFIG\s*=\s*/"#, "KUBECONFIG Env Var"),
+            (r#"VAULT_TOKEN\s*=\s*(?:hvs\.|s\.)[A-Za-z0-9._\-]{20,}"#, "HashiCorp Vault Token"),
+        ];
+
+        for (pattern, secret_type) in env_patterns {
             if let Ok(re) = Regex::new(pattern) {
                 if re.is_match(body) {
                     return Some(secret_type.to_string());
@@ -544,6 +680,252 @@ impl ContainerScanner {
         }
 
         None
+    }
+
+    /// Test for exposed cluster/orchestrator control planes (etcd, Consul,
+    /// Nomad, Portainer, Rancher). These are frequent finds inside private
+    /// networks that get accidentally exposed via reverse proxy or bad NAT
+    /// rules, and every one of them leaks either cluster credentials or
+    /// service configuration.
+    async fn test_orchestrator_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        // (path, product, response signature that must appear in body/headers, severity, cvss, description)
+        let probes: &[(&str, &str, &[&str], Severity, f64, &str)] = &[
+            // etcd v2 & v3 - full cluster secret store, including K8s secrets when co-hosted.
+            (
+                "/v2/keys",
+                "etcd v2 API",
+                &["\"action\":\"get\"", "\"node\":", "etcd"],
+                Severity::Critical,
+                9.8,
+                "etcd v2 API accessible - all cluster keys can be read",
+            ),
+            (
+                "/v2/stats/self",
+                "etcd v2 stats",
+                &["\"name\":", "\"leaderInfo\"", "\"startTime\""],
+                Severity::High,
+                7.5,
+                "etcd cluster stats exposed - reveals cluster topology and leader",
+            ),
+            (
+                "/v2/members",
+                "etcd v2 members",
+                &["\"members\":", "\"peerURLs\"", "\"clientURLs\""],
+                Severity::High,
+                7.5,
+                "etcd membership API exposed - reveals internal peer/client URLs",
+            ),
+            (
+                "/version",
+                "etcd version endpoint",
+                &["\"etcdserver\":", "\"etcdcluster\":"],
+                Severity::Medium,
+                5.3,
+                "etcd version endpoint exposed",
+            ),
+            // Consul
+            (
+                "/v1/kv/?recurse",
+                "Consul KV store",
+                &["\"Key\":", "\"Value\":", "\"CreateIndex\":"],
+                Severity::Critical,
+                9.8,
+                "Consul KV store fully readable - contains service secrets",
+            ),
+            (
+                "/v1/catalog/services",
+                "Consul catalog",
+                &["\"consul\":"],
+                Severity::High,
+                7.5,
+                "Consul service catalog exposed - full service inventory",
+            ),
+            (
+                "/v1/catalog/nodes",
+                "Consul catalog/nodes",
+                &["\"Node\":", "\"Address\":", "\"Datacenter\":"],
+                Severity::High,
+                7.5,
+                "Consul node catalog exposed - all internal node addresses",
+            ),
+            (
+                "/v1/agent/self",
+                "Consul agent self",
+                &["\"Config\":", "\"NodeName\":", "\"NodeID\":"],
+                Severity::High,
+                7.5,
+                "Consul agent config exposed - reveals ACL bootstrap and gossip state",
+            ),
+            (
+                "/v1/acl/tokens",
+                "Consul ACL tokens",
+                &["\"AccessorID\":", "\"SecretID\":"],
+                Severity::Critical,
+                9.8,
+                "Consul ACL token list exposed - includes SecretIDs granting full access",
+            ),
+            // Nomad
+            (
+                "/v1/jobs",
+                "Nomad jobs API",
+                &["\"ID\":", "\"ParentID\":", "\"Type\":\"service\""],
+                Severity::High,
+                8.2,
+                "Nomad jobs API exposed - reveals scheduled workloads and env vars",
+            ),
+            (
+                "/v1/nodes",
+                "Nomad nodes API",
+                &["\"Datacenter\":", "\"NodeClass\":", "\"Drivers\":"],
+                Severity::High,
+                7.5,
+                "Nomad nodes API exposed - internal cluster topology",
+            ),
+            (
+                "/v1/status/leader",
+                "Nomad leader",
+                &["\":4647\"", "\":4648\""],
+                Severity::Medium,
+                5.3,
+                "Nomad leader endpoint exposes internal RPC address",
+            ),
+            (
+                "/v1/agent/self",
+                "Nomad agent self",
+                &["\"config\":", "\"member\":", "\"stats\":"],
+                Severity::High,
+                7.5,
+                "Nomad agent config exposed",
+            ),
+            // Portainer
+            (
+                "/api/status",
+                "Portainer API",
+                &["\"Version\":", "\"InstanceID\":"],
+                Severity::Medium,
+                5.3,
+                "Portainer API detected - fingerprint for known CVE exploitation",
+            ),
+            (
+                "/api/settings/public",
+                "Portainer settings",
+                &["\"AuthenticationMethod\":", "\"EnableEdgeComputeFeatures\":"],
+                Severity::Medium,
+                5.3,
+                "Portainer public settings exposed - reveals auth mode and version",
+            ),
+            (
+                "/api/endpoints",
+                "Portainer endpoints",
+                &["\"Type\":", "\"PublicURL\":", "\"AuthorizedTeams\":"],
+                Severity::High,
+                8.2,
+                "Portainer endpoints listed without auth - full container-engine list",
+            ),
+            // Rancher
+            (
+                "/v3/settings",
+                "Rancher settings",
+                &["\"baseType\":\"setting\"", "\"cacerts\""],
+                Severity::High,
+                7.5,
+                "Rancher settings API exposed - reveals installation config",
+            ),
+            (
+                "/v3/tokens",
+                "Rancher tokens",
+                &["\"baseType\":\"token\"", "\"userId\":"],
+                Severity::Critical,
+                9.8,
+                "Rancher token API exposed - session tokens readable",
+            ),
+            (
+                "/v3/clusters",
+                "Rancher clusters",
+                &["\"baseType\":\"cluster\"", "\"kubernetesVersion\""],
+                Severity::High,
+                8.2,
+                "Rancher managed clusters listed without auth",
+            ),
+            // Traefik / Caddy admin APIs - often mistakenly exposed
+            (
+                "/api/rawdata",
+                "Traefik API",
+                &["\"routers\":", "\"middlewares\":", "\"services\":"],
+                Severity::High,
+                7.5,
+                "Traefik dashboard API exposed - reveals full routing config incl. backends",
+            ),
+            (
+                "/api/overview",
+                "Traefik overview",
+                &["\"http\":", "\"tcp\":", "\"features\":"],
+                Severity::Medium,
+                5.3,
+                "Traefik overview API exposed",
+            ),
+            (
+                "/config",
+                "Caddy admin config",
+                &["\"apps\":", "\"http\":{\"servers\":"],
+                Severity::High,
+                8.2,
+                "Caddy admin config API exposed - allows config read/modify",
+            ),
+            // Docker Swarm visualizer / Swarmpit
+            (
+                "/api/version",
+                "Swarmpit API",
+                &["\"swarmpit\":"],
+                Severity::Medium,
+                5.3,
+                "Swarmpit API detected",
+            ),
+        ];
+
+        for (path, product, signatures, severity, cvss, description) in probes {
+            let test_url = self.build_url(url, path);
+            tests_run += 1;
+            match tokio::time::timeout(Duration::from_secs(5), self.http_client.get(&test_url))
+                .await
+            {
+                Ok(Ok(response)) => {
+                    if response.status_code != 200 || response.body.len() < 4 {
+                        continue;
+                    }
+                    let matched = signatures
+                        .iter()
+                        .any(|sig| response.body.contains(*sig));
+                    if !matched {
+                        continue;
+                    }
+                    info!("{} exposed at {}", product, path);
+                    vulnerabilities.push(self.create_vulnerability(
+                        &test_url,
+                        &format!("Exposed {}", product),
+                        path,
+                        description,
+                        &format!("Response matched signature for {}", product),
+                        severity.clone(),
+                        "CWE-306",
+                        *cvss,
+                    ));
+                    // One product per scan is enough - the reader gets the point,
+                    // and continued probing risks tripping rate limits.
+                    break;
+                }
+                Ok(Err(e)) => debug!("Orchestrator probe {} failed: {}", path, e),
+                Err(_) => debug!("Orchestrator probe {} timed out", path),
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
     }
 
     fn build_url(&self, base: &str, path: &str) -> String {
@@ -604,6 +986,26 @@ impl ContainerScanner {
     }
 
     fn get_remediation(&self, vuln_type: &str) -> String {
+        // Orchestrator probes flag as "Exposed <product>" - route them all through
+        // a single generic remediation so the block below stays readable.
+        if vuln_type.starts_with("Exposed etcd")
+            || vuln_type.starts_with("Exposed Consul")
+            || vuln_type.starts_with("Exposed Nomad")
+            || vuln_type.starts_with("Exposed Portainer")
+            || vuln_type.starts_with("Exposed Rancher")
+            || vuln_type.starts_with("Exposed Traefik")
+            || vuln_type.starts_with("Exposed Caddy")
+            || vuln_type.starts_with("Exposed Swarmpit")
+        {
+            return "1. Never expose orchestrator/control-plane APIs to the public internet.\n\
+                    2. Bind the admin listener to loopback or a private network only.\n\
+                    3. Enable authentication (ACLs, mTLS, OIDC) - default deploys are unauthenticated.\n\
+                    4. Put the control plane behind a VPN, bastion, or Zero-Trust gateway.\n\
+                    5. Audit and rotate every credential visible via the exposed API.\n\
+                    6. Enable API audit logging.\n\
+                    7. Add a firewall rule that drops external traffic to the API port."
+                .to_string();
+        }
         match vuln_type {
             "Exposed Docker API" | "Exposed Docker Daemon" => {
                 "1. Never expose Docker API to the internet\n\
