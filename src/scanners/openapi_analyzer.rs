@@ -49,41 +49,178 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+/// Every hit is content-validated by `parse_openapi_spec` (must parse as a
+/// spec carrying `openapi:` or `swagger: 2.0`) so path additions here cannot
+/// introduce false positives — a random 200 from a marketing/SPA shell is
+/// dropped at parse time.
 const OPENAPI_PATHS: &[&str] = &[
+    // Common defaults
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
     "/api-docs.json",
+    "/openapi.yaml",
+    "/openapi.yml",
+    "/swagger.yaml",
+    "/swagger.yml",
+    "/api-docs.yaml",
+    "/api-docs.yml",
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    // ASP.NET Core / NSwag / Swashbuckle defaults
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/v1/swagger.yaml",
+    "/swagger/v2/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // Springdoc / Springfox (Java Spring)
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/v2/api-docs.yaml",
+    // Versioned API/spec conventions
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/openapi.yaml",
+    "/v2/openapi.yaml",
+    "/v3/openapi.yaml",
+    // Under /api/*
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/swagger.yaml",
+    "/api/swagger/v1/swagger.json",
+    "/api/swagger/v2/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/openapi",
+    "/api/swagger",
+    "/api-doc.json",
+    "/api-doc.yaml",
+    // Docs- and openapi- prefixed roots
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/openapi.yaml",
+    "/docs/api.json",
+    "/docs/api.yaml",
+    "/docs/spec.json",
+    "/docs/spec.yaml",
+    "/docs/v1/openapi.json",
+    "/docs/v2/openapi.json",
+    "/docs/v3/openapi.json",
+    "/openapi/v1/api-docs",
+    "/openapi/v2/api-docs",
     "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/openapi/api-docs",
+    "/openapi/spec",
+    "/openapi/spec.json",
+    "/openapi/spec.yaml",
+    // REST/service-oriented conventions
+    "/rest/swagger.json",
+    "/rest/openapi.json",
+    "/rest/api-docs",
+    "/service/swagger.json",
+    "/services/swagger.json",
+    "/service/openapi.json",
+    // Public/private/admin/internal variants that get accidentally exposed
+    "/public/swagger.json",
+    "/public/openapi.json",
+    "/public/api-docs",
+    "/internal/swagger.json",
+    "/internal/openapi.json",
+    "/internal/api-docs",
+    "/admin/swagger.json",
+    "/admin/openapi.json",
+    "/admin/api-docs",
+    "/management/openapi",
+    "/management/api-docs",
+    // Framework-specific defaults (Django DRF spectacular, drf-yasg, FastAPI, Hapi, tsoa)
+    "/api/schema/",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    "/openapi",
+    "/api/swagger.yaml",
+    "/apispec.json",
+    "/apispec_1.json",
+    "/api/openapi_spec",
+    // Swagger config / meta endpoints often exposed alongside spec
+    "/swagger-config",
+    "/api/swagger-config",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger / ReDoc / RapiDoc UI paths.
+/// Hits are content-validated by the caller against markers like
+/// "swagger-ui" / "redoc" / "rapidoc", so path additions here don't affect
+/// the FP posture. Paths that would collide with generic marketing "docs"
+/// pages (e.g. bare "/docs/") are deliberately NOT expanded further.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Common Swagger UI shells
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger.html",
+    "/swagger-ui/dist/index.html",
+    "/swagger-ui-init.js",
+    // Springfox / Springdoc bundled UI (webjars is the giveaway)
+    "/webjars/swagger-ui/index.html",
+    "/webjars/swagger-ui/",
+    // Under /api/*
     "/api/swagger-ui.html",
-    "/docs/",
-    "/api-docs/",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/swagger/",
+    "/api/swagger/index.html",
     "/api/docs",
+    "/api/docs/",
+    // Django DRF/drf-yasg/spectacular UIs
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // ReDoc / RapiDoc / Elements / Stoplight
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
     "/rapidoc",
+    "/rapidoc.html",
+    "/elements",
+    "/elements/",
+    "/stoplight",
+    "/stoplight/",
+    // Legacy / less-common
+    "/api-docs/",
+    "/apidocs",
+    "/apidocs/",
+    "/apidoc",
+    "/apidoc/",
+    "/api-explorer/",
+    "/api-explorer",
+    "/explorer/",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
