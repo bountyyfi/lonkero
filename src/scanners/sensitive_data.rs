@@ -3,9 +3,17 @@
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use regex::Regex;
 use std::sync::Arc;
 use tracing::info;
+
+/// Decode a JWT-style base64url payload segment (no padding). Returns raw bytes.
+fn base64_url_decode(input: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    // Strip any accidental padding chars, then decode base64url-no-pad.
+    let clean: String = input.chars().filter(|c| *c != '=').collect();
+    URL_SAFE_NO_PAD.decode(clean.as_bytes())
+}
 
 mod uuid {
     pub use uuid::Uuid;
@@ -105,6 +113,13 @@ impl SensitiveDataScanner {
             "/.env.prod",
             "/.env.dev",
             "/.env.test",
+            "/.env.qa",
+            "/.env.uat",
+            "/.env.preview",
+            "/.env.review",
+            "/.env.docker",
+            "/.env.deploy",
+            "/.env.ci",
             "/.env.backup",
             "/.env.bak",
             "/.env.old",
@@ -114,6 +129,7 @@ impl SensitiveDataScanner {
             "/.env.default",
             "/.env.live",
             "/.env.private",
+            "/.env.vault",           // dotenv-vault encrypted store
             "/config.php",
             "/configuration.php",
             "/wp-config.php",
@@ -213,15 +229,33 @@ impl SensitiveDataScanner {
             "/Pipfile.lock",
             "/poetry.lock",
             "/pyproject.toml",
+            "/uv.lock",                // uv (Python)
+            "/rye.lock",               // rye (Python)
             "/go.mod",
             "/go.sum",
             "/Cargo.toml",
             "/Cargo.lock",
+            "/deno.json",
+            "/deno.jsonc",
+            "/deno.lock",
+            "/bun.lockb",
+            "/bunfig.toml",
+            "/mix.exs",                // Elixir
+            "/mix.lock",
+            "/rebar.config",           // Erlang
+            "/build.gradle",
+            "/build.gradle.kts",
+            "/settings.gradle",
+            "/gradle.properties",      // Often contains signing keys / repo creds
+            "/local.properties",       // Android SDK path + occasionally API keys
             "/auth.json", // Composer auth tokens
             "/.npmrc",
             "/.yarnrc",
             "/.yarnrc.yml",
             "/.pypirc",
+            "/.cargo/credentials",     // crates.io registry tokens
+            "/.cargo/credentials.toml",
+            "/.gradle/gradle.properties",
             // Database dumps (high value)
             "/backup.sql",
             "/backup.sql.gz",
@@ -255,6 +289,26 @@ impl SensitiveDataScanner {
             "/dump.rdb", // Redis persistent snapshot
             "/mongodump.tar",
             "/mongodump.tar.gz",
+            "/backup.bak",
+            "/backup.db",
+            "/backup.sqlite",
+            "/backup.sqlite3",
+            "/backup.dump",
+            "/db.dump",
+            "/backup.tar.bz2",
+            "/backup.tgz",
+            "/db_backup.tar.gz",
+            // Embedded / file-based databases served from web root
+            "/database.sqlite",
+            "/database.sqlite3",
+            "/db.sqlite",
+            "/db.sqlite3",
+            "/production.sqlite3",
+            "/dev.sqlite3",
+            "/app.db",
+            "/data.db",
+            "/storage.db",
+            "/site.db",
             // Terraform / IaC state (contains ALL plaintext secrets)
             "/terraform.tfstate",
             "/terraform.tfstate.backup",
@@ -266,6 +320,68 @@ impl SensitiveDataScanner {
             "/production.tfvars",
             "/.terraform/terraform.tfstate",
             "/.terraformrc",
+            // Pulumi state / stack config (Pulumi.<stack>.yaml often stores config + encrypted secrets)
+            "/Pulumi.yaml",
+            "/Pulumi.prod.yaml",
+            "/Pulumi.production.yaml",
+            "/Pulumi.dev.yaml",
+            "/Pulumi.staging.yaml",
+            "/.pulumi/stacks/",
+            // Serverless / SST / Wrangler / Fly / SAM
+            "/serverless.yml",
+            "/serverless.yaml",
+            "/serverless.json",
+            "/serverless.env.yml",
+            "/sst.config.ts",
+            "/sst.config.js",
+            "/wrangler.toml",
+            "/wrangler.jsonc",
+            "/.wrangler/state/",
+            "/fly.toml",
+            "/fly.production.toml",
+            "/template.yaml",           // AWS SAM template
+            "/samconfig.toml",
+            "/samconfig.yaml",
+            // Ansible / Chef / Puppet / Salt
+            "/ansible.cfg",
+            "/hosts.yml",
+            "/inventory.ini",
+            "/inventory.yml",
+            "/inventory.yaml",
+            "/group_vars/all.yml",
+            "/group_vars/all.yaml",
+            "/host_vars/",
+            "/vault_password_file",
+            "/.vault_pass",
+            "/knife.rb",
+            "/.chef/knife.rb",
+            "/data_bags/",
+            "/hiera.yaml",
+            "/master.pp",
+            "/site.pp",
+            "/salt/master",
+            "/salt/minion",
+            "/pillar/top.sls",
+            // Helm / Kustomize / K8s manifests with secrets
+            "/values.yaml",
+            "/values.production.yaml",
+            "/values.prod.yaml",
+            "/helm/values.yaml",
+            "/helm/values.production.yaml",
+            "/charts/values.yaml",
+            "/kustomization.yaml",
+            "/manifests/secrets.yaml",
+            "/manifests/secret.yaml",
+            "/k8s/secrets.yaml",
+            "/k8s/secret.yaml",
+            "/deploy/secrets.yaml",
+            "/deployment/secrets.yaml",
+            // Cloud-init / OS provisioning
+            "/user-data",
+            "/user_data.sh",
+            "/cloud-init.yaml",
+            "/cloud-config.yaml",
+            "/meta-data",
             // Debug and info files
             "/phpinfo.php",
             "/info.php",
@@ -331,9 +447,45 @@ impl SensitiveDataScanner {
             "/actuator/env",
             "/actuator/heapdump",
             "/actuator/configprops",
+            "/actuator/threaddump",
+            "/actuator/loggers",
+            "/actuator/beans",
+            "/actuator/mappings",
+            "/actuator/httptrace",
+            "/actuator/trace",
+            "/actuator/auditevents",
+            "/actuator/sessions",
+            "/actuator/liquibase",
+            "/actuator/flyway",
+            "/actuator/metrics",
+            "/actuator/quartz",
+            "/actuator/scheduledtasks",
+            "/actuator/gateway/routes",
+            "/actuator/cloudfoundryapplication",
+            "/actuator/hystrix.stream",
+            "/actuator/refresh",       // POST-only but often reachable via GET on misconfigured setups
+            "/actuator/restart",
+            "/actuator/shutdown",
+            // Go / Rust / Node debug + metrics endpoints
+            "/debug/pprof/",
+            "/debug/pprof/heap",
+            "/debug/pprof/goroutine",
+            "/debug/pprof/profile",
+            "/debug/pprof/cmdline",
+            "/debug/vars",              // expvar
+            "/metrics",                 // Prometheus scrape
+            "/nginx_status",
+            "/nginx-status",
+            "/haproxy?stats",
+            "/haproxy_stats",
+            "/varnishstat",
+            "/traefik/api/rawdata",
+            "/dashboard/",              // Traefik dashboard
+            "/api/dashboard/",
             // Cloud credentials & SDK configs
             "/.aws/credentials",
             "/.aws/config",
+            "/.aws/sso/cache/",
             "/.boto",
             "/.s3cfg",
             "/s3cfg",
@@ -353,6 +505,44 @@ impl SensitiveDataScanner {
             "/azureProfile.json",
             "/publishsettings",
             "/WebDeploy.publishsettings",
+            "/.doctl/config.yaml",         // DigitalOcean CLI
+            "/.hcloud/config",              // Hetzner Cloud CLI
+            "/.linode-cli",
+            "/.linode/config",
+            "/.oci/config",                 // Oracle Cloud
+            "/.scw/config.yaml",            // Scaleway
+            "/.upctl.yaml",                 // UpCloud
+            "/.civo/civo.json",             // Civo
+            "/.vultr-cli.yaml",
+            "/.exoscale/config",
+            "/.aliyun/config.json",         // Aliyun / Alibaba Cloud
+            "/.qingcloud/config.yaml",
+            "/.tccli/default.credential",   // Tencent Cloud
+            "/.chef/config.rb",
+            "/.terraform.d/credentials.tfrc.json",
+            "/.pulumi/credentials.json",
+            "/.circleci/cli.yml",
+            "/.fly/config.yml",
+            "/.vercel/auth.json",
+            "/.netlify/config.json",
+            "/.render/config.json",
+            "/.railway/config.json",
+            "/.heroku/config.json",
+            "/.heroku/auth.json",           // Heroku CLI credentials
+            "/.spaceship-credentials",
+            "/.snowsql/config",             // Snowflake CLI
+            "/.databricks/config",          // Databricks CLI
+            "/.bws/config",                 // Bitwarden secrets manager CLI
+            "/vault/config.hcl",            // HashiCorp Vault server config
+            "/consul.hcl",                  // Consul config
+            "/nomad.hcl",                   // Nomad config
+            "/prometheus.yml",              // Often contains basic auth for scrape targets
+            "/prometheus.yaml",
+            "/alertmanager.yml",
+            "/grafana.ini",                 // Grafana config with SMTP/DB creds
+            "/loki.yml",
+            "/loki-config.yaml",
+            "/tempo.yaml",
             // Private keys and certificates
             "/id_rsa",
             "/id_dsa",
@@ -392,16 +582,35 @@ impl SensitiveDataScanner {
             "/.vscode/sftp.json",
             "/.vscode/settings.json",
             "/.vscode/launch.json",
+            "/.vscode/tasks.json",
             "/.idea/workspace.xml",
             "/.idea/dataSources.xml",
             "/.idea/dataSources.local.xml",
             "/.idea/webServers.xml",
             "/.idea/deployment.xml",
             "/.idea/WebServers.xml",
+            "/.idea/misc.xml",
+            "/.idea/sshConfigs.xml",
+            "/.idea/remote-mappings.xml",
             "/sftp-config.json",
             "/ftpsync.settings",
             "/nbproject/project.properties",
             "/nbproject/private/private.properties",
+            // AI coding assistants — MCP / config commonly holds API keys
+            "/.cursor/mcp.json",
+            "/.cursor/settings.json",
+            "/.windsurf/mcp.json",
+            "/.windsurf/config.json",
+            "/.aider.conf.yml",
+            "/.aider.model.settings.yml",
+            "/.continue/config.json",
+            "/.continue/config.yaml",
+            "/.zed/settings.json",
+            "/.claude/settings.json",
+            "/.claude/settings.local.json",
+            "/.codeium/config.json",
+            "/.cody/config.json",
+            "/.tabnine/tabnine_config.json",
             // CI/CD configs
             "/.travis.yml",
             "/.circleci/config.yml",
@@ -413,6 +622,18 @@ impl SensitiveDataScanner {
             "/.drone.yml",
             "/buildspec.yml",
             "/codemagic.yaml",
+            "/.woodpecker.yml",         // Woodpecker CI
+            "/.woodpecker/",
+            "/.buildkite/pipeline.yml",
+            "/.buildkite/hooks/environment",
+            "/.harness/pipeline.yml",
+            "/cloudbuild.yaml",
+            "/cloudbuild.yml",
+            "/skaffold.yaml",
+            "/tekton/pipeline.yaml",
+            "/.github/workflows/",
+            "/.gitea/workflows/",
+            "/.forgejo/workflows/",
             // Container / orchestration
             "/Dockerfile",
             "/docker-compose.yml",
@@ -1619,6 +1840,315 @@ impl SensitiveDataScanner {
                     8.2,
                     "Rotate the FCM legacy server key; use HTTP v1 API with short-lived OAuth tokens.",
                 ));
+            }
+        }
+
+        // Groq API key (gsk_ + 52 chars)
+        if let Some(matches) = self.regex_scan(body, r"\bgsk_[A-Za-z0-9]{52}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Groq API Key Exposed in Response",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the Groq API key; keys enable inference billing abuse.",
+                ));
+            }
+        }
+
+        // Perplexity API key (pplx- + 56 hex)
+        if let Some(matches) = self.regex_scan(body, r"\bpplx-[a-f0-9]{56}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Perplexity API Key Exposed in Response",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the Perplexity API key immediately.",
+                ));
+            }
+        }
+
+        // xAI (Grok) API key (xai- + 80 chars)
+        if let Some(matches) = self.regex_scan(body, r"\bxai-[A-Za-z0-9]{80}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "xAI API Key Exposed in Response",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the xAI API key immediately.",
+                ));
+            }
+        }
+
+        // Databricks personal access token (dapi + 32 hex)
+        if let Some(matches) = self.regex_scan(body, r"\bdapi[a-f0-9]{32}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Databricks Personal Access Token Exposed",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the Databricks PAT; it grants workspace-level access.",
+                ));
+            }
+        }
+
+        // Postman API key (PMAK-<24hex>-<34hex>)
+        if let Some(matches) =
+            self.regex_scan(body, r"\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\b")
+        {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Postman API Key Exposed in Response",
+                    url,
+                    &evidence,
+                    Severity::High,
+                    "CWE-798",
+                    8.2,
+                    "Revoke the Postman API key; it exposes team collections and secrets.",
+                ));
+            }
+        }
+
+        // Mailchimp API key (<32 hex>-usNN)
+        if let Some(matches) = self.regex_scan(body, r"\b[a-f0-9]{32}-us[0-9]{1,2}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Mailchimp API Key Exposed in Response",
+                    url,
+                    &evidence,
+                    Severity::High,
+                    "CWE-798",
+                    8.2,
+                    "Revoke the Mailchimp API key; attackers can export lists and send campaigns.",
+                ));
+            }
+        }
+
+        // Buildkite Agent Token (bkua_<40 hex>)
+        if let Some(matches) = self.regex_scan(body, r"\bbkua_[a-f0-9]{40}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Buildkite Agent Token Exposed",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the Buildkite Agent Token; attackers can register agents that execute pipeline jobs.",
+                ));
+            }
+        }
+
+        // Deno Deploy access token (ddp_ + 43 alnum)
+        if let Some(matches) = self.regex_scan(body, r"\bddp_[A-Za-z0-9]{43}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Deno Deploy Access Token Exposed",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the Deno Deploy token; it can deploy arbitrary code.",
+                ));
+            }
+        }
+
+        // Linear API key (lin_api_ + 40 chars)
+        if let Some(matches) = self.regex_scan(body, r"\blin_api_[A-Za-z0-9]{40}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Linear API Key Exposed",
+                    url,
+                    &evidence,
+                    Severity::High,
+                    "CWE-798",
+                    8.2,
+                    "Revoke the Linear API key; it exposes issue tracker data and workspace access.",
+                ));
+            }
+        }
+
+        // Sentry user auth token (sntrys_ + long base64ish)
+        if let Some(matches) = self.regex_scan(body, r"\bsntrys_[A-Za-z0-9+/=_\-]{40,}") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Sentry Auth Token Exposed",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the Sentry user auth token; it grants org-level access to error data.",
+                ));
+            }
+        }
+
+        // Fly.io deploy token (fo1_ + long)
+        if let Some(matches) = self.regex_scan(body, r"\bfo1_[A-Za-z0-9_\-]{43,}") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Fly.io Deploy Token Exposed",
+                    url,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-798",
+                    9.1,
+                    "Revoke the Fly.io token; attackers can deploy machines under your org.",
+                ));
+            }
+        }
+
+        // LangSmith API key (lsv2_pt_<32 alnum>_<10 hex> or lsv2_sk_...)
+        if let Some(matches) = self.regex_scan(
+            body,
+            r"\blsv2_(?:pt|sk)_[A-Za-z0-9]{32}_[a-f0-9]{10}\b",
+        ) {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "LangSmith API Key Exposed",
+                    url,
+                    &evidence,
+                    Severity::High,
+                    "CWE-798",
+                    8.2,
+                    "Revoke the LangSmith API key; it grants access to LLM traces containing prompts + data.",
+                ));
+            }
+        }
+
+        // Figma personal access token (figu_ / figd_ / figpat)
+        if let Some(matches) = self.regex_scan(
+            body,
+            r"\b(?:figu_|figd_|figpat_)[A-Za-z0-9_\-]{20,}\b",
+        ) {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Figma Access Token Exposed",
+                    url,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-798",
+                    5.3,
+                    "Revoke the Figma access token; attackers can read/modify design files.",
+                ));
+            }
+        }
+
+        // HuggingFace access token (hf_ + 34+ alnum)
+        if let Some(matches) = self.regex_scan(body, r"\bhf_[A-Za-z]{34,40}\b") {
+            for evidence in matches.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "HuggingFace Access Token Exposed",
+                    url,
+                    &evidence,
+                    Severity::High,
+                    "CWE-798",
+                    8.2,
+                    "Revoke the HuggingFace token; write tokens can push malicious model updates.",
+                ));
+            }
+        }
+
+        // Cloudflare API token (v4 style: 40 alnum-underscore, prefixed by CF context)
+        // Only match when appearing near Cloudflare context to avoid FPs on any 40-char string
+        if body.to_lowercase().contains("cloudflare")
+            || body.to_lowercase().contains("cf-api")
+            || body.contains("api.cloudflare.com")
+        {
+            if let Some(matches) = self.regex_scan(
+                body,
+                r#"(?i)cf[_\- ]?api[_\- ]?token['"\s:=]{1,6}([A-Za-z0-9_\-]{40})"#,
+            ) {
+                for evidence in matches.into_iter().take(2) {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "Cloudflare API Token Exposed",
+                        url,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-798",
+                        9.1,
+                        "Revoke the Cloudflare API token; scoped tokens can still modify DNS, WAF, and origin rules.",
+                    ));
+                }
+            }
+        }
+
+        // Datadog API key + APP key pair (both required to be actionable)
+        // Datadog API key is 32 hex, APP key is 40 hex. Only report when we see BOTH clearly labeled.
+        let has_dd_api = self
+            .regex_scan(
+                body,
+                r#"(?i)dd[_\- ]?api[_\- ]?key['"\s:=]{1,6}[a-f0-9]{32}\b"#,
+            )
+            .is_some();
+        let has_dd_app = self
+            .regex_scan(
+                body,
+                r#"(?i)dd[_\- ]?app(?:lication)?[_\- ]?key['"\s:=]{1,6}[a-f0-9]{40}\b"#,
+            )
+            .is_some();
+        if has_dd_api && has_dd_app {
+            vulnerabilities.push(self.create_vulnerability(
+                "Datadog API + Application Keys Exposed",
+                url,
+                "Datadog DD_API_KEY and DD_APP_KEY pair detected in response",
+                Severity::Critical,
+                "CWE-798",
+                9.1,
+                "Rotate both Datadog keys; the pair grants full monitoring + admin API access.",
+            ));
+        }
+
+        // JWT tokens carrying explicit service_role / admin claims (Supabase, PostgREST)
+        // Only flag well-formed JWTs whose middle segment base64-decodes to something dangerous.
+        // Use Regex directly (not regex_scan, which truncates evidence and breaks decoding).
+        if let Ok(jwt_re) = Regex::new(
+            r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}",
+        ) {
+            let mut reported = 0;
+            for m in jwt_re.find_iter(body) {
+                if reported >= 2 {
+                    break;
+                }
+                let token = m.as_str();
+                let parts: Vec<&str> = token.split('.').collect();
+                if parts.len() < 3 {
+                    continue;
+                }
+                let Ok(payload) = base64_url_decode(parts[1]) else {
+                    continue;
+                };
+                let ps = String::from_utf8_lossy(&payload);
+                if ps.contains("\"service_role\"") {
+                    let ev = if token.len() > 60 {
+                        format!("{}...", &token[..60])
+                    } else {
+                        token.to_string()
+                    };
+                    vulnerabilities.push(self.create_vulnerability(
+                        "Supabase service_role JWT Exposed",
+                        url,
+                        &ev,
+                        Severity::Critical,
+                        "CWE-798",
+                        9.8,
+                        "This JWT carries the Supabase service_role claim — it bypasses Row-Level Security. \
+                        Rotate the JWT signing key in the Supabase dashboard.",
+                    ));
+                    reported += 1;
+                }
             }
         }
 

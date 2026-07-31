@@ -490,12 +490,80 @@ impl ApiGatewayScanner {
             "/swagger.yaml",
             "/openapi.json",
             "/openapi.yaml",
+            "/openapi.yml",
             "/api-docs",
             "/api/swagger.json",
             "/api/openapi.json",
+            "/api/openapi.yaml",
+            "/api/spec",
+            "/api/spec.json",
+            "/api/schema",
+            "/api/schema.json",
+            "/api/schema/openapi.json",
+            "/api/schema/swagger.json",
+            "/api/swagger",
+            "/api/swagger-ui",
+            "/api/swagger-ui.html",
+            "/api/swagger/index.html",
+            "/api/v1/openapi.json",
+            "/api/v2/openapi.json",
+            "/api/v3/openapi.json",
+            "/api/v1/swagger.json",
+            "/api/v2/swagger.json",
+            "/api/v3/swagger.json",
+            "/api/v1/schema",
+            "/api/v2/schema",
+            "/api/v3/schema",
+            "/v1/api-docs",
+            "/v2/api-docs",
+            "/v3/api-docs",
             "/docs",
             "/api/docs",
             "/redoc",
+            "/redocly",
+            "/rapidoc",
+            "/scalar",              // Scalar API reference (Fastify/Elysia/Hono default)
+            "/reference",           // Scalar / Redocly default mount
+            "/api/reference",
+            "/graphiql",
+            "/graphql",
+            "/api/graphql",
+            "/api/graphql/schema",
+            "/api/graphql/sdl",
+            "/graphql/schema",
+            "/graphql/sdl",
+            "/schema.graphql",
+            "/schema.gql",
+            "/asyncapi.json",       // AsyncAPI (event/streaming APIs)
+            "/asyncapi.yaml",
+            "/api/asyncapi.json",
+            "/raml",                // RAML spec
+            "/api.raml",
+            "/rapi/",               // Common RAML mount
+            "/api/wadl",            // Java Jersey
+            "/application.wadl",
+            "/api.wsdl",            // SOAP
+            "/service.wsdl",
+            "/soap.wsdl",
+            "/api/soap?wsdl",
+            "/api-explorer",
+            "/api/explorer",
+            "/explorer",
+            "/api/rest/schema",
+            "/webhook/schema",
+            "/webhooks.json",
+            "/postman/collection.json",   // Exported Postman collection
+            "/collections/postman.json",
+            "/insomnia.json",             // Exported Insomnia workspace
+            "/trpc/schema",               // tRPC schema endpoints
+            "/api/trpc",
+            "/panel",                     // tRPC panel
+            "/api/panel",
+            "/dev/api-docs",
+            "/debug/openapi.json",
+            "/internal/openapi.json",
+            "/internal/api-docs",
+            "/internal/schema",
         ];
 
         for endpoint in schema_endpoints {
@@ -546,26 +614,72 @@ impl ApiGatewayScanner {
             "/cx-bff/config/.?params=test",
             "/bff/config/",
             "/bff/api/",
+            "/bff/env/",
+            "/bff/runtime-config/",
             "/_bff/",
             "/api-bff/",
+            // Next.js / Nuxt / SvelteKit runtime config leak surfaces
+            "/_next/data/",
+            "/api/config/runtime",
+            "/api/env",
+            "/api/runtime-config",
+            "/_nuxt/config.js",
+            "/__nuxt_data",
+            "/api/_content/",
+            "/api/internal-config",
             // Gateway internal endpoints
             "/gateway/internal/",
             "/gatewayInternal/",
             "/internal-api/",
             "/internal/",
             "/proxy/internal/",
+            "/api/proxy/",
+            "/api/backend/",
+            "/api/upstream/",
             // Config discovery
             "/config/",
             "/api/config/",
             "/api/internal/",
             "/.internal/",
+            "/env-config.js",
+            "/env.js",
+            "/runtime-env.js",
+            // Kong / Apigee / Tyk / AWS API Gateway admin surfaces
+            "/kong-admin/",
+            "/status",              // Kong status endpoint
+            "/routes/",             // Kong routes admin
+            "/services/",           // Kong services admin
+            "/consumers/",          // Kong consumers admin (leaks API keys)
+            "/plugins/",            // Kong plugins
+            "/tyk/keys",            // Tyk gateway admin
+            "/tyk/apis/",
+            "/tyk/reload",
+            "/apigee/organizations/",
+            "/apigee/mgmt/",
+            "/@admin",              // Apollo Router
+            "/graphql/admin",       // Some Hasura setups
             // Graph/Federation
             "/graphql/internal/",
             "/federation/",
+            "/subgraphs/",
+            "/supergraph/",
+            "/apollo/",
             // Service mesh
             "/service/internal/",
             "/mesh/",
             "/sidecar/",
+            "/envoy/",
+            "/envoy/config_dump",
+            "/envoy/stats",
+            "/envoy/clusters",
+            "/consul/v1/agent/self",
+            // Feature flag services often reachable without auth
+            "/api/flags",
+            "/api/feature-flags",
+            "/unleash/api/client/features",
+            "/growthbook/api/features",
+            "/flipt/api/v1/flags",
+            "/launchdarkly/",
         ];
 
         // Fuzz suffixes to append for path-based discovery
