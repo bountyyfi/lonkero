@@ -65,6 +65,7 @@ pub mod dom_clobbering;
 pub mod dora_scanner;
 pub mod drupal_security;
 pub mod email_header_injection;
+pub mod exposed_dashboards;
 pub mod express_security;
 pub mod fastapi_scanner;
 pub mod favicon_hash_scanner;
@@ -204,6 +205,7 @@ pub use dom_clobbering::DomClobberingScanner;
 pub use dora_scanner::DoraScanner;
 pub use drupal_security::DrupalSecurityScanner;
 pub use email_header_injection::EmailHeaderInjectionScanner;
+pub use exposed_dashboards::ExposedDashboardsScanner;
 pub use express_security::ExpressSecurityScanner;
 pub use fastapi_scanner::FastApiScanner;
 pub use favicon_hash_scanner::FaviconHashScanner;
@@ -378,6 +380,7 @@ pub struct ScanEngine {
     pub merlin_scanner: MerlinScanner,
     pub tomcat_misconfig_scanner: TomcatMisconfigScanner,
     pub varnish_misconfig_scanner: VarnishMisconfigScanner,
+    pub exposed_dashboards_scanner: ExposedDashboardsScanner,
     pub js_sensitive_info_scanner: JsSensitiveInfoScanner,
     pub client_route_auth_bypass_scanner: ClientRouteAuthBypassScanner,
     pub baseline_detector: BaselineDetector,
@@ -615,6 +618,7 @@ impl ScanEngine {
             merlin_scanner: MerlinScanner::new(Arc::clone(&http_client)),
             tomcat_misconfig_scanner: TomcatMisconfigScanner::new(Arc::clone(&http_client)),
             varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
+            exposed_dashboards_scanner: ExposedDashboardsScanner::new(Arc::clone(&http_client)),
             js_sensitive_info_scanner: JsSensitiveInfoScanner::new(Arc::clone(&http_client)),
             client_route_auth_bypass_scanner: ClientRouteAuthBypassScanner::new(Arc::clone(
                 &http_client,
@@ -2282,6 +2286,27 @@ impl ScanEngine {
             total_tests += varnish_tests as u64;
             queue
                 .increment_tests(scan_id.clone(), varnish_tests as u64)
+                .await?;
+        }
+
+        // Exposed Management Dashboards Scanner (Professional+)
+        // Finds publicly reachable admin/monitoring dashboards (Grafana,
+        // Kibana, Elasticsearch, RabbitMQ, Traefik, Consul, Airflow, Jenkins,
+        // etc.) using product-specific fingerprints so a bare 200 never fires.
+        if scan_token
+            .is_module_authorized(crate::modules::ids::advanced_scanning::EXPOSED_DASHBOARDS)
+        {
+            info!("[ExposedDashboards] Scanning for exposed management dashboards");
+            modules_used
+                .push(crate::modules::ids::advanced_scanning::EXPOSED_DASHBOARDS.to_string());
+            let (dash_vulns, dash_tests) = self
+                .exposed_dashboards_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(dash_vulns);
+            total_tests += dash_tests as u64;
+            queue
+                .increment_tests(scan_id.clone(), dash_tests as u64)
                 .await?;
         }
 

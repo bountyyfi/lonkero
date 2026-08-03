@@ -255,6 +255,11 @@ pub mod advanced_scanning {
     pub const AUTH_FLOW_TESTER: &str = "auth_flow_tester";
     /// README invisible prompt injection scanner
     pub const README_PROMPT_INJECTION: &str = "readme_prompt_injection";
+    /// Exposed management/monitoring dashboards scanner
+    /// (Grafana, Kibana, Elasticsearch, RabbitMQ, Traefik, Consul, Airflow,
+    /// MinIO, Solr, Nexus, SonarQube, Portainer, Jenkins, GoCD, CouchDB,
+    /// InfluxDB, Prometheus, Alertmanager, k8s API, Docker Registry)
+    pub const EXPOSED_DASHBOARDS: &str = "exposed_dashboards";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -482,6 +487,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::SECOND_ORDER_INJECTION,
         advanced_scanning::AUTH_FLOW_TESTER,
         advanced_scanning::README_PROMPT_INJECTION,
+        advanced_scanning::EXPOSED_DASHBOARDS,
         // Browser Extension (Personal+ / any paid)
         browser_extension::BROWSER_ASSIST,
         // Cloud Scanning (Team+)
