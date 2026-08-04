@@ -399,6 +399,395 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Statuspage.io (Atlassian)
+    ServiceFingerprint {
+        name: "Statuspage.io",
+        cname_patterns: &[".statuspage.io", ".statuspageio.com"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io\">redirected",
+            "This page is powered by Statuspage.io",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the Statuspage.io subdomain in the Atlassian Statuspage admin panel.",
+    },
+    // Readme.io
+    ServiceFingerprint {
+        name: "Readme.io",
+        cname_patterns: &[".readme.io", ".readmessl.com"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+            "The creators of this project are still working on making everything perfect!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in the Readme.io project settings.",
+    },
+    // Unbounce
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in the Unbounce dashboard.",
+    },
+    // Webflow
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".proxy.webflow.com", ".proxy-ssl.webflow.com", ".website.webflow.com"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+            "<p class=\"description\">The page you are looking for doesn't exist",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Webflow, or add the domain to a Webflow project's custom domain settings.",
+    },
+    // Kajabi
+    ServiceFingerprint {
+        name: "Kajabi",
+        cname_patterns: &[".kajabi.com", "endpoint.mykajabi.com"],
+        http_signatures: &[
+            "The page you were looking for doesn't exist",
+            "No such app",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in the Kajabi admin panel.",
+    },
+    // Teamwork
+    ServiceFingerprint {
+        name: "Teamwork",
+        cname_patterns: &[".teamwork.com"],
+        http_signatures: &[
+            "Oops - We didn't find your site",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in Teamwork.",
+    },
+    // Intercom (custom help center domain)
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &["custom.intercom.help", ".intercom.help"],
+        http_signatures: &[
+            "This page is reserved for artistic dogs.",
+            "Uh oh. That page doesn\u{2019}t exist",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the custom help center subdomain in the Intercom admin panel.",
+    },
+    // LaunchRock
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere. Don't worry...it happens to all of us.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in LaunchRock.",
+    },
+    // Wishpond
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign=true",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the campaign domain in Wishpond.",
+    },
+    // Aftership
+    ServiceFingerprint {
+        name: "Aftership",
+        cname_patterns: &[".aftership.com"],
+        http_signatures: &[
+            "Oops.</h2><p class=\"text-muted text-tight\">The page you're looking for doesn't exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the tracking subdomain in Aftership.",
+    },
+    // Acquia
+    ServiceFingerprint {
+        name: "Acquia",
+        cname_patterns: &[".acquia-sites.com"],
+        http_signatures: &[
+            "The site you are looking for could not be found.",
+            "Web Site Not Found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or provision the site in Acquia Cloud.",
+    },
+    // Anima
+    ServiceFingerprint {
+        name: "Anima",
+        cname_patterns: &[".animaapp.io"],
+        http_signatures: &[
+            "If this is your website and you've just created it, try refreshing in a minute",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or publish an Anima project on this domain.",
+    },
+    // Canny
+    ServiceFingerprint {
+        name: "Canny",
+        cname_patterns: &["cname.canny.io"],
+        http_signatures: &[
+            "Company Not Found",
+            "There is no such company. Did you enter the right URL?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or add the subdomain to a Canny board's custom domain settings.",
+    },
+    // Gemfury
+    ServiceFingerprint {
+        name: "Gemfury",
+        cname_patterns: &["*.furyns.com"],
+        http_signatures: &[
+            "404: This page could not be found.Powered By <a href=\"https://gemfury.com\">Gemfury</a>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the Gemfury subdomain.",
+    },
+    // Hatena Blog
+    ServiceFingerprint {
+        name: "Hatena Blog",
+        cname_patterns: &["hatenablog.com"],
+        http_signatures: &[
+            "404 Blog is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the Hatena Blog subdomain.",
+    },
+    // Kinsta
+    ServiceFingerprint {
+        name: "Kinsta",
+        cname_patterns: &[".kinsta.cloud", ".kinsta.com"],
+        http_signatures: &[
+            "No Site For Domain",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in the Kinsta MyKinsta dashboard.",
+    },
+    // Simplebooklet
+    ServiceFingerprint {
+        name: "Simplebooklet",
+        cname_patterns: &["simplebooklet.com"],
+        http_signatures: &[
+            "We can\u{2019}t find that booklet, sorry.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Simplebooklet.",
+    },
+    // Smartling
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &[".smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the translation proxy domain in Smartling.",
+    },
+    // Strikingly
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com", ".strikingly.com"],
+        http_signatures: &[
+            "But if you're looking to build your own website,",
+            "PAGE NOT FOUND.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in Strikingly.",
+    },
+    // Uptimerobot
+    ServiceFingerprint {
+        name: "UptimeRobot",
+        cname_patterns: &["stats.uptimerobot.com"],
+        http_signatures: &[
+            "page not found",
+            "This public status page <b>does not seem to exist</b>.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the status page domain in UptimeRobot.",
+    },
+    // Worksites.net (Digital Ocean managed)
+    ServiceFingerprint {
+        name: "Worksites.net",
+        cname_patterns: &[".worksites.net"],
+        http_signatures: &[
+            "Hello! Sorry, but the webpage you requested could not be found.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain on the Worksites.net platform.",
+    },
+    // Thinkific
+    ServiceFingerprint {
+        name: "Thinkific",
+        cname_patterns: &[".thinkific.com"],
+        http_signatures: &[
+            "You may have mistyped the address or the page may have moved.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in the Thinkific admin panel.",
+    },
+    // Wufoo (SurveyMonkey)
+    ServiceFingerprint {
+        name: "Wufoo",
+        cname_patterns: &[".wufoo.com"],
+        http_signatures: &[
+            "Hmmm....something is not right. But don't fret, let's get you back on track.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom form domain in Wufoo.",
+    },
+    // Landen
+    ServiceFingerprint {
+        name: "Landen",
+        cname_patterns: &[".landen.co"],
+        http_signatures: &[
+            "The page you were looking for does not exist.",
+            "You may have mistyped the address or the page may have moved.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the landing page domain in Landen.",
+    },
+    // Ngrok (rare in prod but often exposed by mistake)
+    ServiceFingerprint {
+        name: "Ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app", ".ngrok.app"],
+        http_signatures: &[
+            "Tunnel <strong style=\"color:",
+            "ngrok gone away",
+            "Tunnel not found",
+        ],
+        header_patterns: &[("ngrok-trace-id", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the ngrok CNAME record - a stale ngrok pointer can be re-registered by anyone. Never expose ngrok tunnels in production DNS.",
+    },
+    // ReadTheDocs
+    ServiceFingerprint {
+        name: "ReadTheDocs",
+        cname_patterns: &[".readthedocs.io", "readthedocs.org"],
+        http_signatures: &[
+            "The project you were looking for does not exist",
+            "Unknown Domain",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the ReadTheDocs project name that matches this subdomain.",
+    },
+    // AWS Elastic Beanstalk
+    ServiceFingerprint {
+        name: "AWS Elastic Beanstalk",
+        cname_patterns: &[".elasticbeanstalk.com"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or launch an Elastic Beanstalk environment matching the missing hostname.",
+    },
 ];
 
 /// DNS resolution result for a subdomain

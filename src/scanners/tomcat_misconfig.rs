@@ -117,8 +117,17 @@ impl TomcatMisconfigScanner {
         let manager_paths = vec![
             "/manager/html",
             "/manager/status",
+            "/manager/status/all",
             "/manager/text",
+            "/manager/text/list",
+            "/manager/text/serverinfo",
+            "/manager/text/threaddump",
+            "/manager/text/vminfo",
+            "/manager/text/sslConnectorCiphers",
+            "/manager/text/findleaks",
             "/host-manager/html",
+            "/host-manager/text",
+            "/host-manager/text/list",
             "/admin/",
             "/tomcat-admin/",
         ];
@@ -283,7 +292,269 @@ impl TomcatMisconfigScanner {
             }
         }
 
-        // Test 5: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
+        // Test 5: JMX Proxy Servlet Exposure - RCE via MBean invocation
+        // The Tomcat Manager JMX proxy allows querying and setting MBean attributes.
+        // If unauthenticated it can be abused for RCE via UserDatabase or Realm MBeans.
+        tests_run += 1;
+        let jmx_paths = vec![
+            "/manager/jmxproxy",
+            "/manager/jmxproxy/?qry=Catalina:type=Server",
+            "/manager/jmxproxy/?qry=java.lang:type=Runtime",
+        ];
+
+        for path in &jmx_paths {
+            tests_run += 1;
+            let jmx_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&jmx_url).await {
+                Ok(response) => {
+                    let body = &response.body;
+                    let body_lower = body.to_lowercase();
+
+                    // JMX proxy returns "OK -" prefix when successful, or MBean-specific
+                    // strings like "modelerType" / "Catalina:type=" only when the servlet
+                    // actually executes the query. A plain 401 without body content is
+                    // treated as protected but exposed.
+                    let is_jmx_success = response.status_code == 200
+                        && (body.starts_with("OK -")
+                            || body_lower.contains("modelertype")
+                            || body_lower.contains("catalina:type=")
+                            || body_lower.contains("java.lang:type=runtime"));
+
+                    let is_jmx_protected = response.status_code == 401
+                        && (body_lower.contains("tomcat")
+                            || body_lower.contains("manager"));
+
+                    if is_jmx_success {
+                        info!("Tomcat JMX Proxy Servlet exposed at {}", jmx_url);
+                        vulnerabilities.push(self.create_vulnerability(
+                            &jmx_url,
+                            "TOMCAT_JMX_PROXY_EXPOSED",
+                            "Tomcat JMX Proxy Servlet Accessible Without Authentication",
+                            &format!(
+                                "The JMX proxy servlet responded successfully.\nPath: {}\nStatus: {}\nBody preview: {}",
+                                path,
+                                response.status_code,
+                                &body[..body.len().min(200)]
+                            ),
+                            Severity::Critical,
+                            Confidence::High,
+                            9.8,
+                            "1. Restrict the manager application by IP (RemoteAddrValve) in META-INF/context.xml\n\
+                             2. Require the manager-jmx role with strong credentials in tomcat-users.xml\n\
+                             3. Consider disabling the JMX proxy entirely by removing the servlet mapping in manager/WEB-INF/web.xml\n\
+                             4. Never expose the Manager application on the public internet\n\
+                             5. Audit MBean access - the JMX proxy allows setter invocation which can lead to RCE via UserDatabase or Realm reconfiguration",
+                        ));
+                        break;
+                    } else if is_jmx_protected {
+                        vulnerabilities.push(self.create_vulnerability(
+                            &jmx_url,
+                            "TOMCAT_JMX_PROXY_PROTECTED_BUT_EXPOSED",
+                            "Tomcat JMX Proxy Servlet Reachable (Authenticated)",
+                            &format!(
+                                "The JMX proxy servlet is reachable but requires authentication.\nPath: {}\nStatus: {}",
+                                path, response.status_code
+                            ),
+                            Severity::Medium,
+                            Confidence::High,
+                            5.3,
+                            "1. Restrict manager access by IP (RemoteAddrValve)\n\
+                             2. Even authenticated exposure allows credential brute-force and post-auth RCE\n\
+                             3. Move the manager application behind a VPN or internal-only network segment",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!("JMX proxy check failed for {}: {}", jmx_url, e);
+                }
+            }
+        }
+
+        // Test 6: WEB-INF / META-INF direct disclosure
+        // Some misconfigurations (bad reverse proxy, path normalization bugs) expose
+        // the deployment descriptor which typically contains DB passwords, JNDI configs,
+        // servlet mappings and internal admin paths.
+        tests_run += 1;
+        let webinf_paths = vec![
+            "/WEB-INF/web.xml",
+            "/META-INF/context.xml",
+            "/WEB-INF/classes/application.properties",
+            "/WEB-INF/classes/config.properties",
+            "/WEB-INF/classes/logback.xml",
+            "/WEB-INF/classes/log4j.properties",
+            "/WEB-INF/classes/log4j2.xml",
+            "/WEB-INF/classes/hibernate.cfg.xml",
+            // Common proxy normalisation bypasses
+            "/;/WEB-INF/web.xml",
+            "/./WEB-INF/web.xml",
+            "/..;/WEB-INF/web.xml",
+            "/.%2e/WEB-INF/web.xml",
+        ];
+
+        for path in &webinf_paths {
+            tests_run += 1;
+            let disclosure_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&disclosure_url).await {
+                Ok(response) => {
+                    if response.status_code == 200 {
+                        let body = &response.body;
+                        let body_trim = body.trim_start();
+
+                        // Require distinctive XML/properties markers - never key off status
+                        // alone to avoid false positives from soft 200 error pages.
+                        let is_web_xml = body_trim.starts_with("<?xml")
+                            && (body.contains("<web-app") || body.contains("</web-app>"));
+                        let is_context_xml = body_trim.starts_with("<?xml")
+                            && (body.contains("<Context") || body.contains("</Context>"));
+                        let is_props = path.ends_with(".properties")
+                            && body.lines().any(|l| {
+                                let t = l.trim();
+                                !t.is_empty()
+                                    && !t.starts_with('#')
+                                    && (t.contains('=') || t.contains(':'))
+                            })
+                            && (body.to_lowercase().contains("password")
+                                || body.to_lowercase().contains("jdbc")
+                                || body.to_lowercase().contains("db.")
+                                || body.to_lowercase().contains("username"));
+                        let is_hibernate = body.contains("hibernate-configuration")
+                            || body.contains("hibernate.connection");
+                        let is_log_config = body.contains("<configuration")
+                            && (body.contains("logback") || body.contains("log4j"));
+
+                        if is_web_xml || is_context_xml || is_props || is_hibernate || is_log_config
+                        {
+                            let file_type = if is_web_xml {
+                                "web.xml (deployment descriptor)"
+                            } else if is_context_xml {
+                                "context.xml (JNDI/datasource config)"
+                            } else if is_hibernate {
+                                "hibernate.cfg.xml (database credentials)"
+                            } else if is_log_config {
+                                "logging configuration"
+                            } else {
+                                "application configuration file"
+                            };
+
+                            info!("Tomcat deployment descriptor disclosed at {}", disclosure_url);
+                            vulnerabilities.push(self.create_vulnerability(
+                                &disclosure_url,
+                                "TOMCAT_WEBINF_DISCLOSURE",
+                                &format!("Tomcat Deployment Descriptor Disclosure: {}", file_type),
+                                &format!(
+                                    "The file '{}' was returned directly and contains {}.\nPath: {}\nStatus: {}\nSize: {} bytes",
+                                    path,
+                                    file_type,
+                                    path,
+                                    response.status_code,
+                                    body.len()
+                                ),
+                                Severity::High,
+                                Confidence::High,
+                                7.5,
+                                "1. Tomcat by default forbids access to /WEB-INF and /META-INF - a 200 here indicates a\n\
+                                    proxy rewriting the path or a servlet mapping that serves static files from the webroot.\n\
+                                 2. Audit reverse-proxy path normalisation - specifically ';' handling and %2e sequences\n\
+                                 3. Ensure DefaultServlet is not configured with readonly=false\n\
+                                 4. Rotate any credentials leaked in the disclosed file (JDBC, JNDI, LDAP, mail server)\n\
+                                 5. Add explicit deny rules in the front-end proxy for /WEB-INF and /META-INF",
+                            ));
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("WEB-INF disclosure check failed for {}: {}", disclosure_url, e);
+                }
+            }
+        }
+
+        // Test 7: CVE-2017-12617 - JSP Upload via PUT method (readonly=false DefaultServlet)
+        // We probe with a HARMLESS payload (an empty JSP that outputs a marker) and then
+        // GET it back to verify RCE - findings only fire on confirmed round-trip.
+        tests_run += 1;
+        let cve_marker = format!("lonkero-jsp-probe-{}", uuid::Uuid::new_v4());
+        let probe_body = format!(
+            "<% out.print(\"{}\"); %>",
+            cve_marker
+        );
+
+        // Tomcat prior to the patch is vulnerable when the DefaultServlet has readonly=false.
+        // We try multiple filename escapes documented as bypasses.
+        let cve_paths = vec![
+            "/lonkero-probe.jsp/",
+            "/lonkero-probe.jsp%20",
+            "/lonkero-probe.jsp::$DATA",
+            "/lonkero-probe.Jsp",
+        ];
+
+        for path in &cve_paths {
+            tests_run += 1;
+            let put_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.put(&put_url, &probe_body).await {
+                Ok(put_response) => {
+                    if !(put_response.status_code == 201 || put_response.status_code == 204) {
+                        continue;
+                    }
+
+                    tests_run += 1;
+                    // Read the file back at its canonical path (without the escape trick)
+                    let verify_url = format!(
+                        "{}/lonkero-probe.jsp",
+                        url.trim_end_matches('/')
+                    );
+
+                    if let Ok(get_response) = self.http_client.get(&verify_url).await {
+                        if get_response.status_code == 200
+                            && get_response.body.contains(&cve_marker)
+                        {
+                            info!(
+                                "Tomcat CVE-2017-12617 confirmed at {} (uploaded and executed JSP)",
+                                verify_url
+                            );
+                            vulnerabilities.push(self.create_vulnerability(
+                                &verify_url,
+                                "TOMCAT_CVE_2017_12617",
+                                "Tomcat CVE-2017-12617 - Remote Code Execution via JSP Upload (PUT)",
+                                &format!(
+                                    "A JSP file uploaded via PUT to '{}' was executed at '{}'.\n\
+                                     The response contained the unique marker: {}\n\
+                                     This is a fully verified RCE - the DefaultServlet is configured with readonly=false\n\
+                                     and the request-URI escape bypasses Tomcat's JSP write restriction.",
+                                    path, verify_url, cve_marker
+                                ),
+                                Severity::Critical,
+                                Confidence::High,
+                                9.8,
+                                "1. Upgrade Tomcat to a patched version:\n\
+                                    - 7.0.82 or later\n\
+                                    - 8.0.47 or later\n\
+                                    - 8.5.23 or later\n\
+                                    - 9.0.1 or later\n\
+                                 2. Set readonly=\"true\" on the DefaultServlet in conf/web.xml (this is the default)\n\
+                                 3. Never expose PUT on JSP resources - block PUT/DELETE at the reverse proxy\n\
+                                 4. After patching, review web logs for the uploaded probe file and any earlier attacker JSPs",
+                            ));
+                            // Best-effort cleanup
+                            let _ = self
+                                .http_client
+                                .delete(&verify_url)
+                                .await;
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("CVE-2017-12617 PUT check failed for {}: {}", put_url, e);
+                }
+            }
+        }
+
+        // Test 8: AJP Protocol Exposure (Ghostcat CVE-2020-1938)
         tests_run += 1;
         // This is a network-level check, we can only detect via headers or info disclosure
         match self.http_client.get(url).await {
