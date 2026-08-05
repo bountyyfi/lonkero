@@ -49,96 +49,418 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI/Swagger specs are served.
+///
+/// Covers the well-known defaults for the major web frameworks we see in the
+/// wild: Springdoc / Springfox (`/v3/api-docs`, `/v2/api-docs`), .NET Swashbuckle
+/// (`/swagger/v{n}/swagger.json`), FastAPI (`/openapi.json`), Django REST
+/// Framework's `drf-spectacular` (`/api/schema/`), Flasgger (`/apispec_1.json`),
+/// Spring Boot Actuator's OpenAPI integration, and versioned nesting under
+/// `/api/v{n}/`. Each candidate is inexpensive (single GET) and only produces a
+/// finding after successful `parse_openapi_spec`, which requires a real spec
+/// with a recognisable `openapi`/`swagger` version field — so a spurious 200
+/// response cannot become a false positive on its own.
 const OPENAPI_PATHS: &[&str] = &[
+    // Root JSON/YAML defaults
     "/swagger.json",
     "/openapi.json",
+    "/openapi.yaml",
+    "/swagger.yaml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    // Swashbuckle (.NET) versioned
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // Springfox / Springdoc conventions
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // Spring Boot Actuator's OpenAPI integration
+    "/actuator/openapi",
+    "/actuator/swagger",
+    "/actuator/openapi.json",
+    "/actuator/openapi.yaml",
+    // Straight-path versioned
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    // Nested under /api
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/swagger",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/spec.json",
+    "/api/spec",
+    // Nested under /docs
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/api-docs.json",
+    // Django REST Framework — drf-spectacular / drf-yasg
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/swagger.json",
+    // Flasgger (Flask)
+    "/apispec.json",
+    "/apispec_1.json",
+    // Legacy / generic
     "/openapi/v3/api-docs",
+    "/openapi/spec.json",
+    "/openapi/schema",
+    "/openapi3.json",
+    "/openapi3.yaml",
+    "/oas.json",
+    "/oas.yaml",
+    "/spec.json",
+    "/spec.yaml",
+    "/schema/openapi.json",
+    "/rest/api-docs",
+    // Well-known
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger / OpenAPI UI paths.
+///
+/// Confirmation requires the response body to contain one of the well-known
+/// UI markers (`swagger-ui`, `redoc`, `rapidoc`, `api documentation`), so a
+/// generic 200 on `/docs/` or `/api-explorer` is never enough to fire on its
+/// own. Modern deployments increasingly ship Scalar or Stoplight in place of
+/// classic Swagger UI, so those are included alongside the traditional paths.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Classic Swagger UI
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui",
     "/swagger/",
+    "/swagger",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger",
+    "/api/swagger/",
+    // Generic docs mounts
+    "/docs",
     "/docs/",
+    "/docs/index.html",
     "/api-docs/",
+    "/api-docs/index.html",
     "/api/docs",
+    "/api/docs/",
+    "/api/docs/index.html",
+    // Flasgger
+    "/apidocs",
+    "/apidocs/",
+    "/apidocs/index.html",
+    // Bare openapi mounts
+    "/openapi",
+    "/openapi/",
+    "/openapi-ui",
+    "/openapi-ui/",
+    "/openapi/ui",
+    "/openapi/ui/",
+    // ReDoc / Rapidoc / Scalar / Stoplight
     "/redoc",
+    "/redoc/",
+    "/redoc/index.html",
+    "/redoc-static.html",
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc/index.html",
+    "/scalar",
+    "/scalar/",
+    "/scalar-ui",
+    "/stoplight",
+    "/stoplight/",
+    // Explorer-style variants
+    "/api-explorer",
+    "/api-explorer/",
+    "/api/explorer",
+    "/api/explorer/",
 ];
 
-/// Sensitive data patterns to check in examples and defaults
-const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
+/// Sensitive data patterns to check in examples, defaults, and descriptions.
+///
+/// Each entry is `(regex, description, severity_tag)`. The severity is an
+/// explicit tag rather than derived from substring matching on the label so
+/// that vendor-prefix credential patterns (which are almost certainly real
+/// keys when they match) are ranked appropriately instead of falling through
+/// to `Low`.
+///
+/// New vendor-prefix patterns are intentionally very narrow: they require the
+/// exact issuer-assigned prefix plus the known key length / charset. That
+/// combination cannot appear accidentally in an OpenAPI spec — matching
+/// implies the spec is shipping a real credential (e.g. an example baked from
+/// a live environment). Broad patterns from the original list are preserved
+/// verbatim to keep existing behaviour, only their severity tag is made
+/// explicit.
+///
+/// Severity tags: `"critical" | "high" | "medium" | "low"`.
+const SENSITIVE_PATTERNS: &[(&str, &str, &str)] = &[
+    // ---- Existing broad patterns (behaviour preserved) ----
     (
         r#"(?i)password\s*[:=]\s*["'][^"']+["']"#,
         "hardcoded password",
+        "high",
     ),
     (
         r#"(?i)api[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{16,}["']"#,
         "API key",
+        "low",
     ),
-    (r#"(?i)secret\s*[:=]\s*["'][^"']+["']"#, "secret value"),
+    (r#"(?i)secret\s*[:=]\s*["'][^"']+["']"#, "secret value", "high"),
     (
         r#"(?i)token\s*[:=]\s*["'][a-zA-Z0-9._-]{20,}["']"#,
         "token value",
+        "low",
     ),
-    (r"(?i)bearer\s+[a-zA-Z0-9._-]{20,}", "bearer token"),
+    (r"(?i)bearer\s+[a-zA-Z0-9._-]{20,}", "bearer token", "low"),
     (
         r#"(?i)authorization\s*[:=]\s*["']basic\s+[a-zA-Z0-9+/=]+["']"#,
         "basic auth",
+        "low",
     ),
     (
         r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
         "email address",
+        "low",
     ),
     (
         r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']AKIA[A-Z0-9]{16}["']"#,
         "AWS access key",
+        "high",
     ),
     (
         r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["'][A-Za-z0-9/+=]{40}["']"#,
         "AWS secret key",
+        "high",
     ),
-    (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "internal IP address"),
+    (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "internal IP address", "medium"),
     (
         r"(?i)(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}",
         "private IP address",
+        "low",
     ),
     (
         r"(?i)localhost|127\.0\.0\.1|0\.0\.0\.0",
         "localhost reference",
+        "medium",
     ),
     (
         r"(?i)internal[._-]?(?:api|server|host)",
         "internal hostname",
+        "medium",
     ),
     (
         r"(?i)(?:dev|staging|test)[._-]",
         "non-production environment",
+        "low",
+    ),
+    // ---- Cloud provider key IDs (bare prefixes; cannot false-positive) ----
+    // AWS-issued IDs have a fixed 4-char prefix + 16 uppercase alphanumerics.
+    (r"AKIA[0-9A-Z]{16}", "AWS access key ID (bare)", "critical"),
+    (r"ASIA[0-9A-Z]{16}", "AWS STS temporary access key", "high"),
+    // GCP API keys are issued with the `AIza` prefix + 35 base64url chars.
+    (
+        r"AIza[0-9A-Za-z_\-]{35}",
+        "Google Cloud API key",
+        "high",
+    ),
+    // Google OAuth access tokens carry the `ya29.` prefix.
+    (
+        r"ya29\.[0-9A-Za-z_\-]{20,}",
+        "Google OAuth access token",
+        "high",
+    ),
+    // The literal `"type":"service_account"` bytes only appear when a full
+    // GCP service-account JSON file is embedded in the spec.
+    (
+        r#""type"\s*:\s*"service_account""#,
+        "GCP service_account JSON",
+        "critical",
+    ),
+    // Azure Storage connection string — captured `AccountKey` is Critical.
+    (
+        r"DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{88}",
+        "Azure Storage connection string with AccountKey",
+        "critical",
+    ),
+    // ---- Source control / CI credentials ----
+    (r"ghp_[A-Za-z0-9]{36}", "GitHub personal access token (classic)", "critical"),
+    (r"gho_[A-Za-z0-9]{36}", "GitHub OAuth token", "high"),
+    (r"ghs_[A-Za-z0-9]{36}", "GitHub App server token", "high"),
+    (r"ghu_[A-Za-z0-9]{36}", "GitHub App user token", "high"),
+    (
+        r"github_pat_[A-Za-z0-9_]{80,}",
+        "GitHub fine-grained personal access token",
+        "critical",
+    ),
+    (
+        r"glpat-[A-Za-z0-9_\-]{20}",
+        "GitLab personal access token",
+        "critical",
+    ),
+    // ---- Chat / webhooks ----
+    // Slack tokens: `xoxb-N-N-secret` (bot) or `xoxp-N-N-N-secret` (legacy
+    // user) — accept either three- or four-segment numeric prefixes so both
+    // formats fire.
+    (
+        r"xox[baprs]-[0-9]+-[0-9]+(?:-[0-9]+)?-[A-Za-z0-9]{24,}",
+        "Slack token",
+        "high",
+    ),
+    (
+        r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{20,}",
+        "Slack incoming webhook URL",
+        "medium",
+    ),
+    (
+        r"https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]+",
+        "Discord webhook URL",
+        "medium",
+    ),
+    (
+        r"[MN][A-Za-z0-9]{23,28}\.[A-Za-z0-9_\-]{6,7}\.[A-Za-z0-9_\-]{27,}",
+        "Discord bot token",
+        "critical",
+    ),
+    // ---- Payments ----
+    (
+        r"sk_live_[0-9a-zA-Z]{24,}",
+        "Stripe live secret key",
+        "critical",
+    ),
+    (
+        r"rk_live_[0-9a-zA-Z]{24,}",
+        "Stripe live restricted key",
+        "high",
+    ),
+    // ---- LLM API keys (increasingly common in modern specs) ----
+    // Only OpenAI's newer `sk-proj-…` project keys are matched; the legacy
+    // bare `sk-<48chars>` form is dropped because arbitrary 48-char alphanum
+    // strings can collide with signature/hash examples.
+    (
+        r"sk-proj-[A-Za-z0-9_\-]{40,}",
+        "OpenAI project API key",
+        "critical",
+    ),
+    (
+        r"sk-ant-[A-Za-z0-9_\-]{40,}",
+        "Anthropic API key",
+        "critical",
+    ),
+    (
+        r"hf_[A-Za-z0-9]{34}",
+        "Hugging Face token",
+        "high",
+    ),
+    // ---- Package registries (immediate supply-chain risk) ----
+    (r"npm_[A-Za-z0-9]{36}", "npm publish token", "critical"),
+    (
+        r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}",
+        "PyPI API token",
+        "critical",
+    ),
+    (
+        r"dckr_pat_[A-Za-z0-9_\-]{56}",
+        "Docker Hub personal access token",
+        "critical",
+    ),
+    // ---- Other SaaS / hosting ----
+    (
+        r"dop_v1_[a-f0-9]{64}",
+        "DigitalOcean personal access token",
+        "critical",
+    ),
+    (r"shpat_[a-fA-F0-9]{32}", "Shopify access token", "critical"),
+    (r"shpss_[a-fA-F0-9]{32}", "Shopify shared secret", "critical"),
+    (r"shpca_[a-fA-F0-9]{32}", "Shopify custom app token", "critical"),
+    (r"shppa_[a-fA-F0-9]{32}", "Shopify private app token", "critical"),
+    (
+        r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",
+        "SendGrid API key",
+        "high",
+    ),
+    (r"key-[a-f0-9]{32}", "Mailgun API key", "high"),
+    (r"SK[a-f0-9]{32}", "Twilio API Key SID", "high"),
+    // ---- PEM keys / DB URIs — never legitimate in an OpenAPI spec ----
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+        "PEM private key block",
+        "critical",
+    ),
+    (
+        r#"(?:mongodb(?:\+srv)?|mysql|postgres(?:ql)?|mariadb|mssql|jdbc:[a-z]+)://[A-Za-z0-9._~%+-]+:[^@\s"'`<>]{4,}@[A-Za-z0-9.\-]+"#,
+        "database connection string with embedded credentials",
+        "critical",
+    ),
+    // ---- Observability / miscellaneous ----
+    (
+        r"https://[a-fA-F0-9]+@[A-Za-z0-9]+\.ingest\.sentry\.io/[0-9]+",
+        "Sentry DSN with project secret",
+        "medium",
+    ),
+    // Firebase Realtime Database URLs frequently leak in specs. Marked medium
+    // because the URL itself is the DB endpoint but access still depends on
+    // rules — pair with a firebase-rules probe.
+    (
+        r"https://[a-z0-9\-]+\.firebaseio\.com",
+        "Firebase Realtime Database URL",
+        "medium",
+    ),
+    // Cloud metadata endpoints leaking into specs suggests SSRF-friendly
+    // examples that a copy-paste consumer will replay.
+    (
+        r"169\.254\.169\.254(?:/latest/meta-data|/computeMetadata)",
+        "cloud instance metadata endpoint",
+        "medium",
+    ),
+    // Framework master secrets — full session/cookie/crypto compromise.
+    (
+        r#""APP_KEY"\s*:\s*"base64:[A-Za-z0-9+/]{43}=""#,
+        "Laravel APP_KEY",
+        "critical",
+    ),
+    (
+        r#""SECRET_KEY_BASE"\s*:\s*"[a-f0-9]{128}""#,
+        "Rails SECRET_KEY_BASE",
+        "critical",
     ),
 ];
 
-/// Admin/debug endpoint patterns
+/// Admin / debug endpoint patterns.
+///
+/// Regexes are anchored to the leading `/` and use word-ish boundaries where a
+/// bare token (e.g. `/admin`) would risk matching innocuous segments. Patterns
+/// are grouped so the intent stays legible: (1) the coarse original terms kept
+/// intact for backwards-compat, (2) Spring Boot Actuator's sensitive
+/// sub-endpoints where a match is essentially always exploitable (heapdump,
+/// env, jolokia, gateway RCE), (3) baked-in dev consoles (GraphiQL, Adminer,
+/// phpMyAdmin, phpinfo) that should never ship in prod, and (4)
+/// privilege-escalation surfaces (impersonate / switch-user / masquerade).
 const ADMIN_PATTERNS: &[&str] = &[
+    // Coarse originals (preserved verbatim)
     r"(?i)/admin",
     r"(?i)/debug",
     r"(?i)/internal",
@@ -156,6 +478,75 @@ const ADMIN_PATTERNS: &[&str] = &[
     r"(?i)/eval",
     r"(?i)/test",
     r"(?i)/_",
+    // Spring Boot Actuator sensitive sub-endpoints
+    r"(?i)/actuator/env",
+    r"(?i)/actuator/heapdump",
+    r"(?i)/actuator/threaddump",
+    r"(?i)/actuator/beans",
+    r"(?i)/actuator/mappings",
+    r"(?i)/actuator/loggers",
+    r"(?i)/actuator/jolokia",
+    r"(?i)/actuator/logfile",
+    r"(?i)/actuator/gateway",
+    r"(?i)/actuator/refresh",
+    r"(?i)/actuator/shutdown",
+    r"(?i)/actuator/httptrace",
+    r"(?i)/actuator/trace",
+    r"(?i)/actuator/auditevents",
+    r"(?i)/actuator/scheduledtasks",
+    r"(?i)/actuator/configprops",
+    r"(?i)/actuator/caches",
+    r"(?i)/actuator/conditions",
+    r"(?i)/actuator/hystrix",
+    r"(?i)/actuator/quartz",
+    r"(?i)/actuator/prometheus",
+    // GraphQL introspection / dev IDEs
+    r"(?i)/graphiql",
+    r"(?i)/graphql-?playground",
+    r"(?i)/graphql-?voyager",
+    r"(?i)/altair",
+    // Baked-in dev / db admin surfaces
+    r"(?i)/phpinfo(?:\.php)?",
+    r"(?i)/adminer(?:\.php)?",
+    r"(?i)/phpmyadmin",
+    r"(?i)/pgadmin",
+    r"(?i)/redis-commander",
+    r"(?i)/mongo-express",
+    // CMS admin login (still common on APIs that piggyback on WP)
+    r"(?i)/wp-admin",
+    r"(?i)/wp-login",
+    r"(?i)/xmlrpc\.php",
+    // Ops / observability panels
+    r"(?i)/kibana",
+    r"(?i)/grafana",
+    r"(?i)/prometheus",
+    r"(?i)/superset",
+    r"(?i)/rundeck",
+    r"(?i)/rancher",
+    r"(?i)/portainer",
+    r"(?i)/traefik",
+    r"(?i)/jenkins",
+    r"(?i)/sonarqube",
+    r"(?i)/nexus/service",
+    r"(?i)/artifactory",
+    // Privilege escalation / impersonation surfaces
+    r"(?i)/impersonate",
+    r"(?i)/impersonation",
+    r"(?i)/switch[-_]?user",
+    r"(?i)/masquerade",
+    r"(?i)/superadmin",
+    r"(?i)/backdoor",
+    r"(?i)/su-user",
+    r"(?i)/assume-?role",
+    // Diagnostic / dump surfaces outside Actuator
+    r"(?i)/heapdump",
+    r"(?i)/threaddump",
+    r"(?i)/env\.json",
+    r"(?i)/dump\b",
+    r"(?i)/diagnostics",
+    r"(?i)/trace\.axd",
+    r"(?i)/elmah\.axd",
+    r"(?i)/glimpse\.axd",
 ];
 
 /// Dangerous HTTP methods that should require authentication
@@ -1167,13 +1558,23 @@ impl OpenApiAnalyzer {
         // Convert spec to string for pattern matching
         let spec_string = serde_json::to_string(&spec.raw_spec).unwrap_or_default();
 
-        for (pattern, description) in SENSITIVE_PATTERNS {
+        for (pattern, description, severity_tag) in SENSITIVE_PATTERNS {
             tests_run += 1;
 
             if let Ok(regex) = Regex::new(pattern) {
                 if let Some(capture) = regex.find(&spec_string) {
-                    let evidence =
-                        &spec_string[capture.start()..ceil_char_boundary(&spec_string, capture.end().min(capture.start() + 100))];
+                    // Evidence is truncated to 100 chars on a char boundary so a
+                    // long PEM block or minified bundle can't dump into the
+                    // finding — enough to prove the match, not enough to leak.
+                    let evidence = &spec_string[capture.start()
+                        ..ceil_char_boundary(&spec_string, capture.end().min(capture.start() + 100))];
+                    let severity = match *severity_tag {
+                        "critical" => Severity::Critical,
+                        "high" => Severity::High,
+                        "medium" => Severity::Medium,
+                        "low" => Severity::Low,
+                        _ => Severity::Info,
+                    };
                     vulnerabilities.push(self.create_vulnerability(
                         "OpenAPI Sensitive Data Exposure",
                         base_url,
@@ -1181,18 +1582,7 @@ impl OpenApiAnalyzer {
                             "OpenAPI specification contains {}: '{}...'",
                             description, evidence
                         ),
-                        if description.contains("password")
-                            || description.contains("secret")
-                            || description.contains("AWS")
-                        {
-                            Severity::High
-                        } else if description.contains("internal")
-                            || description.contains("localhost")
-                        {
-                            Severity::Medium
-                        } else {
-                            Severity::Low
-                        },
+                        severity,
                         "CWE-200",
                         &spec.spec_url,
                     ));
