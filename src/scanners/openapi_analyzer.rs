@@ -49,12 +49,25 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI/Swagger spec files are served.
+///
+/// Impact tier: an exposed spec is a green-light finding - it hands the
+/// tester the entire API surface (endpoints, parameters, auth schemes,
+/// example payloads) on a single request. Every entry below has been
+/// observed in production; framework-specific defaults are grouped so it's
+/// easy to prune per-target. All paths are probed with a JSON/YAML
+/// content-type check downstream, so a coincidental HTML 200 does not
+/// produce a false positive.
 const OPENAPI_PATHS: &[&str] = &[
+    // -------------------------------------------------------------------
+    // Generic / widely-adopted defaults
+    // -------------------------------------------------------------------
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api-docs.yml",
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
@@ -68,22 +81,226 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi/v3/api-docs",
     "/.well-known/openapi.json",
     "/openapi.yaml",
+    "/openapi.yml",
     "/swagger.yaml",
-    "/api-docs.yaml",
+    "/swagger.yml",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/openapi/openapi.json",
+    "/spec/openapi.json",
+    "/spec.json",
+    "/spec.yaml",
+    "/api.json",
+    "/api.yaml",
+    "/api-spec.json",
+    "/api-spec.yaml",
+    // -------------------------------------------------------------------
+    // Django REST Framework / drf-yasg / drf-spectacular
+    // -------------------------------------------------------------------
+    "/swagger/?format=openapi",
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/swagger-ui/?format=openapi",
+    // -------------------------------------------------------------------
+    // NestJS default (Swagger module)
+    // -------------------------------------------------------------------
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    "/api/api-yaml",
+    "/docs-json",
+    "/docs-yaml",
+    // -------------------------------------------------------------------
+    // Spring Boot springdoc-openapi / springfox
+    // -------------------------------------------------------------------
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v3/api-docs",
+    "/v2/api-docs",
+    "/v2/api-docs?group=default",
+    "/api/v2/api-docs",
+    // -------------------------------------------------------------------
+    // Micronaut / Quarkus / Vert.x
+    // -------------------------------------------------------------------
+    "/q/openapi",             // Quarkus SmallRye OpenAPI
+    "/q/openapi.json",
+    "/q/openapi.yaml",
+    "/q/swagger-ui/",
+    // -------------------------------------------------------------------
+    // Go frameworks (gin-swagger, echo-swagger, fiber-swagger)
+    // -------------------------------------------------------------------
+    "/swagger/doc.json",
+    "/swagger/index.html",
+    "/swagger/swagger.json",
+    // -------------------------------------------------------------------
+    // ASP.NET Core (Swashbuckle) - custom mount points
+    // -------------------------------------------------------------------
+    "/swagger/v1/swagger.yaml",
+    "/api/v1/swagger.yaml",
+    // -------------------------------------------------------------------
+    // Laravel (L5-Swagger, Scribe)
+    // -------------------------------------------------------------------
+    "/api/documentation",
+    "/api/documentation/json",
+    "/api/documentation/yaml",
+    "/docs.json",
+    "/docs.yaml",
+    // -------------------------------------------------------------------
+    // Rails (rswag)
+    // -------------------------------------------------------------------
+    "/api-docs/v1/swagger.json",
+    "/api-docs/v1/swagger.yaml",
+    "/api-docs/v2/swagger.json",
+    // -------------------------------------------------------------------
+    // Kong / Konnect gateway / Backstage / Redocly / Stoplight
+    // -------------------------------------------------------------------
+    "/kong/openapi.json",
+    "/gateway/openapi.json",
+    "/api/catalog/api-docs",
+    "/reference/openapi.json",
+    "/reference/openapi.yaml",
+    "/api/reference/openapi.json",
+    // -------------------------------------------------------------------
+    // Version permutations (multiple frameworks reuse these)
+    // -------------------------------------------------------------------
+    "/v1/api-docs",
+    "/v4/api-docs",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v4/openapi.json",
+    // -------------------------------------------------------------------
+    // OData / SOAP metadata (adjacent surface - full schema disclosure)
+    // -------------------------------------------------------------------
+    "/$metadata",
+    "/odata/$metadata",
+    "/api/$metadata",
+    // -------------------------------------------------------------------
+    // GraphQL schema surfaces frequently colocated with REST specs.
+    // -------------------------------------------------------------------
+    "/graphql/schema",
+    "/graphql/schema.json",
+    "/graphql/schema.graphql",
+    "/api/graphql/schema",
+    "/graphql.json",
+    // -------------------------------------------------------------------
+    // AsyncAPI (event-driven API spec) - same impact tier as OpenAPI
+    // -------------------------------------------------------------------
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/asyncapi.yml",
+    "/docs/asyncapi.json",
+    "/api/asyncapi.json",
+    "/asyncapi/asyncapi.json",
+    // -------------------------------------------------------------------
+    // Postman / Insomnia collection exports occasionally deployed
+    // alongside docs (rich request/response captures)
+    // -------------------------------------------------------------------
+    "/postman_collection.json",
+    "/postman.json",
+    "/insomnia.json",
+    // -------------------------------------------------------------------
+    // WADL (older, still on legacy Java/Jersey deployments)
+    // -------------------------------------------------------------------
+    "/application.wadl",
+    "/api/application.wadl",
+    "/rest/application.wadl",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API reference paths.
+///
+/// Impact: an exposed Swagger UI is essentially the same disclosure as a
+/// raw spec, but is easier to browse and often lets a tester execute
+/// requests directly (Try-It-Out). Detection is downstream via body
+/// content checks that require distinctive Swagger/Redoc/RapiDoc markup.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // -------------------------------------------------------------------
+    // Generic Swagger UI mount points
+    // -------------------------------------------------------------------
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger",
     "/api/swagger-ui.html",
-    "/docs/",
     "/api-docs/",
+    "/api-docs",
+    "/api-docs/index.html",
     "/api/docs",
+    "/apidocs",
+    "/apidocs/",
+    "/webjars/swagger-ui/index.html",
+    // -------------------------------------------------------------------
+    // FastAPI / Starlette / NestJS defaults
+    // -------------------------------------------------------------------
+    "/docs",
+    "/docs/",
     "/redoc",
+    "/redoc/",
+    "/api",
+    "/api/",
+    "/api/redoc",
+    // -------------------------------------------------------------------
+    // Django REST Framework / drf-spectacular
+    // -------------------------------------------------------------------
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // -------------------------------------------------------------------
+    // Quarkus
+    // -------------------------------------------------------------------
+    "/q/swagger-ui",
+    // -------------------------------------------------------------------
+    // Go frameworks
+    // -------------------------------------------------------------------
+    "/swagger/index.html",
+    // -------------------------------------------------------------------
+    // Laravel Scribe / L5-Swagger
+    // -------------------------------------------------------------------
+    "/api/documentation",
+    // -------------------------------------------------------------------
+    // Redocly / Stoplight Elements / RapiDoc alt UIs
+    // -------------------------------------------------------------------
+    "/reference",
+    "/reference/",
+    "/docs/reference",
     "/rapidoc",
+    "/rapidoc/",
+    "/api/rapidoc",
+    // -------------------------------------------------------------------
+    // GraphQL playgrounds - functionally equivalent disclosure
+    // -------------------------------------------------------------------
+    "/graphql",
+    "/graphiql",
+    "/altair",
+    "/playground",
+    "/api/graphql",
+    "/v1/graphql",
+    "/query",
+    "/gql",
+    // -------------------------------------------------------------------
+    // Postman / AsyncAPI self-hosted docs
+    // -------------------------------------------------------------------
+    "/postman",
+    "/postman/",
+    "/asyncapi",
+    "/asyncapi/",
+    // -------------------------------------------------------------------
+    // Common prefixed variants (behind reverse proxies)
+    // -------------------------------------------------------------------
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/internal/docs",
+    "/dev/docs",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
