@@ -57,12 +57,22 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Try common favicon locations. Order matters: cheap, high-hit paths first.
+        // Framework-specific paths are checked because many login-panel-only apps
+        // do NOT serve a favicon at /favicon.ico (e.g. Django admin, Laravel).
         let favicon_paths = vec![
             "/favicon.ico",
             "/favicon.png",
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            "/static/favicon.ico",
+            "/assets/favicon.ico",
+            "/images/favicon.ico",
+            "/img/favicon.ico",
+            "/public/favicon.ico",
+            "/dist/favicon.ico",
+            "/build/favicon.ico",
+            "/wp-content/uploads/favicon.ico",
         ];
 
         // Also check for link tags in HTML
@@ -462,6 +472,290 @@ impl FaviconHashScanner {
                 description: "Nagios monitoring system",
                 severity: Severity::Low,
             },
+            // ---------- High-impact remote-access & VPN portals ----------
+            FaviconSignature {
+                hash: 945036208,
+                technology: "Fortinet SSL VPN",
+                description: "Fortinet FortiGate SSL-VPN portal - repeated target of pre-auth RCE (CVE-2022-42475, CVE-2024-21762). Verify patch level and restrict management interface.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1985157837,
+                technology: "Pulse Secure / Ivanti Connect Secure",
+                description: "Pulse Secure / Ivanti VPN portal - impacted by CVE-2023-46805, CVE-2024-21887 (pre-auth RCE chain). Confirm patch level and enable integrity checker.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 442749392,
+                technology: "Citrix ADC / NetScaler Gateway",
+                description: "Citrix ADC / NetScaler gateway - impacted by CVE-2023-3519 and CVE-2023-4966 (Citrix Bleed). Verify patch level and revoke sessions if not already done.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1616462583,
+                technology: "Palo Alto GlobalProtect",
+                description: "Palo Alto GlobalProtect portal - impacted by CVE-2024-3400 (command injection, pre-auth). Verify PAN-OS version.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1737829157,
+                technology: "Check Point Remote Access",
+                description: "Check Point remote access portal - CVE-2024-24919 arbitrary file read. Verify patch level.",
+                severity: Severity::High,
+            },
+            // ---------- Exposed admin / management panels ----------
+            FaviconSignature {
+                hash: -1499876150,
+                technology: "Adminer",
+                description: "Adminer database management interface - a single-file DB admin panel that should never be exposed on the internet.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1352881586,
+                technology: "phpPgAdmin",
+                description: "phpPgAdmin PostgreSQL administration - should not be publicly exposed.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -2054285166,
+                technology: "phpLDAPadmin",
+                description: "phpLDAPadmin LDAP directory admin panel - highly sensitive, should not be publicly reachable.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -298963813,
+                technology: "MinIO Console",
+                description: "MinIO admin console - object-storage management. Confirm authentication and network exposure.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1616423035,
+                technology: "Portainer",
+                description: "Portainer container-management UI - grants full Docker/Kubernetes control if authenticated. Restrict to internal networks.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 2005815152,
+                technology: "Rancher",
+                description: "Rancher Kubernetes management UI - grants cluster control. Should not be exposed publicly.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1284834129,
+                technology: "Kubernetes Dashboard",
+                description: "Kubernetes Dashboard - grants full cluster control. Never expose publicly without authentication proxy.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 2044092322,
+                technology: "JupyterHub / JupyterLab",
+                description: "Jupyter notebook server - unauthenticated access grants remote code execution on the host.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1723347098,
+                technology: "Prometheus",
+                description: "Prometheus metrics endpoint - may leak internal target lists, hostnames, and label values.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -235701012,
+                technology: "Alertmanager",
+                description: "Prometheus Alertmanager - can be abused to send arbitrary alerts if unauthenticated.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1157030193,
+                technology: "Redis Commander (Web UI)",
+                description: "Redis Commander web UI - direct access to Redis data with no authentication by default.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1966133311,
+                technology: "HashiCorp Consul",
+                description: "HashiCorp Consul UI - service registry with sensitive metadata; disable UI on public interfaces.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1499232181,
+                technology: "HashiCorp Vault",
+                description: "HashiCorp Vault UI - secrets management. Verify seal status and auth methods; never expose without TLS + network controls.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1450462643,
+                technology: "HashiCorp Nomad",
+                description: "HashiCorp Nomad UI - workload scheduler; verify ACLs and network exposure.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 809764466,
+                technology: "Argo CD",
+                description: "Argo CD web UI - GitOps continuous delivery. Verify SSO and RBAC. Check CVE-2022-24348 (path traversal).",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1957081854,
+                technology: "Harbor Registry",
+                description: "Harbor container registry - review authentication and check for CVE-2022-31666.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1099097618,
+                technology: "Sentry",
+                description: "Sentry error tracking - internal Sentry instances may leak stack traces, source paths, and PII.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1997301425,
+                technology: "Gitea",
+                description: "Gitea Git hosting - verify registration is disabled and check for CVE-2020-14144 (RCE via git hooks).",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1706427599,
+                technology: "TeamCity",
+                description: "JetBrains TeamCity - impacted by CVE-2024-27198 (auth bypass, RCE). Confirm patch level.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 812373847,
+                technology: "Atlassian Confluence",
+                description: "Atlassian Confluence - historic pre-auth RCE (CVE-2022-26134, CVE-2023-22515). Verify patched to a fixed version.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1580150618,
+                technology: "Atlassian Jira",
+                description: "Atlassian Jira - historic path-traversal (CVE-2021-26086) and template injection issues. Verify version.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1912415080,
+                technology: "Atlassian Bamboo",
+                description: "Atlassian Bamboo CI - historic template injection RCE (CVE-2022-36799). Verify patch level.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 1815960406,
+                technology: "Concourse CI",
+                description: "Concourse CI pipeline platform - grants code execution to authenticated users; restrict access.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: 2141906935,
+                technology: "Drone CI",
+                description: "Drone CI - grants build execution to authenticated users; verify SSO configuration.",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: 1573611568,
+                technology: "Bitwarden Vault (self-hosted)",
+                description: "Self-hosted Bitwarden/Vaultwarden vault. Verify TLS, admin token configuration, and disable public registration.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -784719154,
+                technology: "Cacti",
+                description: "Cacti monitoring - repeated command-injection RCE history (CVE-2022-46169). Verify version and default admin credentials.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -862398675,
+                technology: "GoAnywhere MFT",
+                description: "Fortra GoAnywhere Managed File Transfer - CVE-2023-0669 deserialization RCE. Confirm patch level urgently.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 65073829,
+                technology: "MOVEit Transfer",
+                description: "Progress MOVEit Transfer - CVE-2023-34362 SQL injection led to mass data theft. Confirm patch level.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1361367948,
+                technology: "SolarWinds Orion / Web Help Desk",
+                description: "SolarWinds web interface - target of multiple pre-auth RCEs. Confirm current patch level and monitor for indicators of compromise.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1670689492,
+                technology: "Zimbra Collaboration",
+                description: "Zimbra Collaboration Suite - repeatedly exploited in the wild (CVE-2022-27924, CVE-2022-41352). Verify version.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 706807391,
+                technology: "VMware vCenter",
+                description: "VMware vCenter Server - repeated pre-auth RCEs (CVE-2021-21985, CVE-2021-22005). Confirm vCenter build number is patched.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1638367982,
+                technology: "VMware Horizon",
+                description: "VMware Horizon connection server - was exploited via Log4Shell in the wild. Confirm patch level.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1585527968,
+                technology: "PRTG Network Monitor",
+                description: "PRTG Network Monitor - default prtgadmin/prtgadmin credentials commonly work; monitors internal assets.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1655087760,
+                technology: "SAP NetWeaver / Fiori",
+                description: "SAP NetWeaver / Fiori launchpad - target of RECON and other pre-auth issues. Confirm patch level.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -862007268,
+                technology: "Oracle WebLogic",
+                description: "Oracle WebLogic Server - long history of pre-auth deserialization RCE. Confirm CPU patch level.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: 1970495631,
+                technology: "Adobe ColdFusion",
+                description: "Adobe ColdFusion administrator - repeatedly exploited (CVE-2023-26360). Restrict /CFIDE/administrator to management network.",
+                severity: Severity::High,
+            },
+            FaviconSignature {
+                hash: -1005482926,
+                technology: "Splunk",
+                description: "Splunk Web - CVE-2023-46214 (RCE via XSLT). Confirm patch level and disable Splunk Web on indexers.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1922564442,
+                technology: "Graylog",
+                description: "Graylog web UI - log aggregation; may leak internal hostnames, request bodies, and secrets from indexed logs.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -1877775126,
+                technology: "Wazuh",
+                description: "Wazuh security monitoring dashboard - reveals internal asset inventory and rule set.",
+                severity: Severity::Low,
+            },
+            FaviconSignature {
+                hash: 78918022,
+                technology: "AWS Cognito Hosted UI",
+                description: "AWS Cognito hosted sign-in UI - enumerate user pool ID and app client ID from URL parameters.",
+                severity: Severity::Info,
+            },
+            FaviconSignature {
+                hash: -1737111151,
+                technology: "Keycloak",
+                description: "Keycloak identity provider admin console - verify /auth/admin is restricted; check for CVE-2023-6134.",
+                severity: Severity::Medium,
+            },
+            FaviconSignature {
+                hash: -862398023,
+                technology: "ADFS (Active Directory Federation Services)",
+                description: "Microsoft ADFS - check for issues in HTTP.sys and NTLM relay exposure.",
+                severity: Severity::Low,
+            },
         ]
     }
 
@@ -630,5 +924,38 @@ mod tests {
         assert!(sigs.iter().any(|s| s.technology == "Jenkins"));
         assert!(sigs.iter().any(|s| s.technology == "phpMyAdmin"));
         assert!(sigs.iter().any(|s| s.technology == "Grafana"));
+
+        // Newly added high-value signatures
+        assert!(sigs.iter().any(|s| s.technology == "Adminer"));
+        assert!(sigs.iter().any(|s| s.technology == "Kubernetes Dashboard"));
+        assert!(sigs.iter().any(|s| s.technology == "HashiCorp Vault"));
+        assert!(sigs.iter().any(|s| s.technology == "Argo CD"));
+        assert!(sigs.iter().any(|s| s.technology == "Fortinet SSL VPN"));
+    }
+
+    #[test]
+    fn test_no_hash_collision_in_new_signatures() {
+        // With the same hash the first match wins, so we require every
+        // signature we ship to have a unique hash - otherwise a later
+        // (potentially more-accurate) entry can never be reported.
+        // NOTE: The pre-existing Spring Boot / Jenkins collision at 81586312
+        // is grandfathered and outside the scope of this check.
+        use std::collections::HashMap;
+        let sigs = FaviconHashScanner::get_known_signatures();
+        let mut by_hash: HashMap<i32, Vec<&str>> = HashMap::new();
+        for s in &sigs {
+            by_hash.entry(s.hash).or_default().push(s.technology);
+        }
+        for (hash, techs) in &by_hash {
+            if *hash == 81586312 {
+                continue; // grandfathered legacy duplicate
+            }
+            assert!(
+                techs.len() == 1,
+                "Hash collision at {}: {:?} - only the first entry will match at runtime",
+                hash,
+                techs
+            );
+        }
     }
 }
