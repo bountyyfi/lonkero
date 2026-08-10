@@ -34,18 +34,55 @@ pub struct GraphQlBatchingScanner {
     http_client: Arc<HttpClient>,
 }
 
-/// Common GraphQL endpoint paths to probe
+/// Common GraphQL endpoint paths to probe.
+///
+/// `is_graphql_endpoint` gates each probe on a real GraphQL-shaped POST
+/// response (`data`/`errors`/`__typename`) AND rejects HTML/SPA fallbacks,
+/// so extra paths cannot false-positive on 200 shells. Wider coverage
+/// finds GraphQL surfaces mounted on non-default paths — batching/alias
+/// abuse against those is high-impact and rarely rate-limited.
 const GRAPHQL_PATHS: &[&str] = &[
+    // Canonical
     "/graphql",
+    "/graphql/",
     "/api/graphql",
+    "/api/graphql/",
     "/gql",
+    "/api/gql",
     "/query",
+    "/queries",
+    // Versioned
     "/v1/graphql",
     "/v2/graphql",
+    "/v3/graphql",
     "/api/v1/graphql",
     "/api/v2/graphql",
+    "/api/v3/graphql",
     "/graphql/v1",
     "/graphql/v2",
+    "/graphql/v3",
+    // Framework / product defaults
+    "/graphql-api",
+    "/api/graphql-api",
+    "/graphql/console",
+    "/graphql/schema",
+    // Hasura
+    "/v1alpha1/graphql",
+    "/v1beta1/relay",
+    "/v1/relay",
+    // WordPress / WPGraphQL
+    "/wp/graphql",
+    "/wp-json/graphql",
+    // Shopify Storefront-style
+    "/api/2023-01/graphql.json",
+    "/api/2024-01/graphql.json",
+    "/api/2025-01/graphql.json",
+    // Admin / internal surfaces
+    "/admin/graphql",
+    "/admin/api/graphql",
+    "/internal/graphql",
+    "/private/graphql",
+    "/api/admin/graphql",
 ];
 
 /// Result of a batching test

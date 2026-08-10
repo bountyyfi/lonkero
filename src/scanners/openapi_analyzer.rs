@@ -49,41 +49,195 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// This list is intentionally broad — parse-and-validate downstream
+/// (`parse_openapi_spec` + `detect_version`) means an SPA HTML shell,
+/// generic 200 catch-all, or unrelated JSON blob is silently rejected,
+/// so extra probe paths never turn into false positives here. The value
+/// of a wide list is impact: shipped API specs typically expose the full
+/// authenticated/admin surface, security schemes, and often example
+/// credentials, which is exactly the "sensitive stuff" bug bounty pays for.
 const OPENAPI_PATHS: &[&str] = &[
+    // Canonical / historical
     "/swagger.json",
     "/openapi.json",
+    "/openapi",
     "/api-docs",
     "/api-docs.json",
+    "/api-doc",
+    "/api-doc.json",
+    "/api/docs.json",
+    "/api/api-docs",
+    "/api/api-docs.json",
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/docs/v3",
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/api.json",
+    // Spring Boot / SpringDoc / SpringFox default routes
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/api/v3/api-docs",
     "/openapi/v3/api-docs",
+    // Well-known discovery
     "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    "/.well-known/api-catalog",
+    "/.well-known/oas.json",
+    // YAML flavours
     "/openapi.yaml",
+    "/openapi.yml",
     "/swagger.yaml",
+    "/swagger.yml",
     "/api-docs.yaml",
+    "/api-docs.yml",
+    "/api.yaml",
+    "/api.yml",
+    // Common alternate spec-file names shipped from repos
+    "/spec.json",
+    "/spec.yaml",
+    "/apispec.json",
+    "/apispec_1.json",         // flasgger default
+    "/apidocs.json",           // flask-restplus / flasgger
+    "/apidocs",                // flasgger UI
+    // FastAPI / Starlette defaults
+    "/openapi.json?version=3.1",
+    "/redoc/openapi.json",
+    // NestJS / TSOA / typical Node conventions
+    "/swagger-json",
+    "/swagger-yaml",
+    "/api/swagger-json",
+    "/api/documentation.json",
+    "/api/documentation",
+    // Django REST Framework / drf-spectacular / drf-yasg
+    "/api/schema/",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    // Laravel (l5-swagger / scribe)
+    "/docs.json",
+    "/docs.yaml",
+    "/api/docs.json",
+    "/api/docs.yaml",
+    "/docs/api-docs.json",
+    // ASP.NET Core / NSwag / Swashbuckle
+    "/swagger/index.html", // UI, but often reveals spec via network tab; keep discovery cheap
+    // Stoplight / ReadMe / other doc hosts pointed at self
+    "/reference.json",
+    "/reference/openapi.json",
+    // Postman / Insomnia exports occasionally shipped alongside APIs
+    "/postman_collection.json",
+    "/postman.json",
+    "/collection.json",
+    "/insomnia.json",
+    // AsyncAPI / gRPC-Gateway (adjacent surfaces that expose full API map)
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/asyncapi.yml",
+    // Deep-path variants used by microservice fleets
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    // Internal-facing conventions that leak to prod
+    "/private/openapi.json",
+    "/internal/openapi.json",
+    "/internal/swagger.json",
+    "/admin/openapi.json",
+    "/admin/swagger.json",
+    "/management/openapi.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / API-doc UI paths.
+///
+/// These are UI pages, not specs. `check_swagger_ui_exposure` gates the
+/// finding on unauthenticated 200 + Swagger/ReDoc/RapiDoc/Elements
+/// signature strings in the body, so throwaway HTML shells cannot trip
+/// this list. Extra paths only widen coverage of framework defaults.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Classic Swagger UI
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui/",
+    "/swagger/ui/index",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    "/api/v1/swagger-ui.html",
+    "/api/v2/swagger-ui.html",
+    "/api/v3/swagger-ui.html",
+    "/v1/swagger-ui.html",
+    "/v2/swagger-ui.html",
+    "/v3/swagger-ui.html",
+    // SpringDoc / Springfox defaults
+    "/webjars/swagger-ui/index.html",
+    "/swagger-ui/oauth2-redirect.html",
+    // Docs sub-paths
     "/docs/",
+    "/docs",
+    "/docs/index.html",
     "/api-docs/",
     "/api/docs",
+    "/api/docs/",
+    "/api/documentation",
+    "/api/documentation/",
+    "/documentation",
+    "/documentation/",
+    // FastAPI / Starlette defaults
     "/redoc",
+    "/redoc/",
     "/rapidoc",
+    "/rapidoc/",
+    // Django REST framework
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // Laravel l5-swagger / scribe
+    "/api/documentation",
+    "/docs/api",
+    "/docs/api-docs",
+    // Stoplight Elements / ReadMe / other embedded viewers
+    "/elements",
+    "/elements/",
+    "/reference",
+    "/reference/",
+    // Internal-only surfaces occasionally shipped to prod
+    "/private/docs",
+    "/internal/docs",
+    "/admin/docs",
+    "/admin/api-docs",
+    "/dev/docs",
+    "/dev/api-docs",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -137,25 +291,100 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Admin/debug endpoint patterns
+/// Admin/debug/sensitive endpoint patterns.
+///
+/// Patterns are anchored on `/` so they match a path segment, not a random
+/// substring in a longer word. Findings that hit here on an authenticated
+/// endpoint are downgraded to Low; unauth is High — see analyze_endpoints.
 const ADMIN_PATTERNS: &[&str] = &[
-    r"(?i)/admin",
-    r"(?i)/debug",
-    r"(?i)/internal",
-    r"(?i)/management",
-    r"(?i)/actuator",
-    r"(?i)/metrics",
-    r"(?i)/health",
-    r"(?i)/status",
-    r"(?i)/config",
-    r"(?i)/settings",
-    r"(?i)/system",
-    r"(?i)/console",
-    r"(?i)/shell",
-    r"(?i)/exec",
-    r"(?i)/eval",
-    r"(?i)/test",
-    r"(?i)/_",
+    // Admin / internal management
+    r"(?i)/admin(?:/|$)",
+    r"(?i)/administrator(?:/|$)",
+    r"(?i)/superuser(?:/|$)",
+    r"(?i)/root(?:/|$)",
+    r"(?i)/backoffice(?:/|$)",
+    r"(?i)/backend(?:/|$)",
+    r"(?i)/internal(?:/|$)",
+    r"(?i)/private(?:/|$)",
+    r"(?i)/management(?:/|$)",
+    r"(?i)/manage(?:/|$)",
+    r"(?i)/moderate(?:/|$)",
+    r"(?i)/moderation(?:/|$)",
+    r"(?i)/impersonate(?:/|$)",
+    r"(?i)/impersonation(?:/|$)",
+    r"(?i)/sudo(?:/|$)",
+    r"(?i)/su(?:/|$)",
+    r"(?i)/assume-?role(?:/|$)",
+    r"(?i)/switch-?user(?:/|$)",
+    // Spring Boot / Java actuator
+    r"(?i)/actuator(?:/|$)",
+    r"(?i)/actuator/(?:env|heapdump|threaddump|configprops|shutdown|beans|conditions|scheduledtasks|mappings|loggers|caches|liquibase|flyway|jolokia|refresh|gateway|httptrace)",
+    r"(?i)/jolokia(?:/|$)",
+    // Ops / observability
+    r"(?i)/metrics(?:/|$)",
+    r"(?i)/health(?:/|$)",
+    r"(?i)/healthz(?:/|$)",
+    r"(?i)/readyz(?:/|$)",
+    r"(?i)/livez(?:/|$)",
+    r"(?i)/status(?:/|$)",
+    r"(?i)/info(?:/|$)",
+    r"(?i)/version(?:/|$)",
+    r"(?i)/debug(?:/|$)",
+    r"(?i)/debug/pprof(?:/|$)",
+    r"(?i)/pprof(?:/|$)",
+    r"(?i)/trace(?:/|$)",
+    r"(?i)/tracing(?:/|$)",
+    r"(?i)/telemetry(?:/|$)",
+    // Config / system
+    r"(?i)/config(?:/|$)",
+    r"(?i)/configuration(?:/|$)",
+    r"(?i)/settings(?:/|$)",
+    r"(?i)/system(?:/|$)",
+    r"(?i)/console(?:/|$)",
+    r"(?i)/shell(?:/|$)",
+    r"(?i)/exec(?:/|$)",
+    r"(?i)/eval(?:/|$)",
+    r"(?i)/query-?tool(?:/|$)",
+    r"(?i)/sql-?console(?:/|$)",
+    r"(?i)/db-?console(?:/|$)",
+    r"(?i)/h2-?console(?:/|$)",
+    // GraphQL / RPC / adjacent surfaces frequently mis-shipped
+    r"(?i)/graphiql(?:/|$)",
+    r"(?i)/playground(?:/|$)",
+    r"(?i)/altair(?:/|$)",
+    // Sensitive data / dump / export
+    r"(?i)/dump(?:/|$)",
+    r"(?i)/dumps(?:/|$)",
+    r"(?i)/export(?:/|$)",
+    r"(?i)/backup(?:/|$)",
+    r"(?i)/backups(?:/|$)",
+    r"(?i)/logs(?:/|$)",
+    r"(?i)/audit(?:/|$)",
+    r"(?i)/audit-?log(?:/|$)",
+    r"(?i)/audit-?trail(?:/|$)",
+    // Auth-adjacent primitives that shouldn't be public
+    r"(?i)/keys(?:/|$)",
+    r"(?i)/tokens(?:/|$)",
+    r"(?i)/secrets(?:/|$)",
+    r"(?i)/credentials(?:/|$)",
+    r"(?i)/api-?keys(?:/|$)",
+    r"(?i)/service-?accounts?(?:/|$)",
+    r"(?i)/well-?known/jwks(?:\.json)?(?:/|$)",
+    // Dev / test-only
+    r"(?i)/test(?:/|$)",
+    r"(?i)/testing(?:/|$)",
+    r"(?i)/tests(?:/|$)",
+    r"(?i)/e2e(?:/|$)",
+    r"(?i)/dev(?:/|$)",
+    r"(?i)/development(?:/|$)",
+    r"(?i)/staging(?:/|$)",
+    r"(?i)/beta(?:/|$)",
+    r"(?i)/mock(?:/|$)",
+    r"(?i)/mocks(?:/|$)",
+    r"(?i)/sandbox(?:/|$)",
+    r"(?i)/preview(?:/|$)",
+    // Leading-underscore private paths (Next.js, Vercel, generic)
+    r"(?i)/_(?:next|vercel|debug|internal|admin|api|health|status|meta|config)(?:/|$)",
 ];
 
 /// Dangerous HTTP methods that should require authentication
@@ -1287,12 +1516,28 @@ impl OpenApiAnalyzer {
                 Ok(response) => {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
-                        if body_lower.contains("swagger-ui")
-                            || body_lower.contains("swagger ui")
-                            || body_lower.contains("redoc")
-                            || body_lower.contains("rapidoc")
-                            || body_lower.contains("api documentation")
-                        {
+                        // Strict signature match: each pattern is unique to a
+                        // known API-doc UI's shipped assets or bootstrap code.
+                        // We deliberately avoid loose strings like the words
+                        // "api documentation" so the widened SWAGGER_UI_PATHS
+                        // list cannot false-positive on generic 200 pages.
+                        let ui_signature = body_lower.contains("swagger-ui.css")
+                            || body_lower.contains("swagger-ui-bundle")
+                            || body_lower.contains("swaggerui")
+                            || body_lower.contains("swagger-ui-dist")
+                            || body_lower.contains("swagger-ui-standalone")
+                            || body_lower.contains("swaggeruibundle(")
+                            || body_lower.contains("redoc.standalone.js")
+                            || body_lower.contains("redoc-cli")
+                            || body_lower.contains("<redoc")
+                            || body_lower.contains("rapi-doc")
+                            || body_lower.contains("<rapi-doc")
+                            || body_lower.contains("stoplight-elements")
+                            || body_lower.contains("elements-api")
+                            || body_lower.contains("scalar-api-reference")
+                            || body_lower.contains("scalar/api-reference")
+                            || body_lower.contains("api-reference-container");
+                        if ui_signature {
                             vulnerabilities.push(self.create_vulnerability(
                                 "OpenAPI Documentation UI Exposed",
                                 base_url,

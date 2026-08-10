@@ -7,7 +7,7 @@
 use crate::http_client::HttpClient;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -236,21 +236,86 @@ impl GraphQLIntrospector {
         self.parse_introspection_response(endpoint, &response.body)
     }
 
-    /// Try multiple common GraphQL paths and return first successful introspection
+    /// Try multiple common GraphQL paths and return first successful introspection.
+    ///
+    /// The path list is wide on purpose: `introspect` runs the introspection
+    /// query and only records a schema when the response is a valid GraphQL
+    /// introspection payload (has `data.__schema` with a real query type),
+    /// so probing an extra path against a non-GraphQL endpoint silently
+    /// records `introspection_enabled: false` — no false-positive finding.
+    /// A live introspection endpoint leaks the full mutation/query surface
+    /// including admin operations and internal types, so widening the probe
+    /// list has direct bug-bounty value.
     pub async fn discover_and_introspect(&self, base_url: &str) -> Result<Vec<GraphQLSchema>> {
         let base = base_url.trim_end_matches('/');
         let paths = vec![
+            // Root and canonical
             "",
             "/graphql",
-            "/api/graphql",
-            "/query",
+            "/graphql/",
+            "/graphiql",
+            "/graphql-explorer",
+            "/playground",
+            "/altair",
             "/gql",
+            "/query",
+            "/queries",
+            "/api/graphql",
             "/api/gql",
+            "/api/query",
+            // Versioned APIs
             "/v1/graphql",
             "/v2/graphql",
+            "/v3/graphql",
+            "/graphql/v1",
+            "/graphql/v2",
+            "/graphql/v3",
+            "/api/v1/graphql",
+            "/api/v2/graphql",
+            "/api/v3/graphql",
+            "/api/v1/gql",
+            "/api/v2/gql",
+            "/api/v1/query",
+            "/api/v2/query",
+            // Framework / product defaults
+            "/graphql/console",
+            "/graphql/schema",
+            "/graphql-api",
+            "/graphql/api",
+            "/api/graphql/v1",
+            "/api/graphql/v2",
+            // Hasura (note: "/v1/graphql" already covered above)
+            "/v1alpha1/graphql",
+            "/v1beta1/relay",
+            "/v1/relay",
+            // Apollo / Relay / Federation defaults
+            "/apollo-graphql",
+            "/apollo/graphql",
+            "/federation",
+            "/federation/graphql",
+            // WordPress / WPGraphQL
+            "/wp/graphql",
+            "/wp-json/graphql",
+            "/index.php?graphql",
+            // Drupal / Magento / other CMS
+            "/graphql/index.php",
+            // Shopify / Storefront-style
+            "/api/2023-01/graphql.json",
+            "/api/2024-01/graphql.json",
+            "/api/2025-01/graphql.json",
+            // Admin / internal surfaces that occasionally slip to prod
+            "/admin/graphql",
+            "/admin/api/graphql",
+            "/internal/graphql",
+            "/private/graphql",
+            "/api/admin/graphql",
         ];
 
         let mut schemas = Vec::new();
+        // Defensive: paths list may accumulate duplicates across future edits
+        // (multiple frameworks reuse "/v1/graphql" etc). Dedup by URL so we
+        // never re-probe or double-record the same endpoint.
+        let mut probed: HashSet<String> = HashSet::new();
 
         for path in paths {
             let endpoint = if path.is_empty() {
@@ -258,6 +323,10 @@ impl GraphQLIntrospector {
             } else {
                 format!("{}{}", base, path)
             };
+
+            if !probed.insert(endpoint.clone()) {
+                continue;
+            }
 
             match self.introspect(&endpoint).await {
                 Ok(schema) if schema.introspection_enabled => {
