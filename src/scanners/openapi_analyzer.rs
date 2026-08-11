@@ -49,45 +49,257 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI/Swagger specifications are served.
+///
+/// The list covers the *default* location that each major framework's swagger
+/// generator writes the spec to. Findings from this discovery step are not
+/// heuristic — every response is parsed as an OpenAPI/Swagger document in
+/// `discover_openapi_specs`, so unrelated JSON/YAML is discarded and the false-
+/// positive rate is effectively zero. Only high-signal defaults are added; we
+/// deliberately avoid paths that would be scanned by a directory bruteforcer.
 const OPENAPI_PATHS: &[&str] = &[
+    // ─── Generic / historic ─────────────────────────────────────────────────
     "/swagger.json",
+    "/swagger.yaml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/api.json",
+    "/api.yaml",
+    "/schema.json",
+    "/schema.yaml",
+    "/doc.json",
+    "/docs.json",
+    "/docs.yaml",
+    "/.well-known/openapi.json",
+    // ─── Springfox (Spring Boot < 2.7) — /v2/api-docs is the framework default
+    "/v2/api-docs",
+    "/v2/api-docs?group=full-petstore-api",
+    // ─── SpringDoc (Spring Boot ≥ 2.7 / 3.x) — /v3/api-docs is the default
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    // ─── Swashbuckle (ASP.NET Core) — versioned defaults
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // ─── FastAPI (Python) — /openapi.json is the framework default
+    "/openapi",
+    // ─── Flask-RESTX / Flask-RESTPlus — apispec_1.json is the default filename
+    "/apispec.json",
+    "/apispec_1.json",
+    "/swagger.json/swagger.json",
+    // ─── Flasgger (Flask) — default spec URL
+    "/apidocs/apispec_1.json",
+    "/apidocs.json",
+    // ─── DRF-Spectacular (Django REST Framework)
+    "/api/schema/",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/?format=openapi",
+    // ─── drf-yasg (Django REST Framework)
+    "/swagger.json/?format=openapi",
+    "/swagger/?format=openapi",
+    "/?format=openapi",
+    "/?format=openapi-json",
+    // ─── NestJS (@nestjs/swagger) — /api-json is the framework default
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    // ─── LoopBack (Node) — /explorer/swagger.json exposes the runtime spec
+    "/explorer/swagger.json",
+    "/explorer/openapi.json",
+    // ─── go-swagger / gin-swagger / echo-swagger — /doc/api and /doc.json
+    "/doc/api.json",
+    "/doc/openapi.json",
+    "/doc/swagger.json",
+    // ─── Strapi / KrakenD / Kong — API gateway default doc paths
+    "/documentation/v1.0.0/openapi.json",
+    "/documentation.json",
+    "/__/openapi.json",
+    // ─── Nuxt / Vite / Remix serverless — /_/openapi.json convention
+    "/_/openapi.json",
+    "/_api/openapi.json",
+    // ─── Common `api/vN/` prefixed variants
+    "/api/v1/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v1/docs.json",
+    "/api/v2/swagger.json",
+    "/api/v2/openapi.json",
+    "/api/v2/api-docs",
+    "/api/v3/swagger.json",
+    "/api/v3/openapi.json",
+    "/api/v3/api-docs",
+    // ─── Common `/vN/*` prefixed variants
     "/v1/swagger.json",
+    "/v1/openapi.json",
+    "/v1/api-docs",
     "/v2/swagger.json",
+    "/v2/openapi.json",
     "/v3/swagger.json",
-    "/api/swagger.json",
-    "/api/openapi.json",
+    "/v3/openapi.json",
+    // ─── SpringDoc's swagger-ui config endpoint (leaks group names)
+    "/swagger-ui/api/v3/api-docs/swagger-config",
+    // ─── Docs served under /docs/ prefix
     "/docs/swagger.json",
     "/docs/openapi.json",
+    "/docs/api.json",
+    "/docs/api.yaml",
+    // ─── Publicly-served static copies (a very common leak vector)
+    "/public/swagger.json",
+    "/public/openapi.json",
+    "/static/swagger.json",
+    "/static/openapi.json",
+    "/assets/swagger.json",
+    "/assets/openapi.json",
+    // ─── Admin / internal / management contexts (highest-value if reachable)
+    "/admin/swagger.json",
+    "/admin/openapi.json",
+    "/admin/api-docs",
+    "/internal/swagger.json",
+    "/internal/openapi.json",
+    "/management/swagger.json",
+    "/management/openapi.json",
+    // ─── OpenAPI 3.x under /openapi/vX/ (Kubernetes, common gateway convention)
+    "/openapi/v2",
+    "/openapi/v3",
     "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/openapi/index.json",
+    // ─── Atlassian JIRA / Confluence REST browser doc endpoints
+    "/rest/api/latest/",
+    "/rest/api/2/serverInfo",
+    "/rest/api-docs",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger / OpenAPI UI paths.
+///
+/// Every hit is verified by the body containing a UI-specific marker (swagger-ui,
+/// redoc, rapidoc, elements, api documentation) in `check_swagger_ui_exposure`,
+/// so unrelated 200s do not create findings. Paths grouped by generator so
+/// framework-default deployments are covered without over-scanning.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // ─── Swashbuckle / Swagger UI classic
     "/swagger-ui.html",
     "/swagger-ui/index.html",
+    "/swagger-ui/swagger-ui.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui",
+    "/swagger/ui/index",
+    "/webjars/swagger-ui/index.html",
+    "/webjars/swagger-ui/",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    // ─── FastAPI defaults (interactive + reference)
+    "/docs",
     "/docs/",
+    "/redoc",
+    "/redoc/",
+    // ─── SpringDoc UI
+    "/swagger-ui.html/",
+    "/swagger-ui/index.html?configUrl=/v3/api-docs/swagger-config",
+    // ─── NestJS UI
+    "/api",
+    "/api/",
+    "/api-docs",
     "/api-docs/",
     "/api/docs",
-    "/redoc",
+    "/api/docs/",
+    // ─── LoopBack Explorer
+    "/explorer",
+    "/explorer/",
+    // ─── DRF-Spectacular
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // (drf-yasg's /swagger/ and /redoc/ share paths with the classic
+    //  Swagger UI / FastAPI defaults above, so no extra entries here.)
+    // ─── Flasgger / Flask-RESTX
+    "/apidocs",
+    "/apidocs/",
+    "/apidocs/index.html",
+    // ─── Stoplight Elements / Scalar / RapiDoc references
     "/rapidoc",
+    "/rapidoc/",
+    "/reference",
+    "/reference/",
+    "/scalar",
+    "/scalar/",
+    "/elements",
+    "/elements/",
+    // ─── ReadyAPI / other reference UIs
+    "/openapi-explorer",
+    "/api-explorer",
+    "/api-reference",
 ];
 
-/// Sensitive data patterns to check in examples and defaults
+/// Route a `SENSITIVE_PATTERNS` description to a severity.
+///
+/// Vendor-prefixed credentials (AWS/Google/GitHub/Stripe/…), private keys,
+/// database connection strings, framework master keys, and JWTs found in
+/// example blocks are treated as `High` — the pattern requires a form that
+/// only real credentials produce, so a hit is directly actionable. Network /
+/// environment leaks stay at `Medium`, and the generic key/value templates
+/// (`password: "…"`) remain `Low` because they trigger on schema descriptions
+/// even without a real value present.
+fn classify_sensitive_severity(description: &str) -> Severity {
+    // High-signal, credential-shaped matches.
+    const HIGH_MARKERS: &[&str] = &[
+        "AWS",
+        "STS",
+        "Google",
+        "GCP",
+        "GitHub",
+        "GitLab",
+        "Slack",
+        "Discord",
+        "Stripe",
+        "Shopify",
+        "OpenAI",
+        "Anthropic",
+        "Hugging",
+        "npm",
+        "Docker",
+        "Laravel",
+        "PEM",
+        "private key",
+        "JWT",
+        "webhook",
+        "service account",
+        "connection string",
+        "hardcoded password",
+        "secret value",
+        "AWS access key",
+        "AWS secret key",
+    ];
+    if HIGH_MARKERS.iter().any(|m| description.contains(m)) {
+        return Severity::High;
+    }
+    if description.contains("internal") || description.contains("localhost") {
+        return Severity::Medium;
+    }
+    Severity::Low
+}
+
+/// Sensitive data patterns to check in examples and defaults.
+///
+/// Patterns are checked against the JSON-serialized spec, so they must survive
+/// serde_json's minimal escaping (quotes → `\"`, slashes are left as `/`).
+/// Vendor-prefixed formats are strongly preferred — a match on `AKIA…` or
+/// `ghp_…` is almost certainly a real credential pasted into an example, not a
+/// coincidence in schema metadata. Generic `password: "…"` style patterns are
+/// still included for pre-2020 specs that carry literal credentials.
 const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
+    // ─── Generic key/value style (kept for lower-signal but common cases) ──
     (
         r#"(?i)password\s*[:=]\s*["'][^"']+["']"#,
         "hardcoded password",
@@ -110,6 +322,7 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
         r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
         "email address",
     ),
+    // ─── AWS ────────────────────────────────────────────────────────────────
     (
         r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']AKIA[A-Z0-9]{16}["']"#,
         "AWS access key",
@@ -118,6 +331,86 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
         r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["'][A-Za-z0-9/+=]{40}["']"#,
         "AWS secret key",
     ),
+    // Prefix-only AWS keys — the `AKIA` / `ASIA` IDs are issued by IAM and
+    // cannot occur by chance, so a bare match anywhere in the spec is a hit.
+    (r"AKIA[0-9A-Z]{16}", "AWS access key (unlabeled)"),
+    (r"ASIA[0-9A-Z]{16}", "AWS STS temporary key (unlabeled)"),
+    // ─── Google Cloud ───────────────────────────────────────────────────────
+    (r"AIza[0-9A-Za-z_\-]{35}", "Google API key"),
+    (r"ya29\.[0-9A-Za-z_\-]{20,}", "Google OAuth access token"),
+    // GCP service account JSON is only produced by the GCP IAM console — the
+    // exact `type: service_account` field is unique to it.
+    (
+        r#""type"\s*:\s*"service_account""#,
+        "GCP service account JSON",
+    ),
+    // ─── VCS / CI tokens (immediate supply-chain risk) ──────────────────────
+    (r"ghp_[A-Za-z0-9]{36}", "GitHub personal access token"),
+    (r"gho_[A-Za-z0-9]{36}", "GitHub OAuth token"),
+    (r"ghs_[A-Za-z0-9]{36}", "GitHub App server token"),
+    (r"ghu_[A-Za-z0-9]{36}", "GitHub App user token"),
+    (
+        r"github_pat_[A-Za-z0-9_]{80,}",
+        "GitHub fine-grained PAT",
+    ),
+    (r"glpat-[A-Za-z0-9_\-]{20}", "GitLab personal access token"),
+    // ─── Communication platforms ────────────────────────────────────────────
+    (
+        r"xox[baprs]-[0-9]+-[0-9]+-[0-9]+-[A-Za-z0-9]{24,}",
+        "Slack token",
+    ),
+    (
+        r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{20,}",
+        "Slack webhook URL",
+    ),
+    (
+        r"https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]+",
+        "Discord webhook URL",
+    ),
+    // ─── Payment / commerce ─────────────────────────────────────────────────
+    (
+        r"sk_live_[0-9a-zA-Z]{24,}",
+        "Stripe live secret key",
+    ),
+    (
+        r"rk_live_[0-9a-zA-Z]{24,}",
+        "Stripe live restricted key",
+    ),
+    (r"shpat_[a-fA-F0-9]{32}", "Shopify access token"),
+    (r"shpss_[a-fA-F0-9]{32}", "Shopify shared secret"),
+    // ─── AI / LLM ───────────────────────────────────────────────────────────
+    (r"sk-[A-Za-z0-9]{48}", "OpenAI API key"),
+    (
+        r"sk-ant-[A-Za-z0-9_\-]{40,}",
+        "Anthropic API key",
+    ),
+    (r"hf_[A-Za-z0-9]{34}", "Hugging Face token"),
+    // ─── Auth artifacts ─────────────────────────────────────────────────────
+    // JWTs frequently show up in `example:` blocks. The alg-header prefix
+    // (`eyJ…`) plus two more base64url segments uniquely identifies one.
+    (
+        r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-+/=]{10,}",
+        "JWT token in example",
+    ),
+    // PEM-armored private keys — a real, decodable secret in the spec.
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+        "PEM private key block",
+    ),
+    // ─── Registry / package publishing (supply-chain risk) ──────────────────
+    (r"npm_[A-Za-z0-9]{36}", "npm publish token"),
+    (r"dckr_pat_[A-Za-z0-9_\-]{56}", "Docker Hub PAT"),
+    // ─── DB connection strings with embedded credentials ────────────────────
+    // Requires user:pass@host — captures real dev-leaks like
+    // `postgres://root:hunter2@db.internal.corp/prod`.
+    (
+        r#"(?:mongodb(?:\+srv)?|mysql|postgres(?:ql)?|mariadb|mssql|jdbc:[a-z]+)://[A-Za-z0-9._~%+-]+:[^@\s"'`<>]+@[A-Za-z0-9.\-]+"#,
+        "database connection string with credentials",
+    ),
+    // ─── Framework master secrets (full crypto compromise) ─────────────────
+    // Laravel APP_KEY: `base64:` + a 32-byte base64 blob.
+    (r"base64:[A-Za-z0-9+/]{43}=", "Laravel APP_KEY"),
+    // ─── Network / environment leakage ─────────────────────────────────────
     (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "internal IP address"),
     (
         r"(?i)(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}",
@@ -137,25 +430,94 @@ const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Admin/debug endpoint patterns
+/// Admin/debug endpoint patterns.
+///
+/// These are matched against the *paths in the spec* — i.e. the endpoints the
+/// operator is knowingly documenting. High-signal actuator-family paths are
+/// grouped explicitly because their names are unique enough to eliminate FPs
+/// and each carries an outsized impact (heap dumps, env variables, JVM control,
+/// live Gateway route injection, etc.).
 const ADMIN_PATTERNS: &[&str] = &[
+    // ─── General admin / debug context roots ───────────────────────────────
     r"(?i)/admin",
+    r"(?i)/administrator",
     r"(?i)/debug",
     r"(?i)/internal",
     r"(?i)/management",
-    r"(?i)/actuator",
-    r"(?i)/metrics",
-    r"(?i)/health",
-    r"(?i)/status",
-    r"(?i)/config",
-    r"(?i)/settings",
-    r"(?i)/system",
-    r"(?i)/console",
+    r"(?i)/manage",
+    r"(?i)/superuser",
+    r"(?i)/godmode",
+    r"(?i)/root(?:$|/)",
+    r"(?i)/sudo",
+    r"(?i)/su",
+    // ─── Spring Boot Actuator endpoints (heap dumps, env leaks, RCE) ────────
+    r"(?i)/actuator(?:$|/)",
+    r"(?i)/actuator/env",
+    r"(?i)/actuator/configprops",
+    r"(?i)/actuator/heapdump",
+    r"(?i)/actuator/threaddump",
+    r"(?i)/actuator/loggers",
+    r"(?i)/actuator/beans",
+    r"(?i)/actuator/mappings",
+    r"(?i)/actuator/gateway",       // Spring Cloud Gateway: routes injection
+    r"(?i)/actuator/refresh",
+    r"(?i)/actuator/restart",
+    r"(?i)/actuator/shutdown",
+    r"(?i)/actuator/httptrace",
+    r"(?i)/actuator/jolokia",       // JMX-over-HTTP; historically an RCE
+    r"(?i)/jolokia(?:$|/)",
+    r"(?i)/env(?:$|/)",             // pre-actuator Spring Boot
+    r"(?i)/heapdump(?:$|/)",
+    r"(?i)/dump(?:$|/)",
+    r"(?i)/trace(?:$|/)",
+    r"(?i)/beans(?:$|/)",
+    r"(?i)/mappings(?:$|/)",
+    r"(?i)/configprops(?:$|/)",
+    r"(?i)/loggers(?:$|/)",
+    // ─── Go pprof / metrics ────────────────────────────────────────────────
+    r"(?i)/debug/pprof",
+    r"(?i)/debug/vars",
+    r"(?i)/metrics(?:$|/)",
+    r"(?i)/varz(?:$|/)",
+    // ─── Health / status / config surface ──────────────────────────────────
+    r"(?i)/health(?:$|/)",
+    r"(?i)/healthz(?:$|/)",
+    r"(?i)/status(?:$|/)",
+    r"(?i)/config(?:$|/)",
+    r"(?i)/settings(?:$|/)",
+    r"(?i)/system(?:$|/)",
+    // ─── Operator interfaces & tunnels (RCE-adjacent) ──────────────────────
+    r"(?i)/console(?:$|/)",
     r"(?i)/shell",
     r"(?i)/exec",
     r"(?i)/eval",
+    r"(?i)/run",
+    r"(?i)/command",
+    r"(?i)/wsdl",                    // legacy SOAP admin, often unauth
+    r"(?i)/wadl",
+    // ─── GraphQL surfaces (introspection = free endpoint enumeration) ──────
+    r"(?i)/graphql/console",
+    r"(?i)/graphiql",
+    r"(?i)/altair",
+    r"(?i)/playground",
+    // ─── Auth flows and secrets endpoints (often unauth in dev builds) ─────
+    r"(?i)/token",
+    r"(?i)/auth/token",
+    r"(?i)/oauth/token",
+    r"(?i)/keys(?:$|/)",             // JWKS / signing keys
+    r"(?i)/certificates(?:$|/)",
+    // ─── Uploads and files (RCE / arbitrary read) ──────────────────────────
+    r"(?i)/upload",
+    r"(?i)/files/upload",
+    r"(?i)/attach",
+    r"(?i)/import",
+    r"(?i)/export",
+    // ─── Test / dev-only surfaces ──────────────────────────────────────────
     r"(?i)/test",
-    r"(?i)/_",
+    r"(?i)/_",                       // catches /_next, /_health, /_admin, …
+    r"(?i)/dev(?:$|/)",
+    r"(?i)/staging(?:$|/)",
+    r"(?i)/qa(?:$|/)",
 ];
 
 /// Dangerous HTTP methods that should require authentication
@@ -1181,18 +1543,7 @@ impl OpenApiAnalyzer {
                             "OpenAPI specification contains {}: '{}...'",
                             description, evidence
                         ),
-                        if description.contains("password")
-                            || description.contains("secret")
-                            || description.contains("AWS")
-                        {
-                            Severity::High
-                        } else if description.contains("internal")
-                            || description.contains("localhost")
-                        {
-                            Severity::Medium
-                        } else {
-                            Severity::Low
-                        },
+                        classify_sensitive_severity(description),
                         "CWE-200",
                         &spec.spec_url,
                     ));
@@ -1634,5 +1985,90 @@ mod tests {
         assert!(!parameters[1].required);
         assert_eq!(parameters[1].max_length, Some(100));
         assert_eq!(parameters[1].pattern, Some("^[a-zA-Z]+$".to_string()));
+    }
+
+    #[test]
+    fn test_classify_sensitive_severity_routes_credentials_to_high() {
+        // Every description in the SENSITIVE_PATTERNS list must be routed by
+        // the classifier — new entries added later would trip this test if a
+        // description slips through to the Low default despite naming a
+        // credential family.
+        let high = [
+            "AWS access key",
+            "AWS secret key",
+            "AWS access key (unlabeled)",
+            "AWS STS temporary key (unlabeled)",
+            "Google API key",
+            "Google OAuth access token",
+            "GCP service account JSON",
+            "GitHub personal access token",
+            "GitHub OAuth token",
+            "GitHub App server token",
+            "GitHub App user token",
+            "GitHub fine-grained PAT",
+            "GitLab personal access token",
+            "Slack token",
+            "Slack webhook URL",
+            "Discord webhook URL",
+            "Stripe live secret key",
+            "Stripe live restricted key",
+            "Shopify access token",
+            "Shopify shared secret",
+            "OpenAI API key",
+            "Anthropic API key",
+            "Hugging Face token",
+            "JWT token in example",
+            "PEM private key block",
+            "npm publish token",
+            "Docker Hub PAT",
+            "database connection string with credentials",
+            "Laravel APP_KEY",
+            "hardcoded password",
+            "secret value",
+        ];
+        for d in high {
+            assert_eq!(
+                classify_sensitive_severity(d),
+                Severity::High,
+                "expected `{}` to be High severity",
+                d
+            );
+        }
+
+        // Network/env leaks are Medium.
+        assert_eq!(
+            classify_sensitive_severity("internal hostname"),
+            Severity::Medium
+        );
+        assert_eq!(
+            classify_sensitive_severity("localhost reference"),
+            Severity::Medium
+        );
+
+        // Bland fallback matches stay Low.
+        assert_eq!(
+            classify_sensitive_severity("non-production environment"),
+            Severity::Low
+        );
+        assert_eq!(
+            classify_sensitive_severity("email address"),
+            Severity::Low
+        );
+    }
+
+    #[test]
+    fn test_discovery_paths_are_unique_and_absolute() {
+        // A duplicated path silently doubles the request cost — catch here
+        // rather than in a scan run's telemetry.
+        let mut seen = std::collections::HashSet::new();
+        for p in OPENAPI_PATHS {
+            assert!(p.starts_with('/'), "OPENAPI path missing leading slash: {}", p);
+            assert!(seen.insert(*p), "duplicate OPENAPI path: {}", p);
+        }
+        let mut seen_ui = std::collections::HashSet::new();
+        for p in SWAGGER_UI_PATHS {
+            assert!(p.starts_with('/'), "SWAGGER_UI path missing leading slash: {}", p);
+            assert!(seen_ui.insert(*p), "duplicate SWAGGER_UI path: {}", p);
+        }
     }
 }

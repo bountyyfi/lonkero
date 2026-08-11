@@ -399,6 +399,165 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // ─── Squarespace ────────────────────────────────────────────────────────
+    // Squarespace serves a distinctive unclaimed-site page when a custom
+    // domain points at their edge but no site owns it; the message
+    // "you are attempting to access a URL that is unavailable" is unique to
+    // Squarespace's unclaimed handler (production sites never emit it).
+    ServiceFingerprint {
+        name: "Squarespace",
+        cname_patterns: &[".squarespace.com", "ext-cust.squarespace.com"],
+        http_signatures: &[
+            "You are attempting to access a URL that is unavailable",
+            "No Such Account",
+            "Not able to be served by Squarespace",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Squarespace, or claim the custom domain from within a Squarespace site's Domains settings.",
+    },
+    // ─── WP Engine ──────────────────────────────────────────────────────────
+    // WP Engine returns a highly specific "site you were looking for" page for
+    // domains that CNAME to their edge without an active install — an attacker
+    // with a WP Engine account can register the missing install and take over.
+    ServiceFingerprint {
+        name: "WP Engine",
+        cname_patterns: &[".wpengine.com", ".wpengine.io"],
+        http_signatures: &[
+            "The site you were looking for couldn't be found",
+            "Sign up here to be notified when this install is created",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to WP Engine, or add the custom domain to an active WP Engine install.",
+    },
+    // ─── LaunchRock ─────────────────────────────────────────────────────────
+    // LaunchRock's unclaimed page carries a signature that is only produced
+    // by their platform, so the signature match is definitive.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to LaunchRock, or claim the vanity URL from a LaunchRock campaign.",
+    },
+    // ─── GetResponse ────────────────────────────────────────────────────────
+    // GetResponse landing pages show a unique upsell string on unclaimed
+    // domains ("With GetResponse Landing Pages, lead generation …") — no
+    // real site would ever ship that copy.
+    ServiceFingerprint {
+        name: "GetResponse",
+        cname_patterns: &[".gr8.com", ".getresponse.com"],
+        http_signatures: &[
+            "With GetResponse Landing Pages, lead generation has never been easier",
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to GetResponse, or connect the domain to a landing page from your GetResponse account.",
+    },
+    // ─── Intercom Help Center ───────────────────────────────────────────────
+    // A dangling `custom.intercom.help` CNAME returns Intercom's distinctive
+    // "Uh oh. That page doesn't exist." string.
+    ServiceFingerprint {
+        name: "Intercom Help Center",
+        cname_patterns: &["custom.intercom.help"],
+        http_signatures: &[
+            "Uh oh. That page doesn't exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Intercom, or configure the custom domain in Intercom's Help Center settings.",
+    },
+    // ─── FeedPress ──────────────────────────────────────────────────────────
+    // Vanity feed hostnames that resolve to FeedPress with no active feed
+    // return "The feed has not been found." — unique to FeedPress' error path.
+    ServiceFingerprint {
+        name: "FeedPress",
+        cname_patterns: &[".feedpress.me", ".feedpress.co"],
+        http_signatures: &[
+            "The feed has not been found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to FeedPress, or reclaim the vanity URL from your FeedPress account.",
+    },
+    // ─── Read the Docs ──────────────────────────────────────────────────────
+    // Read the Docs surfaces "unknown to Read the Docs" on custom domains
+    // whose configured project has been deleted — the phrase is only ever
+    // emitted by their unclaimed-domain handler.
+    ServiceFingerprint {
+        name: "Read the Docs",
+        cname_patterns: &[".readthedocs.io", ".readthedocs.org"],
+        http_signatures: &[
+            "unknown to Read the Docs",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Read the Docs, or reattach the domain to an active Read the Docs project.",
+    },
+    // ─── JetBrains YouTrack InCloud ─────────────────────────────────────────
+    // Very high-value in engineering orgs: the signature "is not a registered
+    // InCloud YouTrack" identifies a takeoverable JetBrains-hosted tracker.
+    ServiceFingerprint {
+        name: "JetBrains YouTrack InCloud",
+        cname_patterns: &[".myjetbrains.com"],
+        http_signatures: &[
+            "is not a registered InCloud YouTrack",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to JetBrains InCloud, or reclaim the YouTrack subdomain from your JetBrains account.",
+    },
+    // ─── Ngrok tunnels ──────────────────────────────────────────────────────
+    // Not a classic takeover — but a dangling ngrok CNAME on a production
+    // domain lets anyone with a paid ngrok plan and the vanity hostname grab
+    // it. The two signatures below are single-string phrases (each checked
+    // independently in `verify_http_vulnerability`) that ngrok emits verbatim
+    // and no real site ships. Splitting into shorter substrings would false-
+    // positive on any 404 page, so keep them as full phrases.
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app", ".ngrok.app"],
+        http_signatures: &[
+            "endpoint is offline",
+            "tunnel offline. try again later",
+            "the tunnel you are looking for is",
+        ],
+        header_patterns: &[("ngrok-trace-id", "")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record pointing to ngrok — production traffic should never route through a developer tunnel.",
+    },
 ];
 
 /// DNS resolution result for a subdomain

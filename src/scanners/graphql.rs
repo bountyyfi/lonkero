@@ -98,16 +98,89 @@ impl GraphQlScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Detect if endpoint is GraphQL
+    /// Detect if endpoint is GraphQL.
+    ///
+    /// Each candidate path is tested with a POST'd `{__typename}` query. A
+    /// GraphQL server responds with either `"data":{"__typename":…}` or a
+    /// GraphQL-shaped `errors` array mentioning `query` — both are used as the
+    /// confirmation signal below, so a false positive would require a non-
+    /// GraphQL endpoint to coincidentally return one of those exact patterns.
+    ///
+    /// The path list is grouped by framework/host to make it obvious where
+    /// each entry came from and what a real deployment looks like.
     async fn detect_graphql_endpoint(&self, url: &str) -> bool {
-        // Try common GraphQL paths
         let graphql_paths = vec![
-            "", // base URL (might already be /graphql)
+            // The base URL may already be the GraphQL endpoint.
+            "",
+            // ─── Generic / most common defaults ────────────────────────────
             "/graphql",
             "/graphql/",
             "/api/graphql",
+            "/api/graphql/",
             "/query",
+            "/queries",
             "/gql",
+            "/graph",
+            "/graphql-api",
+            "/graphql_api",
+            "/graph-api",
+            "/__graphql",
+            // ─── Versioned API prefixes (very common in production) ────────
+            "/api/v1/graphql",
+            "/api/v2/graphql",
+            "/api/v3/graphql",
+            "/v1/graphql",
+            "/v2/graphql",
+            "/v3/graphql",
+            // ─── Hasura defaults (public leaks of schema + data are common)
+            "/v1alpha1/graphql",
+            "/v1beta1/graphql",
+            "/api/rest",       // Hasura REST wrapper — GraphQL-under-the-hood
+            // ─── Shopify / Storefront / Admin API
+            "/api/2024-01/graphql.json",
+            "/admin/api/graphql.json",
+            // ─── WPGraphQL (WordPress)
+            "/index.php?graphql",
+            "/wp-json/graphql",
+            // ─── Apollo Server / Federation gateways
+            "/gateway/graphql",
+            "/federation/graphql",
+            "/subgraph/graphql",
+            // ─── Serverless conventions
+            "/.netlify/functions/graphql",
+            "/api/graphql-server",
+            // ─── Admin / internal contexts — highest-value if reachable
+            "/admin/graphql",
+            "/internal/graphql",
+            "/private/graphql",
+            "/backend/graphql",
+        ];
+
+        // Interactive UIs (GraphiQL, Playground, Altair, Voyager) are HTML
+        // pages, not query endpoints, so they don't respond to POSTed queries.
+        // Their body markers below are unique enough to identify them and
+        // reveal that a GraphQL endpoint is co-located nearby (typically at
+        // the same path).
+        const UI_PATHS: &[&str] = &[
+            "/graphiql",
+            "/graphql",
+            "/graphql/",
+            "/playground",
+            "/graphql-playground",
+            "/graphql-explorer",
+            "/altair",
+            "/graphql-voyager",
+            "/api/graphql",
+        ];
+        // Unique substrings each interactive UI emits verbatim.
+        const UI_MARKERS: &[&str] = &[
+            "graphiql",
+            "GraphiQL",
+            "graphql-playground",
+            "GraphQL Playground",
+            "altair",
+            "voyager",
+            "apollo-server-landing-page",
         ];
 
         let base_url = url.trim_end_matches('/');
@@ -146,6 +219,22 @@ impl GraphQlScanner {
                     || (response.body.contains("\"errors\"") && response.body.contains("query"))
                 {
                     info!("[GraphQL] Found GraphQL endpoint at: {}", test_url);
+                    return true;
+                }
+            }
+        }
+
+        // Fallback: an interactive UI is nearly as sensitive as a live
+        // endpoint (it lets an attacker interactively probe the schema), so
+        // treat a UI hit as a positive detection and let downstream checks
+        // run against the same path.
+        for path in UI_PATHS {
+            let ui_url = format!("{}{}", base_url, path);
+            if let Ok(response) = self.http_client.get(&ui_url).await {
+                if response.status_code == 200
+                    && UI_MARKERS.iter().any(|m| response.body.contains(m))
+                {
+                    info!("[GraphQL] Found GraphQL UI (schema probing surface) at: {}", ui_url);
                     return true;
                 }
             }
