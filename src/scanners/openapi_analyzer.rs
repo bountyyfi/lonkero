@@ -50,7 +50,13 @@ mod uuid {
 }
 
 /// Common paths where OpenAPI specs are served
+// Machine-readable API spec paths. Verified by parsing the response with
+// serde_json / serde_yaml and checking for an `openapi` / `swagger` /
+// `asyncapi` root key, so an incidental JSON response can't produce a
+// false-positive spec finding. Ordering doesn't matter — the caller
+// iterates until one returns 200 with a valid spec body.
 const OPENAPI_PATHS: &[&str] = &[
+    // Long-tail generic locations
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,20 +76,149 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Spring Boot / springdoc-openapi defaults (`/v3/api-docs` is the
+    // springdoc default; `/v2/api-docs` is the classic springfox path)
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v3/api-docs/public",
+    "/v2/api-docs",
+    "/v2/api-docs?type=json",
+    "/v2/api-docs?group=full-api",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // FastAPI (default mounts: `/openapi.json`, `/docs`, `/redoc`)
+    "/openapi.yml",
+    "/api/openapi.yaml",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    // Django REST framework + drf-spectacular
+    "/api/schema/",
+    "/api/schema/?format=openapi",
+    "/api/schema/openapi.yaml",
+    "/api/schema/openapi.json",
+    "/api/schema.json",
+    "/schema/",
+    "/schema.json",
+    // NestJS conventional exports
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    // .NET / Swashbuckle
+    "/swagger/v1/swagger.yaml",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // Kubernetes API server public spec
+    "/openapi/v2",
+    "/openapi/v3",
+    // GraphQL sidecar (often served next to the API for tooling)
+    "/graphql/schema.json",
+    "/graphql/schema.yaml",
+    "/graphql/schema.graphql",
+    // Common CMS/API-gateway defaults
+    "/wp-json/",
+    "/wp-json/wp/v2",
+    "/index.php/wp-json/",
+    "/index.php?rest_route=/",
+    "/apis/api-docs",
+    "/apidocs/",
+    "/apidocs/swagger.json",
+    // AsyncAPI (event-driven APIs)
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/api/asyncapi.json",
+    // RAML
+    "/api.raml",
+    "/docs/api.raml",
+    // Postman / Insomnia collections accidentally deployed
+    "/postman_collection.json",
+    "/collection.json",
+    "/insomnia.json",
+    // OData
+    "/odata/$metadata",
+    "/api/odata/$metadata",
+    // Deprecated but still deployed prefixes
+    "/api/swagger",
+    "/docs/swagger",
+    "/api/docs/swagger.json",
+    "/api/docs.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger / OpenAPI viewer paths.
+///
+/// Only the path is probed. To count as a hit the response body must
+/// contain a canonical marker of one of the known UIs (`SwaggerUIBundle`,
+/// `redoc.standalone`, `rapidoc`, `stoplight-elements`, …). Bare 200 with
+/// unrelated HTML never becomes a finding.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI — Java/Spring, .NET, Node
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger-ui/swagger-ui.js",
+    "/swagger-ui/swagger-ui-bundle.js",
     "/api/swagger-ui.html",
+    "/api/swagger",
+    "/api/swagger/index.html",
+    "/api/swagger-ui/",
+    "/api/v1/swagger",
+    "/api/v2/swagger",
+    "/api/v3/swagger",
+    // Generic docs mount points
     "/docs/",
+    "/docs",
+    "/documentation/",
+    "/documentation",
     "/api-docs/",
+    "/api-docs",
     "/api/docs",
+    "/api/docs/",
+    "/api/documentation",
+    // ReDoc — used by FastAPI, Django spectacular, and standalone
     "/redoc",
+    "/redoc/",
+    "/api/redoc",
+    "/api/redoc/",
+    "/docs/redoc",
+    "/redoc.standalone.js",
+    // RapiDoc
     "/rapidoc",
+    "/rapidoc.html",
+    "/rapidoc-min.js",
+    // Stoplight Elements
+    "/reference",
+    "/reference/",
+    "/api-reference",
+    "/api/reference",
+    // GraphQL viewers (spec-adjacent, same class of finding)
+    "/graphiql",
+    "/graphiql/",
+    "/graphql/console",
+    "/altair",
+    "/altair/",
+    "/voyager",
+    "/graphql-playground",
+    "/playground",
+    // Postman documentation renderer
+    "/postman",
+    "/documentation.html",
+    // Django-rest-swagger legacy path
+    "/swagger-ui.js",
+    "/schema/redoc",
+    "/schema/swagger-ui",
+    // Kong / KrakenD / API-gateway defaults
+    "/portal",
+    "/dev-portal",
+    "/apis",
+    // Kubernetes-style paths
+    "/openapi",
+    "/openapi/",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -1286,12 +1421,46 @@ impl OpenApiAnalyzer {
             match self.http_client.get(&ui_url).await {
                 Ok(response) => {
                     if response.status_code == 200 {
+                        // Require a canonical viewer marker — every one of
+                        // these strings is a fingerprint of the JS bundle
+                        // that ships with the corresponding UI, so they
+                        // never appear on unrelated pages that happen to
+                        // return 200 at these paths. The generic
+                        // "api documentation" phrase is deliberately not
+                        // used because it fires on marketing landing pages.
                         let body_lower = response.body.to_lowercase();
-                        if body_lower.contains("swagger-ui")
-                            || body_lower.contains("swagger ui")
-                            || body_lower.contains("redoc")
-                            || body_lower.contains("rapidoc")
-                            || body_lower.contains("api documentation")
+                        let is_swagger = body_lower.contains("swaggeruibundle")
+                            || body_lower.contains("swagger-ui.css")
+                            || body_lower.contains("swagger-ui-bundle")
+                            || body_lower.contains("id=\"swagger-ui\"");
+                        let is_redoc = body_lower.contains("redoc.standalone")
+                            || body_lower.contains("redoc-standalone")
+                            || body_lower.contains("<redoc ")
+                            || body_lower.contains("id=\"redoc\"");
+                        let is_rapidoc = body_lower.contains("<rapi-doc")
+                            || body_lower.contains("rapidoc-min.js");
+                        let is_stoplight = body_lower.contains("stoplight-elements")
+                            || body_lower.contains("elements-web-components")
+                            || body_lower.contains("<elements-api");
+                        let is_graphiql = body_lower.contains("graphiql")
+                            && (body_lower.contains("graphiql.min.js")
+                                || body_lower.contains("id=\"graphiql\"")
+                                || body_lower.contains("react-graphiql"));
+                        let is_gql_playground =
+                            body_lower.contains("graphql-playground");
+                        let is_altair = body_lower.contains("altair-gql")
+                            || body_lower.contains("altair graphql");
+                        let is_voyager = body_lower.contains("graphql voyager")
+                            || body_lower.contains("graphql-voyager");
+
+                        if is_swagger
+                            || is_redoc
+                            || is_rapidoc
+                            || is_stoplight
+                            || is_graphiql
+                            || is_gql_playground
+                            || is_altair
+                            || is_voyager
                         {
                             vulnerabilities.push(self.create_vulnerability(
                                 "OpenAPI Documentation UI Exposed",

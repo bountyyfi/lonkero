@@ -399,6 +399,211 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // ------------------------------------------------------------------
+    // Additional takeover-vulnerable services. Each signature phrase is
+    // one that the provider only serves for an *unclaimed* custom domain
+    // — never for a normal 404 on a real customer site — so a body match
+    // combined with a matching CNAME is a confirmed takeover, not a
+    // vanilla 404. Providers with generic-looking error copy are left
+    // out on purpose.
+    // ------------------------------------------------------------------
+
+    // Kinsta managed WordPress hosting. Kinsta returns this exact phrase
+    // only when the requested hostname isn't attached to any WP site.
+    ServiceFingerprint {
+        name: "Kinsta",
+        cname_patterns: &[".kinsta.cloud", "sites.kinsta.com"],
+        http_signatures: &["No Site For Domain"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to Kinsta, or attach the domain to a live Kinsta site.",
+    },
+    // Aha! product-idea portals. The "sending you back to Aha!" copy is
+    // served only when no portal is configured for the host.
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &[".aha.io"],
+        http_signatures: &[
+            "There is no portal here",
+            "sending you back to aha!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the custom-domain portal inside Aha!.",
+    },
+    // Big Cartel storefronts. The HTML entity in "couldn&#8217;t" is what
+    // makes this signature immune to CMS-generic 404 text.
+    ServiceFingerprint {
+        name: "Big Cartel",
+        cname_patterns: &[".bigcartel.com"],
+        http_signatures: &["Oops! We couldn&#8217;t find that page"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or connect the domain to an active Big Cartel shop.",
+    },
+    // LaunchRock landing pages. Signature is the site's static
+    // "wrong turn somewhere" copy served only for unclaimed hosts.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in a LaunchRock campaign.",
+    },
+    // Read the Docs documentation hosting.
+    ServiceFingerprint {
+        name: "Read the Docs",
+        cname_patterns: &[".readthedocs.io", ".readthedocs-hosted.com"],
+        http_signatures: &["unknown to Read the Docs"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register the project name on Read the Docs.",
+    },
+    // Simplebooklet PDF microsites.
+    ServiceFingerprint {
+        name: "Simplebooklet",
+        cname_patterns: &[".simplebooklet.com"],
+        http_signatures: &["We can't find this simplebooklet"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the booklet in Simplebooklet with the matching custom domain.",
+    },
+    // HelpJuice fingerprint intentionally omitted — the classic unclaimed
+    // signature ("We could not find what you're looking for") is too
+    // generic and appears verbatim on live HelpJuice 404 templates, so
+    // shipping it as a takeover fingerprint would create false positives
+    // on customers who simply mis-linked a page. Left as a documented gap
+    // rather than a fragile detection.
+    // GetResponse landing pages served under gr8.com.
+    ServiceFingerprint {
+        name: "GetResponse Landing Pages",
+        cname_patterns: &[".gr8.com"],
+        http_signatures: &["With GetResponse Landing Pages"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or connect the domain to an active GetResponse landing page.",
+    },
+    // Ngrok tunnels. When a paid-tier reserved subdomain lapses, ngrok
+    // serves the ERR_NGROK_3200 page whose body carries the code and
+    // "tunnel" text — never present on a live-tunnel response.
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app", ".ngrok.app"],
+        http_signatures: &[
+            "err_ngrok_3200",
+            "tunnel not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record. Ngrok reserved subdomains that lapse can be re-reserved by any account.",
+    },
+    // Google Cloud Storage — mirrors the S3 pattern. NoSuchBucket is the
+    // exact XML error returned by GCS when the bucket name is unclaimed.
+    ServiceFingerprint {
+        name: "Google Cloud Storage",
+        cname_patterns: &[
+            "c.storage.googleapis.com",
+            ".storage.googleapis.com",
+            "storage.googleapis.com",
+        ],
+        http_signatures: &[
+            "NoSuchBucket",
+            "The specified bucket does not exist",
+        ],
+        header_patterns: &[("server", "UploadServer")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Critical,
+        cvss: 9.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the DNS CNAME record pointing to the non-existent GCS bucket, or recreate the bucket with the same name in your project to claim it.",
+    },
+    // Firebase Hosting. Only the "docs/hosting" link is kept as a
+    // signature — the bare "Site Not Found" phrase is too generic and
+    // would fire on unrelated 404 pages that legitimately CNAME through
+    // *.web.app when a customer misconfigures a subpath.
+    ServiceFingerprint {
+        name: "Firebase Hosting",
+        cname_patterns: &[".web.app", ".firebaseapp.com"],
+        http_signatures: &["firebase.google.com/docs/hosting"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record, or connect the custom domain to a Firebase Hosting site under your project.",
+    },
+    // Webflow. The generic 404 copy is deliberately not used here — it
+    // is served by live Webflow sites too. The unique marker is the
+    // absence-of-project image asset URL referenced only by Webflow's
+    // unclaimed-domain page.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &[".proxy.webflow.com"],
+        http_signatures: &[
+            "d3e54v103j8qbb.cloudfront.net/img/404.png",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or add the domain in Webflow's Project Settings → Publishing.",
+    },
+    // Statuspage.io. Response body carries "You are being redirected"
+    // for unclaimed custom domains that then bounce to statuspage.io.
+    ServiceFingerprint {
+        name: "Statuspage",
+        cname_patterns: &["statuspage.io"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io\">redirected",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Atlassian Statuspage.",
+    },
+    // JetBrains Space. Distinctive "does not exist" phrasing for
+    // orgs that were deleted or never claimed.
+    ServiceFingerprint {
+        name: "JetBrains Space",
+        cname_patterns: &[".jetbrains.space"],
+        http_signatures: &["This space does not exist"],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or register the JetBrains Space organization with the same slug.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
