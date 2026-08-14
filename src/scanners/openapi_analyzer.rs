@@ -49,8 +49,21 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI / Swagger specifications are served.
+///
+/// Each path returns a JSON/YAML body that must parse as a valid OpenAPI or
+/// Swagger document before it is reported — a static body that happens to sit
+/// at one of these URLs is discarded during parsing. This keeps the module
+/// aggressive in coverage without emitting false positives on 200 pages that
+/// simply share the same name.
+///
+/// Sources: Springdoc / Springfox defaults, ASP.NET Core Swashbuckle,
+/// FastAPI, NestJS Swagger module, Laravel L5-Swagger, Django DRF Spectacular,
+/// Go swaggo, Kong / Tyk gateways, WSO2 API Manager, GraphQL introspection
+/// mirrors, plus the paths documented in the OpenAPI Specification's
+/// well-known link relation.
 const OPENAPI_PATHS: &[&str] = &[
+    // OpenAPI / Swagger canonical
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -68,94 +81,378 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi/v3/api-docs",
     "/.well-known/openapi.json",
     "/openapi.yaml",
+    "/openapi.yml",
     "/swagger.yaml",
+    "/swagger.yml",
     "/api-docs.yaml",
+    "/api-docs.yml",
+    // Springdoc / Springfox (Java Spring Boot)
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/v2/api-docs",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // FastAPI / Starlette
+    "/openapi.json?url=/openapi.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    // ASP.NET Core Swashbuckle default
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/1.0/swagger.json",
+    // NestJS Swagger module default
+    "/api-json",
+    "/api-yaml",
+    "/api/api-json",
+    "/api/api-yaml",
+    // Laravel L5-Swagger / OpenAPI packages
+    "/docs/api-docs.json",
+    "/api/documentation/api-docs",
+    "/l5-swagger/docs",
+    // Django DRF-Spectacular / drf-yasg
+    "/api/schema/",
+    "/api/schema/?format=openapi-json",
+    "/api/schema/?format=json",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/schema/",
+    "/schema.json",
+    "/schema.yaml",
+    // Go swaggo / gin-swagger
+    "/swagger/doc.json",
+    "/swagger/docs.json",
+    // Ruby on Rails (rswag / grape-swagger)
+    "/api-docs/v1/swagger.json",
+    "/api-docs/v2/swagger.json",
+    "/api/swagger_doc",
+    // Kong / Tyk / WSO2 gateways
+    "/apidocs/swagger.json",
+    "/apis/swagger.json",
+    "/apidocs.json",
+    "/api-manager/swagger.json",
+    // Common versioned rewrites
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.yaml",
+    "/api/v2/openapi.yaml",
+    // Well-known / static hosting
+    "/.well-known/api-catalog",
+    "/.well-known/api-docs",
+    "/static/openapi.json",
+    "/public/openapi.json",
+    "/assets/openapi.json",
+    // Postman collection exports frequently exposed alongside OpenAPI
+    "/postman_collection.json",
+    "/api/postman.json",
+    "/api/postman_collection.json",
+    // Older / legacy WADL
+    "/application.wadl",
+    "/api/application.wadl",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / documentation viewer paths.
+///
+/// Distinct from `OPENAPI_PATHS`: these serve HTML that renders the spec, and
+/// a hit is confirmed by fingerprint text in the body (`swagger-ui`,
+/// `SwaggerUIBundle`, `Redoc`, `RapiDoc`) — not by URL alone. The list
+/// covers reverse-proxy prefixes seen in the wild (`/api/v2/docs`,
+/// `/actuator/swagger-ui`), where the spec at the corresponding
+/// `OPENAPI_PATHS` entry may only be reachable through the UI's fetch call.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Classical Swagger UI
     "/swagger-ui.html",
     "/swagger-ui/index.html",
     "/swagger-ui/",
     "/swagger/",
+    "/swagger/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger-ui/",
+    "/api/swagger",
+    // Springdoc / Springfox
+    "/swagger-ui/swagger-ui.html",
+    "/swagger-ui/oauth2-redirect.html",
+    "/webjars/swagger-ui/index.html",
+    // Actuator-mounted UIs (Spring Boot)
+    "/actuator/swagger-ui",
+    "/actuator/swagger-ui/index.html",
+    // FastAPI / Starlette
+    "/docs",
+    "/docs/",
+    "/redoc",
+    "/redoc/",
+    "/api/docs",
+    "/api/redoc",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    // NestJS default mount
+    "/api",
+    "/api/",
+    // Rapidoc / Stoplight / Scalar / ReDoc alternatives
+    "/rapidoc",
+    "/rapidoc.html",
+    "/stoplight",
+    "/scalar",
+    "/reference",
+    "/reference/",
+    // Documentation portals
     "/docs/",
     "/api-docs/",
-    "/api/docs",
-    "/redoc",
-    "/rapidoc",
+    "/documentation",
+    "/documentation/",
+    "/help/api",
+    "/developers",
+    "/developer",
+    "/developer-portal",
+    "/apidocs",
+    "/apidocs/",
+    // GraphQL playgrounds (frequently colocated with REST swagger)
+    "/graphiql",
+    "/graphql-playground",
+    "/altair",
+    "/voyager",
 ];
 
-/// Sensitive data patterns to check in examples and defaults
+/// Sensitive data patterns to check inside OpenAPI examples, defaults, and
+/// `description` fields.
+///
+/// Patterns are deliberately narrow — vendor-prefixed tokens, structural
+/// anchors, quoted-assignment context, or private-range IP arithmetic — so
+/// that a match on realistic spec content is a real leak, not the word
+/// "password" appearing in a schema comment. Generic bare-word matches are
+/// avoided; where a keyword *is* required, it must sit next to a `:` or `=`
+/// and enclose a value of plausible length.
 const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
+    // Hardcoded credential fields (require quoted value of realistic length)
     (
-        r#"(?i)password\s*[:=]\s*["'][^"']+["']"#,
+        r#"(?i)password\s*[:=]\s*["'][^"'\s]{4,}["']"#,
         "hardcoded password",
     ),
     (
         r#"(?i)api[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{16,}["']"#,
         "API key",
     ),
-    (r#"(?i)secret\s*[:=]\s*["'][^"']+["']"#, "secret value"),
+    (
+        r#"(?i)client[_-]?secret\s*[:=]\s*["'][a-zA-Z0-9_\-]{16,}["']"#,
+        "OAuth client secret",
+    ),
+    (
+        r#"(?i)secret\s*[:=]\s*["'][^"'\s]{8,}["']"#,
+        "secret value",
+    ),
     (
         r#"(?i)token\s*[:=]\s*["'][a-zA-Z0-9._-]{20,}["']"#,
         "token value",
     ),
+    (
+        r#"(?i)access[_-]?token\s*[:=]\s*["'][a-zA-Z0-9._-]{20,}["']"#,
+        "access token",
+    ),
+    (
+        r#"(?i)refresh[_-]?token\s*[:=]\s*["'][a-zA-Z0-9._-]{20,}["']"#,
+        "refresh token",
+    ),
     (r"(?i)bearer\s+[a-zA-Z0-9._-]{20,}", "bearer token"),
     (
-        r#"(?i)authorization\s*[:=]\s*["']basic\s+[a-zA-Z0-9+/=]+["']"#,
+        r#"(?i)authorization\s*[:=]\s*["']basic\s+[a-zA-Z0-9+/=]{16,}["']"#,
         "basic auth",
     ),
+    // Vendor-prefixed cloud credentials — cannot collide with placeholder text
+    (r"\bAKIA[0-9A-Z]{16}\b", "AWS access key"),
+    (r"\bASIA[0-9A-Z]{16}\b", "AWS STS temporary key"),
+    (r"\bAIza[0-9A-Za-z_\-]{35}\b", "Google API key"),
+    (r"\bya29\.[0-9A-Za-z_\-]{20,}", "Google OAuth access token"),
+    (r"\bghp_[A-Za-z0-9]{36}\b", "GitHub PAT (classic)"),
+    (r"\bghs_[A-Za-z0-9]{36}\b", "GitHub App server token"),
+    (r"\bgho_[A-Za-z0-9]{36}\b", "GitHub OAuth token"),
+    (r"\bgithub_pat_[A-Za-z0-9_]{80,}", "GitHub fine-grained PAT"),
+    (r"\bglpat-[A-Za-z0-9_\-]{20}\b", "GitLab PAT"),
+    (r"\bsk_live_[0-9a-zA-Z]{24,}", "Stripe live secret key"),
+    (r"\bxox[baprs]-[0-9]+-[0-9]+-[0-9]+-[A-Za-z0-9]{24,}", "Slack token"),
     (
-        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+        r#"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}"#,
+        "SendGrid API key",
+    ),
+    // PEM key blocks — can never appear in a spec by accident
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+        "PEM private key block",
+    ),
+    // JWT (three base64url segments with the standard alg header)
+    (
+        r"\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-+/=]{10,}",
+        "JWT token",
+    ),
+    // Database connection strings with embedded credentials
+    (
+        r#"(?:mongodb(?:\+srv)?|mysql|postgres(?:ql)?|mariadb|mssql|jdbc:[a-z]+)://[A-Za-z0-9._~%+-]+:[^@\s"'`<>]+@[A-Za-z0-9.\-]+"#,
+        "database connection string with credentials",
+    ),
+    (
+        r#"amqps?://[A-Za-z0-9._~%+-]+:[^@\s"'`<>]+@[A-Za-z0-9.\-]+"#,
+        "AMQP connection string with credentials",
+    ),
+    (
+        r#"redis://[A-Za-z0-9._~%+-]*:[^@\s"'`<>]+@[A-Za-z0-9.\-]+"#,
+        "Redis connection string with credentials",
+    ),
+    // Framework master secrets
+    (
+        r#"DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{88}"#,
+        "Azure storage account key",
+    ),
+    (r"base64:[A-Za-z0-9+/]{43}=", "Laravel APP_KEY"),
+    // Emails — plausible only in `description`/examples; still valuable recon
+    (
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b",
         "email address",
     ),
+    // Non-routable / internal targets. Uses precise anchors — `10.` bare would
+    // false-positive on version strings, so require the private prefix to be
+    // followed by two more octets and word-boundaried on both ends.
     (
-        r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']AKIA[A-Z0-9]{16}["']"#,
-        "AWS access key",
-    ),
-    (
-        r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["'][A-Za-z0-9/+=]{40}["']"#,
-        "AWS secret key",
-    ),
-    (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "internal IP address"),
-    (
-        r"(?i)(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}",
+        r"\b(?:10\.(?:\d{1,3}\.){2}\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b",
         "private IP address",
     ),
+    (r"\b(?:127\.0\.0\.1|0\.0\.0\.0|::1|localhost)\b", "localhost reference"),
     (
-        r"(?i)localhost|127\.0\.0\.1|0\.0\.0\.0",
-        "localhost reference",
+        r"\b(?:169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200)\b",
+        "cloud instance metadata endpoint",
     ),
+    // Internal hostnames commonly present in examples pushed to prod
     (
-        r"(?i)internal[._-]?(?:api|server|host)",
+        r"(?i)\b(?:internal|corp|intranet|admin|jenkins|jira|confluence|gitlab|nexus|sonar|grafana|kibana|prometheus|vault|consul|k8s|kubernetes)\.[a-z0-9\-]+\.(?:local|internal|corp|lan|intra)\b",
         "internal hostname",
     ),
     (
-        r"(?i)(?:dev|staging|test)[._-]",
-        "non-production environment",
+        r"(?i)\b(?:dev|staging|stg|test|qa|uat|preprod|sandbox|beta)[._-][a-z0-9\-]+\.(?:com|net|org|io|co|cloud|app)\b",
+        "non-production environment hostname",
     ),
 ];
 
-/// Admin/debug endpoint patterns
+/// Admin / debug / privileged endpoint patterns to flag inside a spec's
+/// declared paths. A match means "this endpoint's path name matches a
+/// well-known privileged surface"; whether it lacks auth is decided
+/// separately from the endpoint's `security` field.
+///
+/// Anchored to `/` so that literal path segments — not random substrings
+/// inside longer names like `/admin_message_from_ceo` — are what triggers
+/// the finding.
 const ADMIN_PATTERNS: &[&str] = &[
-    r"(?i)/admin",
-    r"(?i)/debug",
-    r"(?i)/internal",
-    r"(?i)/management",
-    r"(?i)/actuator",
-    r"(?i)/metrics",
-    r"(?i)/health",
-    r"(?i)/status",
-    r"(?i)/config",
-    r"(?i)/settings",
-    r"(?i)/system",
-    r"(?i)/console",
-    r"(?i)/shell",
-    r"(?i)/exec",
-    r"(?i)/eval",
-    r"(?i)/test",
+    // Generic admin / management surfaces
+    r"(?i)/admin(?:/|$)",
+    r"(?i)/administrator(?:/|$)",
+    r"(?i)/admin-api(?:/|$)",
+    r"(?i)/management(?:/|$)",
+    r"(?i)/manage(?:/|$)",
+    r"(?i)/backoffice(?:/|$)",
+    r"(?i)/control(?:-panel|/|$)",
+    r"(?i)/superuser(?:/|$)",
+    r"(?i)/su(?:/|$)",
+    r"(?i)/root(?:/|$)",
+    // Debug & introspection
+    r"(?i)/debug(?:/|$)",
+    r"(?i)/debug-bar(?:/|$)",
+    r"(?i)/_debug(?:/|$)",
+    r"(?i)/__debug__(?:/|$)",
+    r"(?i)/trace(?:/|$)",
+    r"(?i)/traces(?:/|$)",
+    r"(?i)/threaddump(?:/|$)",
+    r"(?i)/heapdump(?:/|$)",
+    r"(?i)/dump(?:/|$)",
+    r"(?i)/profile(?:/|$)",
+    r"(?i)/profiler(?:/|$)",
+    r"(?i)/pprof(?:/|$)",
+    // Spring Boot Actuator — critical when exposed
+    r"(?i)/actuator(?:/|$)",
+    r"(?i)/actuator/env(?:/|$)",
+    r"(?i)/actuator/beans(?:/|$)",
+    r"(?i)/actuator/configprops(?:/|$)",
+    r"(?i)/actuator/mappings(?:/|$)",
+    r"(?i)/actuator/threaddump(?:/|$)",
+    r"(?i)/actuator/heapdump(?:/|$)",
+    r"(?i)/actuator/loggers(?:/|$)",
+    r"(?i)/actuator/httptrace(?:/|$)",
+    r"(?i)/actuator/gateway(?:/|$)",
+    r"(?i)/actuator/refresh(?:/|$)",
+    r"(?i)/actuator/shutdown(?:/|$)",
+    // Framework diagnostic pages
+    r"(?i)/phpinfo(?:\.php|/|$)",
+    r"(?i)/info\.php(?:$|\?)",
+    r"(?i)/server-status(?:/|$)",
+    r"(?i)/server-info(?:/|$)",
+    r"(?i)/nginx_status(?:/|$)",
+    r"(?i)/haproxy\?stats(?:$|\?)",
+    r"(?i)/status/vars(?:/|$)",
+    // Monitoring & metrics
+    r"(?i)/metrics(?:/|$)",
+    r"(?i)/prometheus(?:/|$)",
+    r"(?i)/statsd(?:/|$)",
+    r"(?i)/newrelic(?:/|$)",
+    r"(?i)/health(?:z)?(?:/|$)",
+    r"(?i)/livez(?:/|$)",
+    r"(?i)/readyz(?:/|$)",
+    r"(?i)/ping(?:/|$)",
+    r"(?i)/status(?:/|$)",
+    r"(?i)/version(?:/|$)",
+    r"(?i)/info(?:/|$)",
+    r"(?i)/env(?:/|$)",
+    r"(?i)/vars(?:/|$)",
+    // Configuration
+    r"(?i)/config(?:\.json|/|$)",
+    r"(?i)/configuration(?:/|$)",
+    r"(?i)/settings(?:/|$)",
+    r"(?i)/preferences(?:/|$)",
+    // Internal / private
+    r"(?i)/internal(?:/|$)",
+    r"(?i)/private(?:/|$)",
+    r"(?i)/system(?:/|$)",
+    r"(?i)/sys(?:/|$)",
+    // Shell / exec / eval — remote-code-adjacent surfaces
+    r"(?i)/console(?:/|$)",
+    r"(?i)/shell(?:/|$)",
+    r"(?i)/exec(?:/|$)",
+    r"(?i)/execute(?:/|$)",
+    r"(?i)/eval(?:/|$)",
+    r"(?i)/run(?:/|$)",
+    r"(?i)/cmd(?:/|$)",
+    r"(?i)/command(?:/|$)",
+    r"(?i)/rpc(?:/|$)",
+    // Test surfaces exposed by mistake
+    r"(?i)/test(?:/|$)",
+    r"(?i)/tests(?:/|$)",
+    r"(?i)/testing(?:/|$)",
+    r"(?i)/sandbox(?:/|$)",
+    r"(?i)/mock(?:/|$)",
+    r"(?i)/fixture(?:s)?(?:/|$)",
+    // Any hidden dunder path
     r"(?i)/_",
+    // Cloud metadata IMDS proxies (very high impact)
+    r"(?i)/(?:latest|meta[-_]?data|computeMetadata)/",
+    // GraphQL introspection — allows full schema recon
+    r"(?i)/graphql(?:/|$)",
+    r"(?i)/graphiql(?:/|$)",
+    r"(?i)/playground(?:/|$)",
+    // Backup / restore / migration
+    r"(?i)/backup(?:/|$)",
+    r"(?i)/backups(?:/|$)",
+    r"(?i)/restore(?:/|$)",
+    r"(?i)/migration(?:s)?(?:/|$)",
+    r"(?i)/db-migrate(?:/|$)",
+    // Secrets endpoints (Vault, cloud KMS proxies)
+    r"(?i)/vault(?:/|$)",
+    r"(?i)/secret(?:s)?(?:/|$)",
+    r"(?i)/kms(?:/|$)",
 ];
 
 /// Dangerous HTTP methods that should require authentication
