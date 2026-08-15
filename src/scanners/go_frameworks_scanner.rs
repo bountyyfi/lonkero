@@ -316,6 +316,12 @@ impl GoFrameworksScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // pprof surface. The default `net/http/pprof` mount is /debug/pprof/*,
+        // but production apps commonly re-mount it behind /api, /_/, /internal,
+        // /admin or a service-specific prefix (see the DGraph, Kubernetes,
+        // Prometheus, cAdvisor, Envoy admin, Vitess and TiDB dashboards). The
+        // response gate below still requires actual pprof body markers before
+        // flagging, so extra paths widen coverage without introducing FPs.
         let pprof_endpoints = [
             ("/debug/pprof/", "pprof index", Severity::Critical),
             (
@@ -348,6 +354,21 @@ impl GoFrameworksScanner {
                 "Memory allocation profile",
                 Severity::High,
             ),
+            // Non-default mount prefixes seen in the wild. Any 200 that also
+            // carries pprof body markers (`Types of profiles`, `goroutine`,
+            // `heap`, `pprof`) is confirmed regardless of prefix.
+            ("/api/debug/pprof/", "pprof index (mounted under /api)", Severity::Critical),
+            ("/api/debug/pprof/heap", "Heap profile under /api", Severity::Critical),
+            ("/api/debug/pprof/goroutine", "Goroutines under /api", Severity::High),
+            ("/_/debug/pprof/", "pprof index (mounted under /_/)", Severity::Critical),
+            ("/_/debug/pprof/heap", "Heap profile under /_/", Severity::Critical),
+            ("/internal/debug/pprof/", "pprof index under /internal", Severity::Critical),
+            ("/internal/debug/pprof/heap", "Heap profile under /internal", Severity::Critical),
+            ("/admin/debug/pprof/", "pprof index under /admin", Severity::Critical),
+            ("/manage/debug/pprof/", "pprof index under /manage", Severity::Critical),
+            ("/pprof/", "pprof index (root pprof mount)", Severity::Critical),
+            ("/pprof/heap", "Heap profile at /pprof", Severity::Critical),
+            ("/pprof/goroutine", "Goroutines at /pprof", Severity::High),
         ];
 
         let mut found_pprof = false;
@@ -360,12 +381,20 @@ impl GoFrameworksScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
 
-                    let is_pprof = body.contains("goroutine")
+                    // Text markers are conclusive. The `body.len() > 100`
+                    // fallback exists for /debug/pprof/{profile,cmdline,trace}
+                    // which return binary or NUL-delimited data with no ASCII
+                    // markers — restrict that lenient path to the default
+                    // /debug/pprof mount so a SPA fallback under a non-default
+                    // prefix (e.g. /admin/debug/pprof/) can't false-flag.
+                    let has_marker = body.contains("goroutine")
                         || body.contains("heap")
                         || body.contains("profile")
                         || body.contains("pprof")
-                        || body.contains("Types of profiles")
-                        || body.len() > 100;
+                        || body.contains("Types of profiles");
+                    let default_binary_fallback = path.starts_with("/debug/pprof/")
+                        && body.len() > 100;
+                    let is_pprof = has_marker || default_binary_fallback;
 
                     if is_pprof {
                         found_pprof = true;
@@ -437,7 +466,23 @@ impl GoFrameworksScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        let expvar_paths = ["/debug/vars", "/vars", "/expvar"];
+        // expvar registers /debug/vars by default, but real deployments often
+        // re-mount it under an admin/api/internal prefix — same JSON payload,
+        // same leakage (cmdline, memstats, custom app metrics). The indicator
+        // gate below still requires actual expvar keys (`cmdline`, `memstats`,
+        // `Alloc`, ...), so alternate prefixes cannot false-flag on unrelated
+        // JSON endpoints.
+        let expvar_paths = [
+            "/debug/vars",
+            "/vars",
+            "/expvar",
+            "/api/debug/vars",
+            "/admin/debug/vars",
+            "/internal/debug/vars",
+            "/_/debug/vars",
+            "/manage/debug/vars",
+            "/debug/expvar",
+        ];
 
         for path in &expvar_paths {
             tests_run += 1;
@@ -910,6 +955,9 @@ impl GoFrameworksScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Health / metrics surface. Findings still require Go-runtime or
+        // Prometheus-style markers in the response (`go_*`, `# HELP`, `# TYPE`,
+        // `"status":"UP"`), so unrelated 200s cannot false-flag.
         let health_endpoints = [
             ("/health", "Health check", Severity::Low),
             ("/healthz", "Kubernetes health", Severity::Low),
@@ -925,6 +973,38 @@ impl GoFrameworksScanner {
             ("/info", "Info endpoint", Severity::Low),
             ("/version", "Version endpoint", Severity::Low),
             ("/build-info", "Build information", Severity::Low),
+            // Prometheus / Alertmanager / Pushgateway convention (/-/ prefix).
+            // A live target here confirms an unauthenticated admin control
+            // plane — reload, quit, healthy — that Grafana wouldn't ship.
+            ("/-/healthy", "Prometheus /-/healthy", Severity::Medium),
+            ("/-/ready", "Prometheus /-/ready", Severity::Medium),
+            ("/-/metrics", "Prometheus /-/metrics", Severity::Medium),
+            // Alternative metric mount points used by service meshes and
+            // sidecars (Envoy, Istio, Linkerd, kube-proxy).
+            ("/stats/prometheus", "Envoy /stats/prometheus", Severity::Medium),
+            ("/metrics/prometheus", "Metrics under /metrics/prometheus", Severity::Medium),
+            ("/api/metrics", "Metrics under /api", Severity::Medium),
+            ("/api/prometheus", "Prometheus under /api", Severity::Medium),
+            ("/internal/metrics", "Metrics under /internal", Severity::Medium),
+            ("/internal/health", "Health under /internal", Severity::Low),
+            ("/admin/metrics", "Metrics under /admin", Severity::Medium),
+            // Node exporter / cAdvisor / kubelet defaults — these are always
+            // Prometheus-format when present, so the `# HELP`/`# TYPE` gate
+            // keeps them tightly scoped to real hits.
+            ("/metrics/cadvisor", "cAdvisor container metrics", Severity::Medium),
+            ("/metrics/node", "node_exporter metrics", Severity::Medium),
+            // Health probe alternates seen in Kubernetes app charts.
+            ("/health/live", "Liveness under /health", Severity::Low),
+            ("/health/ready", "Readiness under /health", Severity::Low),
+            ("/api/health", "Health under /api", Severity::Low),
+            ("/api/ready", "Readiness under /api", Severity::Low),
+            ("/api/status", "Status under /api", Severity::Low),
+            ("/api/version", "Version under /api", Severity::Low),
+            // Historical Google-service conventions (`z-page`s) still shipped
+            // by many Go services running the OpenCensus/OpenTelemetry glue.
+            ("/varz", "Google-style varz endpoint", Severity::Medium),
+            ("/statusz", "Google-style statusz endpoint", Severity::Medium),
+            ("/healthz/ping", "Kubernetes healthz ping", Severity::Low),
         ];
 
         let mut found_endpoints: Vec<(String, String, Severity)> = Vec::new();

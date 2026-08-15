@@ -617,22 +617,72 @@ impl ExpressSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Broadened corpus of API-documentation surfaces. All matches still have to
+        // pass the `is_swagger`/`is_graphql`/`has_endpoints` content gate below, so
+        // simply hitting one of these paths is not enough to flag — the response
+        // must actually contain OpenAPI/Swagger/GraphQL structural tokens. These
+        // additions cover the most common non-default mount points where Node/
+        // Express apps expose specs and IDEs that are otherwise missed.
         let api_doc_paths = [
             ("/swagger", "Swagger UI", "API documentation"),
             ("/swagger-ui", "Swagger UI", "API documentation"),
             ("/swagger-ui.html", "Swagger UI HTML", "API documentation"),
+            ("/swagger-ui/", "Swagger UI directory", "API documentation"),
+            ("/swagger-ui/index.html", "Swagger UI index", "API documentation"),
+            ("/swagger/index.html", "Swagger index", "API documentation"),
+            ("/swagger-resources", "Swagger Resources", "Swagger resource listing"),
+            ("/swagger-resources/configuration/ui", "Swagger UI config", "Swagger configuration"),
             ("/api-docs", "API Docs", "OpenAPI specification"),
             ("/api/docs", "API Docs", "OpenAPI specification"),
             ("/api/swagger", "Swagger", "API documentation"),
             ("/docs", "Documentation", "API documentation"),
+            // Raw spec files — highest signal, expose the entire schema
+            ("/openapi.json", "OpenAPI JSON", "OpenAPI 3.x specification"),
+            ("/openapi.yaml", "OpenAPI YAML", "OpenAPI 3.x specification"),
+            ("/openapi", "OpenAPI", "OpenAPI specification endpoint"),
+            ("/swagger.json", "Swagger JSON", "Swagger 2.0 specification"),
+            ("/swagger.yaml", "Swagger YAML", "Swagger 2.0 specification"),
+            ("/api-docs.json", "API Docs JSON", "OpenAPI JSON dump"),
+            ("/api/openapi.json", "API OpenAPI JSON", "OpenAPI JSON under /api"),
+            ("/api/openapi", "API OpenAPI", "OpenAPI under /api"),
+            ("/api/spec", "API Spec", "API specification"),
+            ("/api/spec.json", "API Spec JSON", "API specification JSON"),
+            ("/api/schema", "API Schema", "API schema endpoint"),
+            ("/schema", "Schema", "Schema endpoint"),
+            ("/schema.json", "Schema JSON", "JSON schema"),
+            // Versioned spec paths (springdoc / node clones)
+            ("/v1/api-docs", "API Docs v1", "Versioned OpenAPI spec"),
+            ("/v2/api-docs", "API Docs v2", "Versioned OpenAPI spec"),
+            ("/v3/api-docs", "API Docs v3", "Versioned OpenAPI spec"),
+            ("/v3/api-docs.yaml", "API Docs v3 YAML", "Versioned OpenAPI YAML"),
+            // Alternative documentation renderers
+            ("/redoc", "Redoc", "ReDoc API documentation renderer"),
+            ("/redoc.html", "Redoc HTML", "ReDoc API documentation renderer"),
+            ("/rapidoc", "RapiDoc", "RapiDoc API documentation renderer"),
+            ("/api/redoc", "API Redoc", "ReDoc under /api"),
+            ("/apidoc", "apiDoc", "apiDoc-generated documentation"),
+            ("/apidocs", "apiDocs", "apiDoc-generated documentation"),
+            ("/apidoc/index.html", "apiDoc index", "apiDoc-generated documentation"),
+            // GraphQL endpoints and IDEs
             ("/graphql", "GraphQL Endpoint", "GraphQL API"),
+            ("/api/graphql", "GraphQL under /api", "GraphQL API"),
+            ("/graphql/v1", "GraphQL v1", "GraphQL API"),
             ("/graphiql", "GraphiQL", "GraphQL IDE"),
             ("/graphql/playground", "GraphQL Playground", "GraphQL IDE"),
             ("/playground", "Playground", "GraphQL IDE"),
+            ("/graphql-playground", "GraphQL Playground", "GraphQL IDE"),
             ("/altair", "Altair", "GraphQL client"),
             ("/voyager", "Voyager", "GraphQL schema viewer"),
+            ("/graphql-voyager", "GraphQL Voyager", "GraphQL schema viewer"),
             ("/api/explorer", "API Explorer", "API testing interface"),
             ("/explorer", "Explorer", "API explorer"),
+            // LoopBack (very common Node.js REST framework) auto-mounted paths
+            ("/explorer/", "LoopBack Explorer", "LoopBack API explorer"),
+            ("/explorer/index.html", "LoopBack Explorer index", "LoopBack API explorer"),
+            // NestJS Swagger default mount points
+            ("/api/swagger-ui.html", "Nest Swagger UI", "NestJS Swagger UI"),
+            ("/api-json", "Nest OpenAPI JSON", "NestJS OpenAPI JSON export"),
+            ("/api-yaml", "Nest OpenAPI YAML", "NestJS OpenAPI YAML export"),
         ];
 
         for (path, name, desc) in &api_doc_paths {
@@ -736,10 +786,14 @@ impl ExpressSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Config-file paths tested against per-type structural validation below,
+        // so every new entry needs its extension covered by `is_valid` — YAML
+        // and PEM key handling was added alongside these paths for that reason.
         let config_files = [
             ("/package.json", "Package.json", Severity::Medium),
             ("/package-lock.json", "Package-lock.json", Severity::Medium),
             ("/yarn.lock", "Yarn lockfile", Severity::Low),
+            ("/pnpm-lock.yaml", "pnpm lockfile", Severity::Low),
             ("/.env", "Environment file", Severity::Critical),
             ("/.env.local", "Local environment file", Severity::Critical),
             (
@@ -752,6 +806,22 @@ impl ExpressSecurityScanner {
                 "Production environment",
                 Severity::Critical,
             ),
+            // .env variants that leak just as many secrets as the primary file
+            // but are commonly ignored by web-server denies targeted at ".env"
+            // alone. Same validation (contains "=" and not an HTML error page).
+            ("/.env.staging", "Staging environment", Severity::Critical),
+            ("/.env.test", "Test environment", Severity::Critical),
+            ("/.env.dev", "Dev environment", Severity::Critical),
+            ("/.env.prod", "Prod environment", Severity::Critical),
+            ("/.env.example", "Example environment (often has real values)", Severity::High),
+            ("/.env.sample", "Sample environment (often has real values)", Severity::High),
+            ("/.env.default", "Default environment", Severity::High),
+            ("/.env.backup", "Environment backup", Severity::Critical),
+            ("/.env.bak", "Environment .bak", Severity::Critical),
+            ("/.env.old", "Environment .old", Severity::Critical),
+            ("/.env.save", "Environment .save (created by nano crash)", Severity::Critical),
+            ("/.env.swp", "Environment vim swapfile", Severity::Critical),
+            ("/.envrc", "direnv environment", Severity::Critical),
             ("/config.json", "Config JSON", Severity::High),
             ("/config.js", "Config JS", Severity::High),
             ("/config/default.json", "Default config", Severity::High),
@@ -760,16 +830,66 @@ impl ExpressSecurityScanner {
                 "Production config",
                 Severity::High,
             ),
+            // node-config layered configs: any of these can shadow production.json
+            ("/config/development.json", "Development config", Severity::High),
+            ("/config/staging.json", "Staging config", Severity::High),
+            ("/config/test.json", "Test config", Severity::High),
+            ("/config/local.json", "Local config", Severity::High),
+            (
+                "/config/custom-environment-variables.json",
+                "node-config env-var mapping",
+                Severity::High,
+            ),
+            ("/config.local.js", "Local config JS", Severity::High),
+            ("/config.dev.js", "Dev config JS", Severity::High),
             ("/.npmrc", "NPM config", Severity::High),
             ("/.yarnrc", "Yarn config", Severity::Medium),
+            ("/.yarnrc.yml", "Yarn 2+ config", Severity::Medium),
             ("/tsconfig.json", "TypeScript config", Severity::Low),
             ("/nodemon.json", "Nodemon config", Severity::Low),
             ("/pm2.config.js", "PM2 config", Severity::Medium),
             ("/ecosystem.config.js", "PM2 ecosystem", Severity::Medium),
+            // JS-side framework configs that pin build-time env, base URLs and
+            // occasionally embedded API keys.
+            ("/next.config.js", "Next.js config", Severity::Medium),
+            ("/nuxt.config.js", "Nuxt config", Severity::Medium),
+            ("/vite.config.js", "Vite config", Severity::Medium),
+            ("/svelte.config.js", "SvelteKit config", Severity::Medium),
+            ("/webpack.config.js", "Webpack config", Severity::Medium),
+            // Database ORM / migration configs — routinely contain full DSNs.
+            ("/knexfile.js", "Knex.js DB config", Severity::Critical),
+            ("/ormconfig.js", "TypeORM config JS", Severity::Critical),
+            ("/ormconfig.json", "TypeORM config JSON", Severity::Critical),
+            ("/sequelize.config.js", "Sequelize CLI config", Severity::Critical),
+            // Cloud service-account keys — critical when exposed.
+            ("/credentials.json", "GCP/OAuth credentials JSON", Severity::Critical),
+            ("/service-account.json", "GCP service account JSON", Severity::Critical),
+            ("/serviceAccount.json", "Firebase service account", Severity::Critical),
+            ("/gcp-credentials.json", "GCP credentials", Severity::Critical),
+            ("/firebase-adminsdk.json", "Firebase admin SDK key", Severity::Critical),
             ("/.git/config", "Git config", Severity::High),
             ("/.gitignore", "Gitignore", Severity::Low),
             ("/Dockerfile", "Dockerfile", Severity::Medium),
             ("/docker-compose.yml", "Docker Compose", Severity::Medium),
+            // YAML build/deploy pipeline configs — often embed registry tokens,
+            // deploy keys and internal endpoints.
+            ("/docker-compose.override.yml", "Docker Compose override", Severity::Medium),
+            ("/docker-compose.prod.yml", "Docker Compose prod", Severity::Medium),
+            ("/serverless.yml", "Serverless framework", Severity::High),
+            ("/serverless.yaml", "Serverless framework", Severity::High),
+            ("/.circleci/config.yml", "CircleCI config", Severity::Medium),
+            ("/.travis.yml", "Travis CI config", Severity::Medium),
+            ("/bitbucket-pipelines.yml", "Bitbucket Pipelines", Severity::Medium),
+            ("/.gitlab-ci.yml", "GitLab CI", Severity::Medium),
+            // On-disk private keys served via the web root — highest possible
+            // signal thanks to the PEM armor validator below.
+            ("/id_rsa", "SSH private key (id_rsa)", Severity::Critical),
+            ("/id_ecdsa", "SSH private key (id_ecdsa)", Severity::Critical),
+            ("/id_ed25519", "SSH private key (id_ed25519)", Severity::Critical),
+            ("/.ssh/id_rsa", "SSH private key in .ssh", Severity::Critical),
+            ("/deploy.key", "Deploy key", Severity::Critical),
+            ("/server.key", "TLS server private key", Severity::Critical),
+            ("/privatekey.pem", "PEM private key", Severity::Critical),
         ];
 
         for (path, name, severity) in &config_files {
@@ -780,7 +900,10 @@ impl ExpressSecurityScanner {
                 if response.status_code == 200 && response.body.len() > 10 {
                     let body = &response.body;
 
-                    // Validate it's actually the expected file type
+                    // Validate it's actually the expected file type. Anything
+                    // that doesn't match its type-specific shape is discarded so
+                    // a target's SPA index.html (200 OK for every path) cannot
+                    // trigger a finding.
                     let is_valid = if path.contains("package") {
                         body.contains("\"name\"") || body.contains("\"dependencies\"")
                     } else if path.contains(".env") {
@@ -791,6 +914,36 @@ impl ExpressSecurityScanner {
                         body.contains("module.exports") || body.contains("export ")
                     } else if path.contains(".git") {
                         body.contains("[core]") || body.contains("[remote")
+                    } else if path.ends_with(".yml") || path.ends_with(".yaml") {
+                        // YAML files: require structural YAML — a key/scalar pair
+                        // at the top of the file — and reject anything that is
+                        // actually an HTML page dressed up in a YAML URL.
+                        let trimmed = body.trim_start();
+                        !trimmed.starts_with('<')
+                            && !body.contains("<html")
+                            && !body.contains("<!DOCTYPE")
+                            && (trimmed.starts_with("---")
+                                || trimmed
+                                    .lines()
+                                    .take(20)
+                                    .any(|l| {
+                                        let t = l.trim_start();
+                                        !t.is_empty()
+                                            && !t.starts_with('#')
+                                            && t.contains(':')
+                                            && !t.contains('<')
+                                    }))
+                    } else if path.contains("id_rsa")
+                        || path.contains("id_ecdsa")
+                        || path.contains("id_ed25519")
+                        || path.ends_with(".key")
+                        || path.ends_with(".pem")
+                    {
+                        // PEM-armored private keys are unmistakable — the block
+                        // header cannot appear accidentally on a landing page.
+                        body.contains("-----BEGIN") && body.contains("PRIVATE KEY-----")
+                    } else if path.ends_with(".prisma") {
+                        body.contains("datasource ") || body.contains("generator ")
                     } else {
                         true
                     };
@@ -1310,20 +1463,46 @@ impl ExpressSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Debug/administrative endpoints. The `danger_indicators` gate below
+        // requires the response to actually contain executable-looking tokens
+        // (eval, exec, spawn, process.env, db.query, ...) before anything is
+        // flagged, so adding paths widens coverage without loosening FP control.
         let debug_paths = [
             ("/debug", "Debug"),
             ("/_debug", "Debug"),
+            ("/__debug", "Debug"),
+            ("/debug/console", "Debug console"),
+            ("/debug/eval", "Debug eval"),
+            ("/debug/env", "Debug env"),
+            ("/debug/routes", "Debug routes"),
             ("/dev", "Development"),
             ("/_dev", "Development"),
+            ("/dev/console", "Dev console"),
             ("/test", "Test"),
             ("/_test", "Test"),
             ("/admin", "Admin"),
             ("/_admin", "Admin"),
+            ("/api/admin", "API admin"),
             ("/console", "Console"),
             ("/shell", "Shell"),
+            ("/webshell", "Webshell"),
             ("/eval", "Eval"),
             ("/exec", "Exec"),
             ("/repl", "REPL"),
+            // Well-known dev / process-manager management surfaces that
+            // routinely leak env vars and route tables when left mounted in
+            // production Node.js deployments.
+            ("/browser-sync", "Browser-sync UI"),
+            ("/nodemon", "Nodemon reload endpoint"),
+            ("/pm2", "PM2 web dashboard"),
+            ("/pm2/status", "PM2 status"),
+            // Loopback framework auto-mounts /explorer with a REST console that
+            // can invoke any exposed model method — treat like /console.
+            ("/loopback/explorer", "LoopBack explorer"),
+            // Adminer/phpMyAdmin panels dropped into a Node.js web root are a
+            // frequent finding on shared-hosting deployments.
+            ("/adminer", "Adminer DB console"),
+            ("/adminer.php", "Adminer DB console"),
         ];
 
         for (path, name) in &debug_paths {

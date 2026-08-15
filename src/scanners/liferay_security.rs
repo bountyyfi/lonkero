@@ -373,12 +373,71 @@ impl LiferaySecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Control-panel URLs Liferay ships out-of-the-box. Findings still
+        // require Liferay-specific admin markup in the body (`control_panel`,
+        // `server-admin`, `portlet-admin`, `admin-dashboard`) and rule out
+        // login-page redirects, so extra paths cannot flip a hardened deploy.
         let admin_paths = [
             ("/group/control_panel", "Control Panel"),
             ("/group/control_panel/manage", "Server Administration"),
             ("/c/portal/admin/server", "Server Admin Direct"),
             ("/group/guest/~/control_panel", "Guest Control Panel"),
             ("/web/guest/home/-/admin", "Admin via Web"),
+            // Individual control-panel sub-portlets — hitting any one of
+            // these unauthenticated exposes a distinct high-value surface
+            // (users, roles, sites, monitoring, deploy).
+            (
+                "/group/control_panel/manage/-/portal_settings/general",
+                "Portal Settings - General",
+            ),
+            (
+                "/group/control_panel/manage/-/users_admin",
+                "Users Administration",
+            ),
+            (
+                "/group/control_panel/manage/-/roles_admin",
+                "Roles Administration",
+            ),
+            (
+                "/group/control_panel/manage/-/sites_admin",
+                "Sites Administration",
+            ),
+            (
+                "/group/control_panel/manage/-/server_administration",
+                "Server Administration Portlet",
+            ),
+            (
+                "/group/control_panel/manage/-/monitoring",
+                "Monitoring Portlet",
+            ),
+            (
+                "/group/control_panel/manage/-/plugins_admin",
+                "Plugins / Marketplace Admin",
+            ),
+            (
+                "/group/control_panel/manage/-/plugin_deployer",
+                "Plugin Deployer",
+            ),
+            (
+                "/group/control_panel/manage/-/instance_settings",
+                "Instance Settings",
+            ),
+            (
+                "/group/control_panel/manage/-/system_settings",
+                "System Settings",
+            ),
+            // Alternate guest and default-site control-panel URLs commonly
+            // whitelisted by mistake in front-end proxies.
+            ("/web/guest/group/control_panel", "Guest Control Panel (web)"),
+            ("/user/personal-site/~/control_panel", "Personal Site Control Panel"),
+            ("/c/portal/render_portlet", "Portlet Rendering Endpoint"),
+            ("/c/portal/deploy", "Deploy Endpoint"),
+            ("/c/portal/upload_progress_poller", "Upload Progress Poller"),
+            // Admin surfaces for supported add-ons that route through the
+            // portal but expose their own privileged actions.
+            ("/portal/setup", "Portal Setup Wizard"),
+            ("/portal-setup-wizard", "Portal Setup Wizard (alt)"),
+            ("/web/guest/admin", "Guest /admin route"),
         ];
 
         for (path, name) in admin_paths {
@@ -635,6 +694,11 @@ impl LiferaySecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Configuration files that carry Liferay- or bundle-specific content
+        // when actually served. The gate below requires distinctive tokens
+        // (`jdbc.`, `mail.session`, `liferay.home`, `company.default`,
+        // `DB_PASSWORD`, `portal.properties`, `dl.store.impl`) plus a minimum
+        // body length, so a static index at 200 OK cannot match.
         let config_paths = [
             ("/portal-ext.properties", "Portal Configuration"),
             ("/portal-setup-wizard.properties", "Setup Wizard Config"),
@@ -644,6 +708,55 @@ impl LiferaySecurityScanner {
             (
                 "/WEB-INF/classes/portal-ext.properties",
                 "Portal Ext in WEB-INF",
+            ),
+            // Additional server-side properties files that Liferay reads —
+            // any of these leaking exposes DB/SMTP/LDAP/JVM secrets.
+            ("/system-ext.properties", "System Ext Properties"),
+            ("/system.properties", "System Properties"),
+            ("/portal.properties", "Portal Properties (base)"),
+            ("/portal-bundle.properties", "Portal Bundle Properties"),
+            ("/portal-developer.properties", "Portal Developer Properties"),
+            ("/WEB-INF/classes/portal.properties", "Portal Properties in WEB-INF"),
+            ("/WEB-INF/classes/system-ext.properties", "System-ext in WEB-INF"),
+            ("/WEB-INF/classes/portal-bundle.properties", "Portal Bundle in WEB-INF"),
+            ("/WEB-INF/classes/portal-developer.properties", "Dev Properties in WEB-INF"),
+            (
+                "/WEB-INF/classes/portal-setup-wizard.properties",
+                "Setup Wizard in WEB-INF",
+            ),
+            ("/WEB-INF/classes/service.properties", "Service Properties in WEB-INF"),
+            ("/WEB-INF/classes/liferay-hook.xml", "Liferay Hook Descriptor"),
+            ("/WEB-INF/classes/liferay-portlet.xml", "Liferay Portlet Descriptor"),
+            ("/WEB-INF/classes/portlet.xml", "Portlet Descriptor"),
+            ("/WEB-INF/liferay-plugin-package.properties", "Plugin Package Properties"),
+            ("/WEB-INF/liferay-plugin-package.xml", "Plugin Package XML"),
+            ("/WEB-INF/liferay-portlet.xml", "Liferay Portlet XML"),
+            ("/WEB-INF/liferay-hook.xml", "Liferay Hook XML"),
+            ("/WEB-INF/liferay-look-and-feel.xml", "Liferay Look-and-Feel XML"),
+            // Logging descriptors that reveal appender names, log paths, and
+            // occasionally embedded JMX/JDBC credentials on legacy bundles.
+            ("/portal-log4j-ext.xml", "Log4j Ext"),
+            ("/WEB-INF/classes/META-INF/portal-log4j-ext.xml", "Log4j Ext under META-INF"),
+            // OSGi runtime state — enumerates deployed modules, their config,
+            // and DS component wiring. Extremely useful for CVE targeting.
+            ("/osgi/configs", "OSGi Configuration (no slash)"),
+            ("/osgi/system/console", "Apache Felix system console"),
+            ("/osgi/system/console/bundles", "Felix bundles listing"),
+            ("/osgi/system/console/configMgr", "Felix Config Manager"),
+            ("/osgi/system/console/services", "Felix service registry"),
+            ("/osgi/system/console/components", "Felix DS components"),
+            // Elasticsearch shipped inside DXP is exposed via /o/es for the
+            // portal; leaking configuration surfaces the ES cluster shape.
+            ("/o/es/", "Bundled Elasticsearch endpoint"),
+            // Bundle-shipped install artifact and update descriptors — often
+            // reference internal Maven repo URLs and license keys.
+            (
+                "/tomcat/webapps/ROOT/WEB-INF/classes/portal-ext.properties",
+                "Tomcat-shipped portal-ext",
+            ),
+            (
+                "/webapps/ROOT/WEB-INF/classes/portal-ext.properties",
+                "webapps portal-ext (proxy misroute)",
             ),
         ];
 
