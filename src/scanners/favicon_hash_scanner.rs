@@ -57,12 +57,42 @@ impl FaviconHashScanner {
         // Get base URL
         let base_url = self.get_base_url(url);
 
-        // Try common favicon locations
+        // Try common favicon locations. Frameworks and console apps often
+        // ship the identifying icon under a non-root path, so we sweep a
+        // handful of well-known static prefixes as well as the RFC 5988
+        // defaults. Only image responses are hashed (see `check_favicon`).
         let favicon_paths = vec![
+            // RFC 5988 defaults
             "/favicon.ico",
             "/favicon.png",
+            "/favicon.svg",
+            "/favicon-16x16.png",
+            "/favicon-32x32.png",
+            "/favicon-96x96.png",
             "/apple-touch-icon.png",
             "/apple-touch-icon-precomposed.png",
+            // Common static-asset roots seen across frameworks/CDNs
+            "/static/favicon.ico",
+            "/static/img/favicon.ico",
+            "/static/images/favicon.ico",
+            "/assets/favicon.ico",
+            "/assets/img/favicon.ico",
+            "/assets/images/favicon.ico",
+            "/public/favicon.ico",
+            "/img/favicon.ico",
+            "/images/favicon.ico",
+            "/icons/favicon.ico",
+            "/media/favicon.ico",
+            // Framework-specific defaults
+            "/_next/static/favicon.ico",
+            "/_nuxt/favicon.ico",
+            "/build/favicon.ico",
+            "/dist/favicon.ico",
+            // Admin panel roots frequently host distinct icons
+            "/admin/favicon.ico",
+            "/manager/favicon.ico",
+            "/console/favicon.ico",
+            "/portal/favicon.ico",
         ];
 
         // Also check for link tags in HTML

@@ -49,8 +49,14 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI / Swagger / RAML / API-Blueprint specs are served.
+///
+/// Every hit is fed through `parse_openapi_spec`, which requires the response
+/// body to parse as JSON or YAML *and* declare an `openapi:` / `swagger:` /
+/// `asyncapi:` version key. Purely 200-OK responses (SPA shells, marketing
+/// pages) therefore cannot generate a false positive from expanding this list.
 const OPENAPI_PATHS: &[&str] = &[
+    // Historical Swagger / generic
     "/swagger.json",
     "/openapi.json",
     "/api-docs",
@@ -70,9 +76,109 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // OpenAPI 3.x common variants
+    "/openapi.yml",
+    "/openapi/v1.json",
+    "/openapi/v2.json",
+    "/openapi/v3.json",
+    "/openapi/v1/api-docs",
+    "/openapi/v2/api-docs",
+    "/openapi/openapi.json",
+    "/openapi/openapi.yaml",
+    "/api/openapi.yaml",
+    "/api/openapi.yml",
+    "/api/openapi/v1",
+    "/api/openapi/v2",
+    "/api/openapi/v3",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/schema/",
+    // Swagger v1/v2/v3 alternates
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/docs/v3",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    "/swagger-config.json",
+    // Spring / Spring Boot
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/actuator/openapi",
+    "/actuator/openapi.json",
+    // Django REST framework
+    "/schema",
+    "/schema/",
+    "/api/schema/swagger.json",
+    "/api/schema/openapi.json",
+    // FastAPI / Starlette defaults
+    "/openapi",
+    "/redoc-openapi.json",
+    // NestJS default
+    "/swagger-json",
+    // .NET / ASP.NET Core (Swashbuckle default)
+    "/swagger/v1.0/swagger.json",
+    "/swagger/1.0/swagger.json",
+    "/swagger/2.0/swagger.json",
+    // GraphQL (schema.json / SDL sometimes advertised alongside REST)
+    "/graphql/schema.json",
+    "/graphql/schema.graphql",
+    "/graphql-schema",
+    "/.well-known/graphql",
+    // RAML
+    "/raml",
+    "/api.raml",
+    "/api/raml",
+    // API Blueprint
+    "/apiary.apib",
+    "/api.apib",
+    // AsyncAPI
+    "/asyncapi",
+    "/asyncapi.json",
+    "/asyncapi.yaml",
+    "/asyncapi.yml",
+    "/api/asyncapi.json",
+    // Postman-style collections occasionally hosted directly
+    "/postman_collection.json",
+    "/collection.json",
+    // Internationalised doc roots
+    "/docs/api-docs",
+    "/docs/openapi.yaml",
+    "/docs/openapi.yml",
+    "/documentation/openapi.json",
+    "/documentation/openapi.yaml",
+    // Prefix wrapped in /api/
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v1.0/swagger.json",
+    "/api/v2.0/swagger.json",
+    // Public/static asset mounts common under CDNs
+    "/static/openapi.json",
+    "/static/swagger.json",
+    "/assets/openapi.json",
+    "/assets/swagger.json",
+    "/public/openapi.json",
+    "/public/swagger.json",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger / Redoc / RapiDoc / Stoplight UI paths.
+///
+/// A hit only fires a finding when the body contains a strong content marker
+/// ("swagger-ui", "redoc", "rapidoc", …), so a bare 200 SPA shell will not
+/// produce a false positive from adding new paths here.
 const SWAGGER_UI_PATHS: &[&str] = &[
     "/swagger-ui.html",
     "/swagger-ui/index.html",
@@ -84,6 +190,40 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Spring / Springdoc
+    "/swagger-ui/index.html?urls.primaryName=default",
+    "/webjars/swagger-ui/index.html",
+    // FastAPI / Starlette
+    "/docs",
+    "/redoc",
+    // NestJS
+    "/api",
+    "/api/",
+    // .NET Swashbuckle
+    "/swagger",
+    "/swagger/index.html",
+    // Common alternate roots
+    "/api-explorer",
+    "/api-explorer/",
+    "/apidocs",
+    "/apidocs/",
+    "/api-docs/index.html",
+    "/api/reference",
+    "/api/documentation",
+    "/reference",
+    "/reference/",
+    "/openapi",
+    "/openapi/",
+    // Documentation-generator conventions
+    "/stoplight",
+    "/stoplight/",
+    "/elements",
+    "/elements/",
+    // GraphQL playgrounds (worth flagging when the target claims to be REST)
+    "/graphiql",
+    "/graphql-playground",
+    "/playground",
+    "/altair",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
