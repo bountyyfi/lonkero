@@ -16,7 +16,7 @@
  *
  * (c) 2025-2026 Bountyy Oy
  */
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -272,25 +272,32 @@ enum Commands {
 
     /// AI-powered interactive security testing (conversational pentesting)
     Ai {
-        /// Target URL to test
-        #[arg(required = true)]
-        target: String,
+        /// Target URL to test (omit when using --list-models)
+        #[arg(required_unless_present = "list_models")]
+        target: Option<String>,
 
-        /// LLM provider: claude (default), ollama
+        /// LLM provider: claude (default), ollama, orcarouter
         #[arg(long, default_value = "claude")]
         provider: String,
 
-        /// Model to use (provider-specific, e.g. claude-sonnet-4-5-20250929, llama3.1:70b)
+        /// Model to use (provider-specific, e.g. claude-sonnet-4-5-20250929, llama3.1:70b,
+        /// an OrcaRouter catalog ID such as orcarouter/fusion)
         #[arg(long)]
         model: Option<String>,
 
-        /// API key for Claude (or set ANTHROPIC_API_KEY env var)
-        #[arg(long, env = "ANTHROPIC_API_KEY")]
+        /// API key for the selected provider. Claude: ANTHROPIC_API_KEY.
+        /// OrcaRouter: ORCAROUTER_API_KEY (keys start with sk-orca-)
+        #[arg(long)]
         api_key: Option<String>,
 
         /// Ollama server URL (default: http://localhost:11434)
         #[arg(long)]
         ollama_url: Option<String>,
+
+        /// List live OrcaRouter models for chat/agent use and exit
+        /// (requires --provider orcarouter and an OrcaRouter API key)
+        #[arg(long)]
+        list_models: bool,
 
         /// Run in auto mode (AI drives the entire pentest autonomously)
         #[arg(long)]
@@ -651,6 +658,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             model,
             api_key,
             ollama_url,
+            list_models,
             auto,
             max_rounds,
             cookie,
@@ -666,6 +674,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 model,
                 api_key,
                 ollama_url,
+                list_models,
                 auto,
                 max_rounds,
                 cookie,
@@ -1147,11 +1156,12 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
 /// Handle the `lonkero ai` subcommand — interactive AI-powered security testing
 #[allow(clippy::too_many_arguments)]
 async fn handle_ai_command(
-    target: String,
+    target: Option<String>,
     provider_name: String,
     model: Option<String>,
     api_key: Option<String>,
     ollama_url: Option<String>,
+    list_models: bool,
     auto: bool,
     max_rounds: u32,
     cookie: Option<String>,
@@ -1169,8 +1179,102 @@ async fn handle_ai_command(
         .parse()
         .map_err(|e: anyhow::Error| anyhow::anyhow!("{}", e))?;
 
+    // `--list-models` renders the live OrcaRouter catalog for the chat/agent
+    // capability, then exits without starting an agent session.
+    if list_models {
+        if provider_type != provider::ProviderType::OrcaRouter {
+            anyhow::bail!("--list-models requires --provider orcarouter");
+        }
+
+        let (models, degraded, error) = provider::orca_catalog_from_env(
+            api_key.clone(),
+            Some(provider::OrcaCapability::Chat),
+        )
+        .await?;
+
+        println!(
+            "OrcaRouter chat models (source: {})",
+            provider::resolve_api_base()?
+        );
+        if degraded {
+            println!(
+                "\x1b[33m  Catalog unavailable — showing the verified cold-start fallback. Reason: {}\x1b[0m",
+                error.unwrap_or_else(|| "unknown error".to_string())
+            );
+        }
+        if models.is_empty() {
+            println!("  (no chat-capable models returned for this workspace)");
+        }
+        for m in &models {
+            let context = m
+                .context_length
+                .map(|c| format!("{}k ctx", c / 1000))
+                .unwrap_or_else(|| "ctx n/a".to_string());
+            println!(
+                "  {:<40} {:<12} {}",
+                m.id,
+                context,
+                m.modality_summary()
+            );
+        }
+        if !degraded {
+            println!("\n{} chat-capable model(s) available.", models.len());
+        }
+        return Ok(());
+    }
+
+    let target = target.context(
+        "Target URL required. Usage: lonkero ai <target> [--provider claude|ollama|orcarouter]",
+    )?;
+
     // Create LLM provider
-    let llm = provider::create_provider(provider_type, model, api_key, ollama_url)?;
+    let llm = if provider_type == provider::ProviderType::OrcaRouter {
+        // Model options come from the live OrcaRouter catalog for this
+        // workspace; an incompatible model is rejected instead of being sent.
+        let key = provider::resolve_orca_api_key(api_key.clone())?;
+        let discovery = provider::OrcaRouterProvider::new(key.clone(), None, None)?;
+
+        let selected = match provider::resolve_chat_selection(&discovery, model.as_deref()).await {
+            provider::OrcaSelection::Verified { model } => model,
+            provider::OrcaSelection::Rejected { model, available } => {
+                eprintln!(
+                    "\x1b[31m  OrcaRouter model '{}' is not available for chat in this workspace.\x1b[0m",
+                    model
+                );
+                if available.is_empty() {
+                    eprintln!("  The workspace returned no chat-capable models.");
+                } else {
+                    eprintln!("  Available chat models:");
+                    for id in &available {
+                        eprintln!("    {}", id);
+                    }
+                }
+                anyhow::bail!(
+                    "Select one of the models above with --model, or run \
+                     `lonkero ai --provider orcarouter --list-models`."
+                );
+            }
+            provider::OrcaSelection::Unverified { model, reason } => {
+                eprintln!(
+                    "\x1b[33m  Warning: could not load the OrcaRouter model catalog ({}).\x1b[0m",
+                    reason
+                );
+                eprintln!(
+                    "\x1b[33m  Continuing with '{}' unverified; use --list-models to retry.\x1b[0m",
+                    model
+                );
+                model
+            }
+        };
+
+        Box::new(provider::OrcaRouterProvider::new(
+            key,
+            Some(selected),
+            None,
+        )?) as Box<dyn provider::LlmProvider>
+    } else {
+        provider::create_provider(provider_type, model, api_key, ollama_url)?
+    };
 
     // Build passthrough args for lonkero scan invocations
     let mut passthrough_args = Vec::new();
