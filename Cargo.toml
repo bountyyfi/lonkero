@@ -93,7 +93,7 @@ hostname = "0.4"
 hickory-resolver = "0.25"
 
 # HTML parsing
-scraper = "0.25"
+scraper = "0.26"
 html-escape = "0.2"
 
 # Text similarity for baseline comparison
