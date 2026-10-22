@@ -279,6 +279,14 @@ lonkero ai https://example.com --provider ollama --model llama3.1:70b
 
 # Specify Claude model
 lonkero ai https://example.com --model claude-sonnet-4-5-20250929
+
+# Use OrcaRouter for red-team work (OrcaCyber Zero by default);
+# provide the gateway key via the ORCAROUTER_API_KEY environment variable
+lonkero ai https://example.com --provider orcarouter
+
+# Inspect the live OrcaRouter chat catalog before picking a model
+lonkero ai https://example.com --provider orcarouter --list-models
+lonkero ai https://example.com --provider orcarouter --model openai/gpt-5.5
 ```
 
 ### Example Session
@@ -342,8 +350,10 @@ lonkero-ai> check the IDOR
 | `--auto` | Autonomous mode (AI decides everything) |
 | `--provider claude` | Use Claude API (default) |
 | `--provider ollama` | Use local Ollama model |
-| `--model <model>` | Specify model ID |
-| `--api-key <key>` | Claude API key (or set `ANTHROPIC_API_KEY`) |
+| `--provider orcarouter` | Use the [OrcaRouter](https://www.orcarouter.ai) gateway |
+| `--model <model>` | Specify model ID (OrcaRouter IDs keep the `vendor/model` namespace) |
+| `--api-key <key>` | Provider API key (or set `ANTHROPIC_API_KEY` / `ORCAROUTER_API_KEY`) |
+| `--list-models` | List the live OrcaRouter catalog for chat/agent use, then exit |
 | `--max-rounds <n>` | Max autonomous rounds in auto mode (default: 20) |
 
 ### In-Session Commands
@@ -361,6 +371,11 @@ lonkero-ai> check the IDOR
 |----------|---------|------|----------|
 | **Claude API** (default) | Target URLs sent to API | ~$0.30/session | Best reasoning, tool use |
 | **Ollama** (local) | Full privacy, nothing leaves machine | Free (GPU) | Air-gapped, sensitive targets |
+| **[OrcaRouter](https://www.orcarouter.ai)** | Target URLs sent to the gateway | Per-token, routed | One endpoint for many providers; `orcarouter/fusion` fallback |
+
+OrcaRouter is an OpenAI-compatible AI gateway that routes many providers behind one endpoint (`https://api.orcarouter.ai/v1`). Model IDs come from the live catalog: `--list-models` fetches `/v1/models?capability=chat`, and a `--model` value that is not in that catalog is rejected together with the list of available models. If the catalog cannot be reached, lonkero falls back to a small verified seed model set and clearly flags the selection as unverified.
+
+For red-team work the default OrcaRouter model is **OrcaCyber Zero** (`orcacyber-zero`, available with business verification). It is intended for verified security teams and allows authorized security work that generic gateways often refuse. If the key is not entitled to it, lonkero retries once with `orcarouter/fusion`.
 
 ### Key Design Decisions
 

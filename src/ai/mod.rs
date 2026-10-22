@@ -16,7 +16,8 @@
 //! - Send custom HTTP requests for manual probing
 //!
 //! Architecture:
-//! - `provider`: LLM backend abstraction (Claude API with prompt caching, Ollama)
+//! - `provider`: LLM backend abstraction (Claude API with prompt caching, Ollama,
+//!   and the OrcaRouter OpenAI-compatible gateway)
 //! - `tools`: Lonkero capabilities + analysis tools exposed as LLM tool definitions
 //! - `system_prompt`: Scanner knowledge base + methodology injected into the LLM
 //! - `session`: Conversation, findings, hypotheses, knowledge graph, scope, audit log
@@ -35,6 +36,8 @@
 //!   lonkero ai <target>
 //!   lonkero ai <target> --provider claude --model claude-sonnet-4-5
 //!   lonkero ai <target> --provider ollama --model llama3.1:70b
+//!   lonkero ai <target> --provider orcarouter --list-models
+//!   lonkero ai <target> --provider orcarouter --model openai/gpt-5.5
 //!   lonkero ai <target> --auto --format pdf -o report.pdf
 
 pub mod agent;
