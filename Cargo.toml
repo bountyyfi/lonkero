@@ -1,7 +1,7 @@
 [package]
 name = "lonkero"
 version = "3.7.3"
-rust-version = "1.85"
+rust-version = "1.88"
 edition = "2021"
 authors = ["Bountyy Oy <info@bountyy.fi>"]
 description = "Web scanner built for actual pentests. Fast, modular, Rust."
@@ -90,7 +90,7 @@ ssh2 = "0.9"
 hostname = "0.4"
 
 # DNS resolution (hickory-dns is the modern fork of trust-dns with better async support)
-hickory-resolver = "0.25"
+hickory-resolver = "0.26.2"
 
 # HTML parsing
 scraper = "0.26"

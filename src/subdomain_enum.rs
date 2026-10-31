@@ -12,7 +12,8 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
-use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::RData;
 use hickory_resolver::TokioResolver;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
@@ -263,8 +264,11 @@ impl SubdomainEnumerator {
         info!("Testing {} subdomain names", subdomain_list.len());
 
         // Create a shared resolver for all lookups
-        let resolver = match TokioResolver::builder(TokioConnectionProvider::default()) {
-            Ok(builder) => builder.build(),
+        let resolver = match TokioResolver::builder(TokioRuntimeProvider::default()) {
+            Ok(builder) => match builder.build() {
+                Ok(resolver) => resolver,
+                Err(_) => return found,
+            },
             Err(_) => return found,
         };
 
@@ -290,7 +294,15 @@ impl SubdomainEnumerator {
                         .mx_lookup(&full_domain)
                         .await
                         .ok()
-                        .map(|mx| mx.iter().map(|r| r.exchange().to_string()).collect())
+                        .map(|mx| {
+                            mx.answers()
+                                .iter()
+                                .filter_map(|r| match &r.data {
+                                    RData::MX(mx) => Some(mx.exchange.to_string()),
+                                    _ => None,
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default();
 
                     // Get TXT records
@@ -299,8 +311,13 @@ impl SubdomainEnumerator {
                         .await
                         .ok()
                         .map(|txt| {
-                            txt.iter()
-                                .flat_map(|r| r.iter())
+                            txt.answers()
+                                .iter()
+                                .filter_map(|r| match &r.data {
+                                    RData::TXT(txt) => Some(txt),
+                                    _ => None,
+                                })
+                                .flat_map(|txt| txt.txt_data.iter())
                                 .map(|data| String::from_utf8_lossy(data).to_string())
                                 .collect()
                         })
@@ -333,9 +350,10 @@ impl SubdomainEnumerator {
     async fn attempt_zone_transfer(&self, domain: &str) -> Result<HashMap<String, SubdomainInfo>> {
         debug!("Attempting DNS zone transfer for: {}", domain);
 
-        let resolver = TokioResolver::builder(TokioConnectionProvider::default())
+        let resolver = TokioResolver::builder(TokioRuntimeProvider::default())
             .context("Failed to create resolver")?
-            .build();
+            .build()
+            .context("Failed to build resolver")?;
 
         // Get NS records to find name servers
         let ns_lookup = resolver
@@ -345,7 +363,11 @@ impl SubdomainEnumerator {
 
         let discovered: HashMap<String, SubdomainInfo> = HashMap::new();
 
-        for ns in ns_lookup.iter() {
+        let nameservers = ns_lookup.answers().iter().filter_map(|r| match &r.data {
+            RData::NS(ns) => Some(ns),
+            _ => None,
+        });
+        for ns in nameservers {
             let nameserver = ns.to_string();
             debug!("Trying zone transfer from nameserver: {}", nameserver);
 
@@ -425,14 +447,24 @@ impl SubdomainEnumerator {
             unique_ips.extend(info.ip_addresses.iter().copied());
         }
 
-        let resolver = match TokioResolver::builder(TokioConnectionProvider::default()) {
-            Ok(builder) => builder.build(),
+        let resolver = match TokioResolver::builder(TokioRuntimeProvider::default()) {
+            Ok(builder) => match builder.build() {
+                Ok(resolver) => resolver,
+                Err(_) => return discovered,
+            },
             Err(_) => return discovered,
         };
 
         for ip in unique_ips {
             if let Ok(reverse_lookup) = resolver.reverse_lookup(ip).await {
-                for hostname in reverse_lookup.iter() {
+                let hostnames = reverse_lookup
+                    .answers()
+                    .iter()
+                    .filter_map(|r| match &r.data {
+                        RData::PTR(ptr) => Some(ptr),
+                        _ => None,
+                    });
+                for hostname in hostnames {
                     let hostname_str = hostname.to_string();
                     if hostname_str.ends_with(base_domain) {
                         // Resolve the hostname to get full info
@@ -483,9 +515,10 @@ impl SubdomainEnumerator {
 
     /// Resolve domain information
     async fn resolve_domain_info(&self, domain: &str) -> Option<SubdomainInfo> {
-        let resolver = TokioResolver::builder(TokioConnectionProvider::default())
+        let resolver = TokioResolver::builder(TokioRuntimeProvider::default())
             .ok()?
-            .build();
+            .build()
+            .ok()?;
 
         let ip_lookup = resolver.lookup_ip(domain).await.ok()?;
         let ips: Vec<IpAddr> = ip_lookup.iter().collect();
@@ -498,7 +531,15 @@ impl SubdomainEnumerator {
             .mx_lookup(domain)
             .await
             .ok()
-            .map(|mx| mx.iter().map(|r| r.exchange().to_string()).collect())
+            .map(|mx| {
+                mx.answers()
+                    .iter()
+                    .filter_map(|r| match &r.data {
+                        RData::MX(mx) => Some(mx.exchange.to_string()),
+                        _ => None,
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         let txt_records: Vec<String> = resolver
@@ -506,8 +547,13 @@ impl SubdomainEnumerator {
             .await
             .ok()
             .map(|txt| {
-                txt.iter()
-                    .flat_map(|r| r.iter())
+                txt.answers()
+                    .iter()
+                    .filter_map(|r| match &r.data {
+                        RData::TXT(txt) => Some(txt),
+                        _ => None,
+                    })
+                    .flat_map(|txt| txt.txt_data.iter())
                     .map(|data| String::from_utf8_lossy(data).to_string())
                     .collect()
             })
