@@ -196,7 +196,7 @@ impl TwoFaBypassScanner {
         html_body: &str,
     ) -> Vec<TwoFaEndpoint> {
         let mut endpoints = Vec::new();
-        let body_lower = html_body.to_lowercase();
+        let _body_lower = html_body.to_lowercase();
 
         // Common 2FA endpoint patterns
         let endpoint_patterns = vec![
@@ -1068,7 +1068,7 @@ impl TwoFaBypassScanner {
         // Test 1: Check for client-side 2FA state
         tests_run += 1;
         if let Ok(response) = self.http_client.get(&endpoint.url).await {
-            let body_lower = response.body.to_lowercase();
+            let _body_lower = response.body.to_lowercase();
 
             // Check for 2FA status stored in client-side
             let client_side_patterns = vec![

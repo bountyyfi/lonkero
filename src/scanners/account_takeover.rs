@@ -264,7 +264,7 @@ impl AccountTakeoverScanner {
     ) -> AuthEndpoints {
         let mut endpoints = AuthEndpoints::new();
         let body = &response.body;
-        let body_lower = body.to_lowercase();
+        let _body_lower = body.to_lowercase();
 
         // Parse base URL
         let parsed = match url::Url::parse(base_url) {
@@ -1060,7 +1060,7 @@ impl AccountTakeoverScanner {
 
         // Check if different cases are treated as different accounts
         let mut unique_responses = HashSet::new();
-        for (email, response) in &responses {
+        for (_email, response) in &responses {
             let key = format!("{}:{}", response.status_code, response.body.len());
             if unique_responses.contains(&key) {
                 continue;

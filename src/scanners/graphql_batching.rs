@@ -480,7 +480,7 @@ impl GraphQlBatchingScanner {
         _config: &ScanConfig,
     ) -> Option<RateLimitBypassResult> {
         // First, send 5 individual requests to establish baseline
-        let mut individual_count = 0;
+        let mut _individual_count = 0;
         for _ in 0..5 {
             let query = json!({ "query": "query { __typename }" });
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
@@ -493,7 +493,7 @@ impl GraphQlBatchingScanner {
                 if response.status_code == 429 {
                     break;
                 }
-                individual_count += 1;
+                _individual_count += 1;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }

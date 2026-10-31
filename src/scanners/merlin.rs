@@ -3024,7 +3024,7 @@ impl MerlinScanner {
 
         // Node.js-only packages that can't be exploited in browser context
         // These are often bundled in devDependencies metadata but not actually used
-        let nodejs_only_packages = [
+        let _nodejs_only_packages = [
             "minimist",
             "yargs-parser",
             "yargs",

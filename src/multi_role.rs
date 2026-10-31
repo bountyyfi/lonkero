@@ -1147,7 +1147,7 @@ impl MultiRoleOrchestrator {
 
         // Check if lower role can access higher role's exclusive URLs
         let higher_accessible = higher_role.get_accessible_urls();
-        let higher_forbidden_for_lower: HashSet<String> = higher_role
+        let _higher_forbidden_for_lower: HashSet<String> = higher_role
             .responses
             .iter()
             .filter(|(url, meta)| {

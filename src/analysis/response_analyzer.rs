@@ -1826,7 +1826,7 @@ pub fn detect_action_success(status_code: u16, body: &str, location_header: Opti
     }
 
     // Redirect to authenticated area (302/303 + admin/dashboard/account in location)
-    if (status_code == 302 || status_code == 303) {
+    if status_code == 302 || status_code == 303 {
         if let Some(loc) = location_header {
             let loc_lower = loc.to_lowercase();
             let auth_destinations = ["dashboard", "admin", "account", "profile", "home", "panel", "my-"];

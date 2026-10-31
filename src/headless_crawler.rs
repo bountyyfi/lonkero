@@ -24,24 +24,24 @@ use tracing::{debug, info, warn};
 // ============================================================================
 
 /// Wait time for JavaScript to render after page load (milliseconds)
-const JS_RENDER_WAIT_MS: u64 = 1500;
+const _JS_RENDER_WAIT_MS: u64 = 1500;
 /// Wait time after form submission (milliseconds)
-const FORM_SUBMIT_WAIT_MS: u64 = 3000;
+const _FORM_SUBMIT_WAIT_MS: u64 = 3000;
 /// Wait time after auth reload (milliseconds)
 const POST_AUTH_RELOAD_WAIT_MS: u64 = 2000;
 /// Wait time after clicking navigation elements (milliseconds)
-const CLICK_NAVIGATION_WAIT_MS: u64 = 500;
+const _CLICK_NAVIGATION_WAIT_MS: u64 = 500;
 /// Delay after filling form fields (milliseconds)
-const POST_FILL_DELAY_MS: u64 = 300;
+const _POST_FILL_DELAY_MS: u64 = 300;
 
 /// Maximum SPA routes to collect
-const MAX_SPA_ROUTES: usize = 500;
+const _MAX_SPA_ROUTES: usize = 500;
 /// Maximum GraphQL operations to collect
-const MAX_GRAPHQL_OPERATIONS: usize = 200;
+const _MAX_GRAPHQL_OPERATIONS: usize = 200;
 /// Maximum WebSocket endpoints to collect
-const MAX_WEBSOCKET_ENDPOINTS: usize = 100;
+const _MAX_WEBSOCKET_ENDPOINTS: usize = 100;
 /// Maximum links to collect
-const MAX_LINKS_FOUND: usize = 1000;
+const _MAX_LINKS_FOUND: usize = 1000;
 
 // ============================================================================
 // Helper functions
@@ -152,6 +152,7 @@ const MAX_CAPTURED_REQUESTS: usize = 500;
 // ============================================================================
 
 /// Tracks network activity to determine when page has finished loading
+#[allow(dead_code)]
 struct NetworkTracker {
     pending_requests: AtomicUsize,
     last_activity: Mutex<Instant>,
@@ -173,7 +174,7 @@ impl NetworkTracker {
         // Use fetch_update to atomically decrement only if > 0 (prevents underflow)
         let _ = self
             .pending_requests
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
                 if x > 0 {
                     Some(x - 1)
                 } else {

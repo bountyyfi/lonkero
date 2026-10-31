@@ -1348,7 +1348,7 @@ async fn execute_http_request(input: &serde_json::Value) -> Result<String> {
 
 /// Quick preflight check — run `lonkero --help` (or a minimal scan) to confirm the binary works.
 /// This catches license/binary issues in <1 second instead of after a 10-minute LLM round-trip.
-async fn preflight_check(config: &AgentConfig) -> Result<()> {
+async fn _preflight_check(config: &AgentConfig) -> Result<()> {
     use tokio::process::Command;
 
     let mut cmd = Command::new(&config.lonkero_bin);

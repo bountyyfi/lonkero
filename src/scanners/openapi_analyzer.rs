@@ -289,7 +289,7 @@ impl OpenApiAnalyzer {
     pub async fn scan(
         &self,
         url: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {

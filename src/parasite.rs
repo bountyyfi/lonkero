@@ -115,8 +115,8 @@ struct HandshakeAck {
 struct IncomingMessage {
     #[serde(rename = "type")]
     msg_type: String,
-    #[serde(default)]
-    id: u64,
+    #[serde(default, rename = "id")]
+    _id: u64,
 }
 
 /// Parasite Mode client state
@@ -127,7 +127,7 @@ pub struct ParasiteClient {
     pending_requests: Arc<RwLock<HashMap<u64, oneshot::Sender<ParasiteResponse>>>>,
     browser_info: Arc<RwLock<Option<BrowserInfo>>>,
     stats: Arc<ParasiteStats>,
-    license_key: Option<String>,
+    _license_key: Option<String>,
 }
 
 /// Connected browser information
@@ -163,7 +163,7 @@ impl ParasiteClient {
             pending_requests: pending_requests.clone(),
             browser_info: browser_info.clone(),
             stats: stats.clone(),
-            license_key: license_key.clone(),
+            _license_key: license_key.clone(),
         });
 
         // Start WebSocket server in background

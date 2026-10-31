@@ -361,7 +361,7 @@ impl ProofXssScanner {
     pub async fn scan(
         &self,
         url: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -778,7 +778,7 @@ impl ProofXssScanner {
             ('`', "", "\\`", ""),
         ];
 
-        let probe_lower = probe.to_lowercase();
+        let _probe_lower = probe.to_lowercase();
         let probe_body_lower = probe_body.to_lowercase();
 
         for (char, html_escape, js_escape, numeric_escape) in test_chars {

@@ -641,7 +641,7 @@ impl OidcScanner {
         }
 
         // Check for deprecated algorithms
-        let deprecated_algs: Vec<&str> = algorithms
+        let _deprecated_algs: Vec<&str> = algorithms
             .iter()
             .filter(|a| {
                 let lower = a.to_lowercase();

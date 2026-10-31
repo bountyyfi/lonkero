@@ -252,7 +252,7 @@ impl ResonanceAnalyzer {
 
         // Check for oscillating pattern
         let mut oscillations = 0;
-        let baseline_len = baseline.body.len();
+        let _baseline_len = baseline.body.len();
 
         for i in 1..responses.len() {
             let prev_similar = Self::is_similar(&responses[i - 1].1, baseline);

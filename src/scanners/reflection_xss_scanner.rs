@@ -386,7 +386,7 @@ impl ReflectionXssScanner {
     }
 
     /// Check if reflected payload is in an executable context
-    fn check_executable_context(&self, body: &str, payload: &str, expected_context: &str) -> (bool, Confidence) {
+    fn check_executable_context(&self, body: &str, payload: &str, _expected_context: &str) -> (bool, Confidence) {
         // Look for the payload in different contexts
 
         // Check if it's inside a <script> tag

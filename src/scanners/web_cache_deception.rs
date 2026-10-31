@@ -99,15 +99,15 @@ struct SensitiveDataResult {
 
 pub struct WebCacheDeceptionScanner {
     http_client: Arc<HttpClient>,
-    test_marker: String,
+    _test_marker: String,
 }
 
 impl WebCacheDeceptionScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        let test_marker = format!("wcd_{}", generate_uuid());
+        let _test_marker = format!("wcd_{}", generate_uuid());
         Self {
             http_client,
-            test_marker,
+            _test_marker,
         }
     }
 
@@ -294,7 +294,7 @@ impl WebCacheDeceptionScanner {
         }
 
         // Akamai detection
-        if let Some(akamai) = response.header("x-akamai-request-id") {
+        if let Some(_akamai) = response.header("x-akamai-request-id") {
             status.infrastructure = CacheInfrastructure::Akamai;
             status.is_cached = true;
             status
@@ -307,7 +307,7 @@ impl WebCacheDeceptionScanner {
         }
 
         // Amazon CloudFront detection
-        if let Some(amz_cf) = response.header("x-amz-cf-id") {
+        if let Some(_amz_cf) = response.header("x-amz-cf-id") {
             status.infrastructure = CacheInfrastructure::AmazonCloudFront;
             status.is_cached = true;
             status.evidence.push("X-Amz-Cf-Id present".to_string());
@@ -320,7 +320,7 @@ impl WebCacheDeceptionScanner {
         }
 
         // Azure CDN detection
-        if let Some(x_azure) = response.header("x-azure-ref") {
+        if let Some(_x_azure) = response.header("x-azure-ref") {
             status.infrastructure = CacheInfrastructure::Azure;
             status.is_cached = true;
             status.evidence.push("X-Azure-Ref present".to_string());
@@ -485,8 +485,8 @@ impl WebCacheDeceptionScanner {
     async fn test_static_extension_confusion(
         &self,
         url: &str,
-        cache_status: &CacheStatus,
-        sensitive_data: &SensitiveDataResult,
+        _cache_status: &CacheStatus,
+        _sensitive_data: &SensitiveDataResult,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
@@ -606,8 +606,8 @@ impl WebCacheDeceptionScanner {
     async fn test_path_parameter_injection(
         &self,
         url: &str,
-        cache_status: &CacheStatus,
-        sensitive_data: &SensitiveDataResult,
+        _cache_status: &CacheStatus,
+        _sensitive_data: &SensitiveDataResult,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
@@ -689,8 +689,8 @@ impl WebCacheDeceptionScanner {
     async fn test_encoded_path_confusion(
         &self,
         url: &str,
-        cache_status: &CacheStatus,
-        sensitive_data: &SensitiveDataResult,
+        _cache_status: &CacheStatus,
+        _sensitive_data: &SensitiveDataResult,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
@@ -767,7 +767,7 @@ impl WebCacheDeceptionScanner {
     async fn test_cache_key_normalization(
         &self,
         url: &str,
-        cache_status: &CacheStatus,
+        _cache_status: &CacheStatus,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
@@ -1316,9 +1316,9 @@ mod tests {
         let scanner1 = create_test_scanner();
         let scanner2 = create_test_scanner();
 
-        assert_ne!(scanner1.test_marker, scanner2.test_marker);
-        assert!(scanner1.test_marker.starts_with("wcd_"));
-        assert!(scanner2.test_marker.starts_with("wcd_"));
+        assert_ne!(scanner1._test_marker, scanner2._test_marker);
+        assert!(scanner1._test_marker.starts_with("wcd_"));
+        assert!(scanner2._test_marker.starts_with("wcd_"));
     }
 
     #[test]

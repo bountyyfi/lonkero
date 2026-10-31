@@ -68,9 +68,9 @@ pub struct AutoLearner {
 #[derive(Debug, Clone)]
 struct HistoricalFinding {
     vuln_type: String,
-    url_pattern: String,
+    _url_pattern: String,
     was_true_positive: bool,
-    features: Vec<f32>,
+    _features: Vec<f32>,
 }
 
 /// Patterns for verifying different vulnerability types
@@ -501,9 +501,9 @@ impl AutoLearner {
             let url_pattern_clone = url_pattern.clone();
             let finding = HistoricalFinding {
                 vuln_type: vuln.vuln_type.clone(),
-                url_pattern: url_pattern_clone,
+                _url_pattern: url_pattern_clone,
                 was_true_positive: verification.status == VerificationStatus::Confirmed,
-                features: features.to_vector(),
+                _features: features.to_vector(),
             };
             self.endpoint_history
                 .entry(url_pattern)
@@ -627,9 +627,9 @@ impl AutoLearner {
             let url_pattern_clone = url_pattern.clone();
             let finding = HistoricalFinding {
                 vuln_type: vuln.vuln_type.clone(),
-                url_pattern: url_pattern_clone,
+                _url_pattern: url_pattern_clone,
                 was_true_positive: verification.status == VerificationStatus::Confirmed,
-                features: features.to_vector(),
+                _features: features.to_vector(),
             };
             self.endpoint_history
                 .entry(url_pattern)

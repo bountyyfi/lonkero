@@ -3400,7 +3400,7 @@ impl EnhancedSqliScanner {
         base_url: &str,
         parameter: &str,
         baseline: &HttpResponse,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -3803,7 +3803,7 @@ impl EnhancedSqliScanner {
         oob_domain: Option<&str>,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
+        let vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
         // If no OOB domain configured, skip

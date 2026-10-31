@@ -377,7 +377,7 @@ impl TimingAttackScanner {
     /// Detect authentication endpoints from page content
     async fn detect_auth_endpoints(&self, base_url: &str, html: &str) -> Vec<AuthEndpoint> {
         let mut endpoints = Vec::new();
-        let html_lower = html.to_lowercase();
+        let _html_lower = html.to_lowercase();
 
         // Pattern to find forms
         let form_regex =
@@ -1159,7 +1159,7 @@ impl TimingAttackScanner {
     async fn measure_auth_timing(
         &self,
         url: &str,
-        method: &str,
+        _method: &str,
         username_field: &str,
         username: &str,
         password_field: &str,

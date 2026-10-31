@@ -518,7 +518,7 @@ impl Nis2Scanner {
             "/live",
         ];
 
-        let mut health_endpoint_found = false;
+        let mut _health_endpoint_found = false;
         let mut exposed_internal_info = false;
         let mut exposed_endpoint = String::new();
         let mut exposed_info_types: Vec<String> = Vec::new();
@@ -528,7 +528,7 @@ impl Nis2Scanner {
             let test_url = format!("{}{}", url, endpoint);
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
-                    health_endpoint_found = true;
+                    _health_endpoint_found = true;
 
                     let sensitive_patterns = vec![
                         ("database", "Database connection status"),
