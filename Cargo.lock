@@ -2164,7 +2164,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "blake3",
  "bytes",
  "chrono",

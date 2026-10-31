@@ -73,7 +73,7 @@ headless_chrome = { version = "1.0", features = ["fetch"] }
 which = "8"
 
 # Base64
-base64 = "0.22.1"
+base64 = "0.23.1"
 
 # Smart pointers and optimized collections
 ahash = "0.8"
