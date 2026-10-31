@@ -680,13 +680,13 @@ struct ActiveFlowState {
     submissions: Vec<FormSubmission>,
 
     /// When the flow started
-    started_at: Instant,
+    _started_at: Instant,
 
     /// Last submission time
     last_submission_at: Instant,
 
     /// Expected next URL patterns
-    expected_patterns: Vec<String>,
+    _expected_patterns: Vec<String>,
 }
 
 impl FormRecorder {
@@ -861,9 +861,9 @@ impl FormRecorder {
             self.active_flow = Some(ActiveFlowState {
                 start_url: submission.source_url.clone(),
                 submissions: vec![submission.clone()],
-                started_at: now,
+                _started_at: now,
                 last_submission_at: now,
-                expected_patterns: self.generate_expected_patterns(&submission.action_url),
+                _expected_patterns: self.generate_expected_patterns(&submission.action_url),
             });
         }
     }

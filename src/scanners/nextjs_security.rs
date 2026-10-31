@@ -1336,7 +1336,6 @@ impl NextJsSecurityScanner {
                 "CVE-2024-51479" => {
                     (major == 14 && minor < 2)
                         || (major == 14 && minor == 2 && patch < 18)
-                        || (major == 15 && minor < 0)
                         || (major == 15 && minor == 0 && patch < 4)
                 }
                 "CVE-2024-56332" => {
