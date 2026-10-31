@@ -619,7 +619,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 rate_limit,
                 no_rate_limit,
                 license_status,
-                scan_token: _scan_token,
+                scan_token,
                 admin_username,
                 admin_password,
                 admin_login_url,
