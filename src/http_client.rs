@@ -31,8 +31,8 @@ fn generate_user_agent() -> String {
     let chrome_build = 5000 + (nanos / 7 % 1000);     // 5000-5999
     let chrome_patch = nanos / 13 % 200;              // 0-199
     let firefox_major = 115 + (nanos / 3 % 15) as u8; // 115-129
-    let safari_minor = (nanos / 11 % 5) as u8;        // 0-4
-    let edge_major = chrome_major;
+    let _safari_minor = (nanos / 11 % 5) as u8;        // 0-4
+    let _edge_major = chrome_major;
     let macos_minor = 2 + (nanos / 17 % 4) as u8;     // 2-5
 
     // Pure browser User-Agents - no scanner identification (moved to From header)

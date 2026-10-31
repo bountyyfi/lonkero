@@ -272,7 +272,7 @@ impl Log4jScanner {
         // This would require callback server integration for full detection
 
         // Check response headers for Java/Log4j indicators
-        for (name, value) in headers {
+        for (_name, value) in headers {
             let val_lower = value.to_lowercase();
             if val_lower.contains("jndi") || val_lower.contains("log4j") {
                 return true;

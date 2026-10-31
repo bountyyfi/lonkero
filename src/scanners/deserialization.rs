@@ -98,8 +98,8 @@ impl DeserializationScanner {
     /// Scan endpoint for deserialization vulnerabilities
     pub async fn scan(
         &self,
-        url: &str,
-        config: &ScanConfig,
+        _url: &str,
+        _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // Only test parameters discovered from actual forms/URLs - no spray-and-pray
         // The main scanner will call scan_parameter() with discovered params

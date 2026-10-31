@@ -14,7 +14,6 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
 use std::sync::Arc;
-use tracing::info;
 
 pub struct IdorScanner {
     http_client: Arc<HttpClient>,

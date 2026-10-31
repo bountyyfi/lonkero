@@ -226,7 +226,7 @@ impl SourceMapScanner {
         // Check for required source map fields
         let has_version = content.contains("\"version\"");
         let has_sources = content.contains("\"sources\"");
-        let has_mappings = content.contains("\"mappings\"");
+        let _has_mappings = content.contains("\"mappings\"");
 
         if !has_version || !has_sources {
             return None;

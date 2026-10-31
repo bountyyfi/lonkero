@@ -78,7 +78,7 @@ struct NucleiTemplate {
     #[serde(default)]
     file: Option<Vec<FileRequest>>,
     #[serde(default)]
-    variables: Option<HashMap<String, String>>,
+    _variables: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]

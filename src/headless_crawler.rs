@@ -173,7 +173,7 @@ impl NetworkTracker {
         // Use fetch_update to atomically decrement only if > 0 (prevents underflow)
         let _ = self
             .pending_requests
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
                 if x > 0 {
                     Some(x - 1)
                 } else {

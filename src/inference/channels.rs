@@ -9,7 +9,7 @@ use crate::http_client::{HttpClient, HttpResponse};
 use crate::inference::bayesian::{BayesianCombiner, CombinedResult, Signal, SignalType};
 use crate::inference::signals::{ResonanceAnalyzer, SideChannelSuite};
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_native_tls::TlsConnector;
 use tracing::{debug, info, warn};

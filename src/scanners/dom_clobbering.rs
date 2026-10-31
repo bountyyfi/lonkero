@@ -780,7 +780,7 @@ impl DomClobberingScanner {
 
             if let Some(re) = sink_re {
                 for cap in re.captures_iter(js_content) {
-                    let full_match = cap.get(0).map(|m| m.as_str().to_string());
+                    let _full_match = cap.get(0).map(|m| m.as_str().to_string());
                     let source_var = cap.get(1).map(|m| m.as_str().to_string());
 
                     let snippet_start = floor_char_boundary(js_content, cap.get(0).unwrap().start().saturating_sub(20));

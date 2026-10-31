@@ -1943,7 +1943,7 @@ impl AdvancedMassAssignmentScanner {
         false
     }
 
-    fn verify_json_array_pollution(&self, body: &str, payload: &Value) -> bool {
+    fn verify_json_array_pollution(&self, body: &str, _payload: &Value) -> bool {
         if !self.is_structured_response(body) {
             return false;
         }
@@ -2102,7 +2102,7 @@ impl AdvancedMassAssignmentScanner {
         self.verify_privilege_escalation(body, field, value)
     }
 
-    fn verify_timestamp_manipulation(&self, body: &str, field: &str, value: &str) -> bool {
+    fn verify_timestamp_manipulation(&self, body: &str, field: &str, _value: &str) -> bool {
         if !self.is_structured_response(body) {
             return false;
         }

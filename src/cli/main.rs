@@ -1280,7 +1280,7 @@ async fn run_scan(
     rate_limit: u32,
     no_rate_limit: bool,
     license_status: LicenseStatus,
-    scan_token: ScanToken,
+    _scan_token: ScanToken,
     admin_username: Option<String>,
     admin_password: Option<String>,
     admin_login_url: Option<String>,
@@ -2301,7 +2301,7 @@ async fn execute_standalone_scan(
     // semantic response analysis, and multi-step attack planning.
     // ==========================================================================
     let intelligence_bus = Arc::new(IntelligenceBus::new());
-    let response_analyzer = Arc::new(ResponseAnalyzer::new());
+    let _response_analyzer = Arc::new(ResponseAnalyzer::new());
     let mut attack_planner = AttackPlanner::new();
 
     info!("[Intelligence] Scanner intelligence system initialized");
@@ -3493,7 +3493,7 @@ async fn execute_standalone_scan(
                         );
 
                         // Choose content type based on endpoint
-                        let (body_to_test, content_type) = if is_api_endpoint {
+                        let (body_to_test, _content_type) = if is_api_endpoint {
                             (json_body.clone(), Some("application/json"))
                         } else {
                             (base_body.clone(), Some("application/x-www-form-urlencoded"))

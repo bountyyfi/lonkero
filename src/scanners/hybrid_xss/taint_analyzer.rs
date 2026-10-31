@@ -12,7 +12,7 @@
 
 use crate::types::{Confidence, Severity, Vulnerability};
 use anyhow::Result;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaintSource {

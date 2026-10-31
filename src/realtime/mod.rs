@@ -350,7 +350,7 @@ impl ProgressTracker {
 
 /// Resource monitor
 pub struct ResourceMonitor {
-    start_cpu_time: f64,
+    _start_cpu_time: f64,
     start_timestamp: Instant,
     network_requests: Arc<RwLock<usize>>,
 }
@@ -359,7 +359,7 @@ impl ResourceMonitor {
     /// Create new resource monitor
     pub fn new() -> Self {
         Self {
-            start_cpu_time: 0.0,
+            _start_cpu_time: 0.0,
             start_timestamp: Instant::now(),
             network_requests: Arc::new(RwLock::new(0)),
         }

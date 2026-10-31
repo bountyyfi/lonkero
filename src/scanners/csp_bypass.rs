@@ -1306,7 +1306,7 @@ impl CspBypassScanner {
         // Check img-src for data: (less severe but can be used for exfiltration)
         if let Some(img_src) = csp.directives.get("img-src") {
             tests += 1;
-            let allows_data = img_src.values.iter().any(|v| v == "data:");
+            let _allows_data = img_src.values.iter().any(|v| v == "data:");
             let allows_wildcard = img_src.has_wildcard;
 
             if allows_wildcard {

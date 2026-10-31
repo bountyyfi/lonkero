@@ -17,7 +17,6 @@
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
-use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info};

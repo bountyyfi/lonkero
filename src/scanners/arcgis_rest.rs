@@ -621,7 +621,7 @@ impl ArcGISRestScanner {
             service.url, layer.id
         );
 
-        let (sample_data, pii_detected) = match self.http_client.get(&query_url).await {
+        let (_sample_data, pii_detected) = match self.http_client.get(&query_url).await {
             Ok(response) => {
                 if response.status_code == 200 {
                     if let Ok(query_result) =

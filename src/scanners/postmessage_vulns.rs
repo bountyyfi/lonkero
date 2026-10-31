@@ -198,7 +198,7 @@ impl PostMessageVulnsScanner {
 
         // Step 1: Extract and analyze inline JavaScript
         total_tests += 1;
-        let (inline_vulns, inline_handlers) = self.analyze_inline_scripts(&response.body, url);
+        let (inline_vulns, _inline_handlers) = self.analyze_inline_scripts(&response.body, url);
         all_vulnerabilities.extend(inline_vulns);
 
         // Step 2: Extract external JavaScript URLs and analyze
@@ -405,7 +405,7 @@ impl PostMessageVulnsScanner {
         handler_type: HandlerType,
         source: &str,
     ) -> MessageHandler {
-        let code_lower = code.to_lowercase();
+        let _code_lower = code.to_lowercase();
 
         // Check for origin validation
         let (has_origin_check, origin_validation) = self.detect_origin_validation(code);

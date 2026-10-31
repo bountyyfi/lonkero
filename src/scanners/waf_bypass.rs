@@ -314,7 +314,7 @@ impl WafBypassScanner {
     async fn test_encoding_bypasses(
         &self,
         url: &str,
-        baseline: &HttpResponse,
+        _baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;

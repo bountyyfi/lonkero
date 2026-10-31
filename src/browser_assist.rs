@@ -1030,7 +1030,7 @@ impl Drop for BrowserLauncher {
 /// // Browser is now running with extension connected
 /// ```
 pub async fn launch_browser_and_wait(
-    port: u16,
+    _port: u16,
     extension_path: Option<PathBuf>,
     timeout_secs: u64,
 ) -> Result<BrowserLauncher> {

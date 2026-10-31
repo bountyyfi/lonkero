@@ -65,7 +65,7 @@ impl ApiVersioningScanner {
     pub async fn scan(
         &self,
         url: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         info!("Starting API versioning vulnerability scan on {}", url);
 
@@ -366,7 +366,7 @@ impl ApiVersioningScanner {
     async fn test_deprecated_versions(
         &self,
         url: &str,
-        scheme: &VersioningScheme,
+        _scheme: &VersioningScheme,
         current_version: &Option<String>,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
@@ -430,7 +430,7 @@ impl ApiVersioningScanner {
     async fn test_version_bypass(
         &self,
         url: &str,
-        scheme: &VersioningScheme,
+        _scheme: &VersioningScheme,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -545,7 +545,7 @@ impl ApiVersioningScanner {
     async fn compare_version_security(
         &self,
         url: &str,
-        scheme: &VersioningScheme,
+        _scheme: &VersioningScheme,
         current_version: &Option<String>,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();

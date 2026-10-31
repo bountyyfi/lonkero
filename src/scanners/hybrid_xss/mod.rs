@@ -16,7 +16,7 @@ pub mod taint_analyzer;
 pub mod abstract_interpreter;
 
 use crate::http_client::HttpClient;
-use crate::types::{ScanConfig, ScanMode, Vulnerability};
+use crate::types::{ScanConfig, Vulnerability};
 use anyhow::Result;
 use scraper::{Html, Selector};
 use std::sync::Arc;
@@ -70,7 +70,7 @@ impl HybridXssDetector {
     async fn scan_single_url(
         &self,
         url: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let start = Instant::now();
         let mut vulnerabilities = Vec::new();
@@ -106,7 +106,7 @@ impl HybridXssDetector {
                 // Run both analyzers in parallel (pure computation!)
                 let js_clone1 = js_code.clone();
                 let js_clone2 = js_code.clone();
-                let url_clone = url.to_string();
+                let _url_clone = url.to_string();
 
                 let (taint_result, abstract_result) = tokio::join!(
                     // Static Taint Analysis
