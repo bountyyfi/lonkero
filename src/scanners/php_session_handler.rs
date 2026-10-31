@@ -170,8 +170,9 @@ impl PhpSessionHandlerScanner {
             self.probe_apache_mpm(url, &mut ctx, &mut tests_run).await;
 
             // phpinfo memory_limit extraction
-            if let Some(ref pi) = ctx.phpinfo_body {
-                Self::extract_memory_limit(pi, &mut ctx);
+            if ctx.phpinfo_body.is_some() {
+                let pi = ctx.phpinfo_body.clone().unwrap();
+                Self::extract_memory_limit(&pi, &mut ctx);
             }
         }
 
