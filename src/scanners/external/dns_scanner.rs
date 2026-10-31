@@ -7,7 +7,8 @@
 
 use anyhow::{Context, Result};
 use hickory_resolver::config::*;
-use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::RData;
 use hickory_resolver::TokioResolver;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -151,20 +152,19 @@ impl DnsScanner {
             // Use custom DNS server
             let dns_ip: IpAddr = dns_server.parse().context("Invalid DNS server IP")?;
 
-            let name_server = NameServerConfig::new(
-                std::net::SocketAddr::new(dns_ip, 53),
-                hickory_resolver::proto::xfer::Protocol::Udp,
-            );
-            let mut resolver_config = ResolverConfig::new();
+            let name_server = NameServerConfig::udp(dns_ip);
+            let mut resolver_config = ResolverConfig::default();
             resolver_config.add_name_server(name_server);
 
-            TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
+            TokioResolver::builder_with_config(resolver_config, TokioRuntimeProvider::default())
                 .build()
+                .context("Failed to build resolver")?
         } else {
             // Use system resolver
-            TokioResolver::builder(TokioConnectionProvider::default())
+            TokioResolver::builder(TokioRuntimeProvider::default())
                 .context("Failed to create resolver")?
                 .build()
+                .context("Failed to build resolver")?
         };
 
         Ok(Self { config, resolver })
@@ -314,8 +314,12 @@ impl DnsScanner {
     async fn query_mx_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.mx_lookup(domain).await {
             Ok(response) => Ok(response
+                .answers()
                 .iter()
-                .map(|mx| format!("{} {}", mx.preference(), mx.exchange()))
+                .filter_map(|r| match &r.data {
+                    RData::MX(mx) => Some(format!("{} {}", mx.preference, mx.exchange)),
+                    _ => None,
+                })
                 .collect()),
             Err(_) => Ok(Vec::new()),
         }
@@ -325,8 +329,13 @@ impl DnsScanner {
     async fn query_txt_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.txt_lookup(domain).await {
             Ok(response) => Ok(response
+                .answers()
                 .iter()
-                .flat_map(|txt| txt.iter())
+                .filter_map(|r| match &r.data {
+                    RData::TXT(txt) => Some(txt),
+                    _ => None,
+                })
+                .flat_map(|txt| txt.txt_data.iter())
                 .map(|data| String::from_utf8_lossy(data).to_string())
                 .collect()),
             Err(_) => Ok(Vec::new()),
@@ -336,7 +345,14 @@ impl DnsScanner {
     /// Query NS records
     async fn query_ns_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.ns_lookup(domain).await {
-            Ok(response) => Ok(response.iter().map(|ns| ns.to_string()).collect()),
+            Ok(response) => Ok(response
+                .answers()
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::NS(ns) => Some(ns.to_string()),
+                    _ => None,
+                })
+                .collect()),
             Err(_) => Ok(Vec::new()),
         }
     }
@@ -345,16 +361,20 @@ impl DnsScanner {
     async fn query_soa_record(&self, domain: &str) -> Result<Option<String>> {
         match self.resolver.soa_lookup(domain).await {
             Ok(response) => {
-                if let Some(soa) = response.iter().next() {
+                let soa = response.answers().iter().find_map(|r| match &r.data {
+                    RData::SOA(soa) => Some(soa),
+                    _ => None,
+                });
+                if let Some(soa) = soa {
                     Ok(Some(format!(
                         "{} {} {} {} {} {} {}",
-                        soa.mname(),
-                        soa.rname(),
-                        soa.serial(),
-                        soa.refresh(),
-                        soa.retry(),
-                        soa.expire(),
-                        soa.minimum()
+                        soa.mname,
+                        soa.rname,
+                        soa.serial,
+                        soa.refresh,
+                        soa.retry,
+                        soa.expire,
+                        soa.minimum
                     )))
                 } else {
                     Ok(None)

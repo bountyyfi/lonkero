@@ -5,7 +5,8 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::RData;
 use hickory_resolver::TokioResolver;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -578,9 +579,10 @@ impl SubdomainTakeoverScanner {
 
     /// Create a DNS resolver
     async fn create_resolver(&self) -> Result<TokioResolver> {
-        let resolver = TokioResolver::builder(TokioConnectionProvider::default())
+        let resolver = TokioResolver::builder(TokioRuntimeProvider::default())
             .map_err(|e| anyhow::anyhow!("Failed to create resolver: {}", e))?
-            .build();
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build resolver: {}", e))?;
         Ok(resolver)
     }
 
@@ -742,15 +744,14 @@ impl SubdomainTakeoverScanner {
             .await
         {
             Ok(response) => {
-                for record in response.iter() {
-                    if let Some(cname) = record.as_cname() {
+                for record in response.answers() {
+                    if let RData::CNAME(cname) = &record.data {
                         result.cname_records.push(cname.0.to_string());
                     }
                 }
             }
             Err(e) => {
-                let error_str = e.to_string().to_lowercase();
-                if error_str.contains("nxdomain") || error_str.contains("no name") {
+                if e.is_nx_domain() {
                     result.is_nxdomain = true;
                 }
             }
@@ -764,8 +765,7 @@ impl SubdomainTakeoverScanner {
                 }
             }
             Err(e) => {
-                let error_str = e.to_string().to_lowercase();
-                if error_str.contains("nxdomain") || error_str.contains("no name") {
+                if e.is_nx_domain() {
                     result.is_nxdomain = true;
                 }
             }
@@ -950,8 +950,8 @@ impl SubdomainTakeoverScanner {
             false_positive: false,
             remediation,
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_confidence: None,
-                ml_data: None,
+            ml_confidence: None,
+            ml_data: None,
         }
     }
 }

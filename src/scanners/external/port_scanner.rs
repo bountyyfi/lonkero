@@ -453,7 +453,7 @@ impl ExternalPortScanner {
 
     /// Resolve target hostname to IP address
     async fn resolve_target(&self, target: &str) -> Result<IpAddr> {
-        use hickory_resolver::name_server::TokioConnectionProvider;
+        use hickory_resolver::net::runtime::TokioRuntimeProvider;
         use hickory_resolver::TokioResolver;
 
         // Try parsing as IP first
@@ -462,9 +462,10 @@ impl ExternalPortScanner {
         }
 
         // Resolve hostname
-        let resolver = TokioResolver::builder(TokioConnectionProvider::default())
+        let resolver = TokioResolver::builder(TokioRuntimeProvider::default())
             .context("Failed to create resolver")?
-            .build();
+            .build()
+            .context("Failed to build resolver")?;
 
         let response = resolver
             .lookup_ip(target)

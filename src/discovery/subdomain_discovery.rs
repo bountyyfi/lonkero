@@ -10,7 +10,8 @@
 use crate::http_client::HttpClient;
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
-use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::RData;
 use hickory_resolver::TokioResolver;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -340,13 +341,21 @@ impl SubdomainDiscovery {
         ip: IpAddr,
         base_domain: &str,
     ) -> Option<(String, SubdomainInfo)> {
-        let resolver = TokioResolver::builder(TokioConnectionProvider::default())
+        let resolver = TokioResolver::builder(TokioRuntimeProvider::default())
             .ok()?
-            .build();
+            .build()
+            .ok()?;
 
         let reverse_lookup = resolver.reverse_lookup(ip).await.ok()?;
 
-        for hostname in reverse_lookup.iter() {
+        let hostnames = reverse_lookup
+            .answers()
+            .iter()
+            .filter_map(|r| match &r.data {
+                RData::PTR(ptr) => Some(ptr),
+                _ => None,
+            });
+        for hostname in hostnames {
             let hostname_str = hostname.to_string().trim_end_matches('.').to_string();
 
             if hostname_str.ends_with(base_domain) {
@@ -377,9 +386,10 @@ impl SubdomainDiscovery {
 
     /// Resolve subdomain and get full DNS information
     async fn resolve_subdomain(&self, domain: &str, source: &str) -> Option<SubdomainInfo> {
-        let resolver = TokioResolver::builder(TokioConnectionProvider::default())
+        let resolver = TokioResolver::builder(TokioRuntimeProvider::default())
             .ok()?
-            .build();
+            .build()
+            .ok()?;
 
         // A/AAAA records
         let ip_lookup = resolver.lookup_ip(domain).await.ok()?;
@@ -394,7 +404,15 @@ impl SubdomainDiscovery {
             .mx_lookup(domain)
             .await
             .ok()
-            .map(|mx| mx.iter().map(|r| r.exchange().to_string()).collect())
+            .map(|mx| {
+                mx.answers()
+                    .iter()
+                    .filter_map(|r| match &r.data {
+                        RData::MX(mx) => Some(mx.exchange.to_string()),
+                        _ => None,
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         // TXT records
@@ -403,8 +421,13 @@ impl SubdomainDiscovery {
             .await
             .ok()
             .map(|txt| {
-                txt.iter()
-                    .flat_map(|r| r.iter())
+                txt.answers()
+                    .iter()
+                    .filter_map(|r| match &r.data {
+                        RData::TXT(txt) => Some(txt),
+                        _ => None,
+                    })
+                    .flat_map(|txt| txt.txt_data.iter())
                     .map(|data| String::from_utf8_lossy(data).to_string())
                     .collect()
             })
@@ -415,7 +438,15 @@ impl SubdomainDiscovery {
             .ns_lookup(domain)
             .await
             .ok()
-            .map(|ns| ns.iter().map(|r| r.to_string()).collect())
+            .map(|ns| {
+                ns.answers()
+                    .iter()
+                    .filter_map(|r| match &r.data {
+                        RData::NS(ns) => Some(ns.to_string()),
+                        _ => None,
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         // CNAME records (if any)
@@ -423,7 +454,16 @@ impl SubdomainDiscovery {
             .lookup(domain, hickory_resolver::proto::rr::RecordType::CNAME)
             .await
             .ok()
-            .map(|cname| cname.iter().map(|r| format!("{}", r)).collect())
+            .map(|cname| {
+                cname
+                    .answers()
+                    .iter()
+                    .filter_map(|r| match &r.data {
+                        RData::CNAME(cname) => Some(cname.to_string()),
+                        _ => None,
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         Some(SubdomainInfo {

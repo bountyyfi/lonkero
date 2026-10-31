@@ -737,6 +737,9 @@ pub enum ScannerType {
     // === Supply Chain ===
     /// README invisible prompt injection scanner
     ReadmePromptInjection,
+
+    /// PHP session handler memory-corruption vulnerability detector
+    PhpSessionHandler,
 }
 
 impl ScannerType {
@@ -840,6 +843,7 @@ impl ScannerType {
             ScannerType::SstiAdvanced => "Advanced SSTI Scanner",
             ScannerType::Merlin => "Merlin Scanner",
             ScannerType::ReadmePromptInjection => "README Prompt Injection Scanner",
+            ScannerType::PhpSessionHandler => "PHP Session Handler CVE Scanner",
         }
     }
 
@@ -1769,6 +1773,14 @@ impl ScannerRegistry {
                     skip_reason: None,
                 },
             ),
+            (
+                ScannerType::PhpSessionHandler,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
         self.tech_scanner_map.insert(
             TechCategory::Php(PhpFramework::WordPress),
@@ -1841,6 +1853,14 @@ impl ScannerRegistry {
                     skip_reason: None,
                 },
             ),
+            (
+                ScannerType::PhpSessionHandler,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
         self.tech_scanner_map
             .insert(TechCategory::Php(PhpFramework::Laravel), laravel_scanners);
@@ -1891,6 +1911,14 @@ impl ScannerRegistry {
                 ScannerType::PathTraversal,
                 ScannerTechMapping {
                     priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PhpSessionHandler,
+                ScannerTechMapping {
+                    priority: 10,
                     skip: false,
                     skip_reason: None,
                 },
@@ -1969,6 +1997,14 @@ impl ScannerRegistry {
                 ScannerType::Ssti,
                 ScannerTechMapping {
                     priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PhpSessionHandler,
+                ScannerTechMapping {
+                    priority: 10,
                     skip: false,
                     skip_reason: None,
                 },

@@ -113,6 +113,7 @@ pub mod parameter_filter;
 pub mod parameter_prioritizer;
 pub mod password_reset_poisoning;
 pub mod path_traversal;
+pub mod php_session_handler;
 pub mod postmessage_vulns;
 pub mod proof_xss_scanner; // Proof-based XSS detection (no Chrome, 2-3 requests)
 pub mod prototype_pollution;
@@ -254,6 +255,7 @@ pub use parameter_prioritizer::{
 };
 pub use password_reset_poisoning::PasswordResetPoisoningScanner;
 pub use path_traversal::PathTraversalScanner;
+pub use php_session_handler::PhpSessionHandlerScanner;
 pub use postmessage_vulns::PostMessageVulnsScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use race_condition::RaceConditionScanner;
