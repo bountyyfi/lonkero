@@ -144,6 +144,9 @@ jobs:
   sbom:
     name: Generate SBOM
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     env:
       CARGO_TERM_COLOR: always
     steps:
