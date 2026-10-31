@@ -178,33 +178,24 @@ jobs:
       - name: Fix Grype SARIF artifact locations
         run: |
           # Grype SBOM scans produce results without artifactLocation,
-          # which codeql-action/upload-sarif requires. Add a default
-          # location pointing to Cargo.lock for any result missing one.
+          # which codeql-action/upload-sarif requires. Ensure every
+          # result has a valid physicalLocation.artifactLocation.
           python3 -c "
-          import json, sys
+          import json
+          DEFAULT_LOC = {'uri': 'Cargo.lock', 'uriBaseId': '%SRCROOT%'}
           with open('grype-results.sarif') as f:
               sarif = json.load(f)
           for run in sarif.get('runs', []):
               for result in run.get('results', []):
                   locations = result.get('locations', [])
                   if not locations:
-                      result['locations'] = [{
-                          'physicalLocation': {
-                              'artifactLocation': {
-                                  'uri': 'Cargo.lock',
-                                  'uriBaseId': '%SRCROOT%'
-                              }
-                          }
-                      }]
-                  else:
-                      for loc in locations:
-                          pl = loc.get('physicalLocation', {})
-                          if 'artifactLocation' not in pl:
-                              pl['artifactLocation'] = {
-                                  'uri': 'Cargo.lock',
-                                  'uriBaseId': '%SRCROOT%'
-                              }
-                              loc['physicalLocation'] = pl
+                      result['locations'] = [{'physicalLocation': {'artifactLocation': DEFAULT_LOC.copy()}}]
+                      continue
+                  for loc in locations:
+                      if not loc.get('physicalLocation'):
+                          loc['physicalLocation'] = {'artifactLocation': DEFAULT_LOC.copy()}
+                      elif not loc['physicalLocation'].get('artifactLocation'):
+                          loc['physicalLocation']['artifactLocation'] = DEFAULT_LOC.copy()
           with open('grype-results.sarif', 'w') as f:
               json.dump(sarif, f, indent=2)
           "
