@@ -9,9 +9,6 @@ on:
     # Run weekly on Monday at 7:00 UTC (after CodeQL at 6:30)
     - cron: '0 7 * * 1'
 
-env:
-  CARGO_TERM_COLOR: always
-
 permissions:
   contents: read
 
@@ -21,6 +18,8 @@ jobs:
   cargo-deny:
     name: License & Dependency Check
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - name: Checkout repository
         uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22 # v4.3.1
@@ -145,6 +144,8 @@ jobs:
   sbom:
     name: Generate SBOM
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - name: Checkout repository
         uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22 # v4.3.1
@@ -225,6 +226,8 @@ jobs:
   dependency-freshness:
     name: Dependency Freshness
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - name: Checkout repository
         uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22 # v4.3.1
@@ -396,6 +399,8 @@ jobs:
   binary-security:
     name: Binary Security Analysis
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - name: Checkout repository
         uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22 # v4.3.1
