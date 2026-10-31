@@ -94,7 +94,7 @@ hickory-resolver = "0.26.2"
 
 # HTML parsing
 scraper = "0.26"
-html-escape = "0.2"
+html-escape = "0.3"
 
 # Text similarity for baseline comparison
 similar = "2.7"
